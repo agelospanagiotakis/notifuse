@@ -33,7 +33,8 @@ const languageNames: Record<Language, string> = {
   pt: 'Português',
   ru: 'Русский',
   ja: '日本語',
-  pl: 'Polski'
+  pl: 'Polski',
+  el: 'Ελληνικά'
 }
 
 // The contact preference fields a write changes; absent fields are left as they are

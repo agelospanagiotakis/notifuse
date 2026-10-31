@@ -118,3 +118,53 @@
     @apply bg-background text-foreground;
   }
 }
+
+
+/* ==========================================================================
+   e-Pragma brand — same tokens as www.e-pragma.gr
+   (navy #12132e · indigo #4051b5 / #6c7bff · orange #ff7a1a · Roboto)
+   ========================================================================== */
+:root {
+  --background: #f4f5fa;
+  --foreground: #12141f;
+  --card: #ffffff;
+  --card-foreground: #12141f;
+  --popover: #ffffff;
+  --popover-foreground: #12141f;
+  --primary: #4051b5;
+  --primary-foreground: #ffffff;
+  --secondary: #eef0f6;
+  --secondary-foreground: #12141f;
+  --muted: #eef0f6;
+  --muted-foreground: #5a6178;
+  --accent: #eef0f6;
+  --accent-foreground: #12141f;
+  --border: #e4e7f0;
+  --input: #d8dce8;
+  --ring: #4051b5;
+  --radius: 0.75rem;
+}
+
+.dark {
+  --background: #14161f;
+  --foreground: #eef0f6;
+  --card: #1b1e29;
+  --card-foreground: #eef0f6;
+  --popover: #1b1e29;
+  --popover-foreground: #eef0f6;
+  --primary: #6c7bff;
+  --primary-foreground: #12141f;
+  --secondary: #232838;
+  --secondary-foreground: #eef0f6;
+  --muted: #232838;
+  --muted-foreground: #a4abc0;
+  --accent: #232838;
+  --accent-foreground: #eef0f6;
+  --border: #2b2f3d;
+  --input: #333849;
+  --ring: #6c7bff;
+}
+
+body {
+  font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+}
