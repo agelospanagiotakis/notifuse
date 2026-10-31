@@ -73,10 +73,24 @@ func (r *userRepository) CreateUser(ctx context.Context, user *domain.User) erro
 // root sign-in, and it is why GetUserByEmailInsensitive exists separately rather than
 // this one being relaxed: only the OIDC bridge wants case-insensitive matching. The
 // two look like duplicates and must not be collapsed into one.
+// UpdatePasswordHash stores a bcrypt hash for the user. An empty hash clears the password,
+// which returns the account to magic-code-only sign-in.
+func (r *userRepository) UpdatePasswordHash(ctx context.Context, userID string, hash string) error {
+	query := `UPDATE users SET password_hash = NULLIF($2, ''), updated_at = NOW() WHERE id = $1`
+	res, err := r.systemDB.ExecContext(ctx, query, userID, hash)
+	if err != nil {
+		return fmt.Errorf("failed to update password hash: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return &domain.ErrUserNotFound{Message: "user not found"}
+	}
+	return nil
+}
+
 func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*domain.User, error) {
 	var user domain.User
 	query := `
-		SELECT id, email, name, type, language, created_at, updated_at
+		SELECT id, email, name, COALESCE(password_hash, ''), type, language, created_at, updated_at
 		FROM users
 		WHERE email = $1
 	`
@@ -84,6 +98,7 @@ func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*dom
 		&user.ID,
 		&user.Email,
 		&user.Name,
+		&user.PasswordHash,
 		&user.Type,
 		&user.Language,
 		&user.CreatedAt,
@@ -112,6 +127,7 @@ func (r *userRepository) GetUserByEmailInsensitive(ctx context.Context, email st
 		&user.ID,
 		&user.Email,
 		&user.Name,
+		&user.PasswordHash,
 		&user.Type,
 		&user.Language,
 		&user.CreatedAt,
@@ -134,7 +150,7 @@ func (r *userRepository) GetUserByID(ctx context.Context, id string) (*domain.Us
 
 	var user domain.User
 	query := `
-		SELECT id, email, name, type, language, created_at, updated_at
+		SELECT id, email, name, COALESCE(password_hash, ''), type, language, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`

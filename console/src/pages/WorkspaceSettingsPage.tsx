@@ -14,6 +14,7 @@ import { WebhooksSettings } from '../components/settings/WebhooksSettings'
 import { useAuth } from '../contexts/AuthContext'
 import { isRootUser } from '../services/api/auth'
 import { AuditLogsSettings } from '../components/settings/audit_logs/AuditLogsSettings'
+import { SecuritySettings } from '../components/settings/SecuritySettings'
 import { LicenseSettings } from '../components/settings/LicenseSettings'
 import { DeleteWorkspaceSection } from '../components/settings/DeleteWorkspace'
 import { Skeleton } from 'antd'
@@ -223,6 +224,8 @@ export function WorkspaceSettingsPage() {
         )
       case 'smtp-bridge':
         return <SMTPBridgeSettings />
+      case 'security':
+        return <SecuritySettings />
       case 'general':
         return (
           <GeneralSettings

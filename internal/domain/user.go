@@ -33,13 +33,15 @@ func WorkspaceUserKey(workspaceID string) contextKey {
 
 // User represents a user in the system
 type User struct {
-	ID        string    `json:"id" db:"id"`
-	Type      UserType  `json:"type" db:"type"`
-	Email     string    `json:"email" db:"email"`
-	Name      string    `json:"name,omitempty" db:"name"`
-	Language  string    `json:"language" db:"language"`
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+	ID    string   `json:"id" db:"id"`
+	Type  UserType `json:"type" db:"type"`
+	Email string   `json:"email" db:"email"`
+	Name  string   `json:"name,omitempty" db:"name"`
+	// PasswordHash is bcrypt. Never serialised: `json:"-"` keeps it out of every API response.
+	PasswordHash string    `json:"-" db:"password_hash"`
+	Language     string    `json:"language" db:"language"`
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // Session represents a user session
@@ -54,6 +56,15 @@ type Session struct {
 
 type SignInInput struct {
 	Email string `json:"email"`
+	// Password is optional. When present the sign-in is authenticated against the stored
+	// bcrypt hash and a token is returned directly; when absent the magic-code flow runs.
+	Password string `json:"password,omitempty"`
+}
+
+// SetPasswordInput sets or changes the password of the authenticated user.
+type SetPasswordInput struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
 }
 
 type VerifyCodeInput struct {
@@ -77,6 +88,8 @@ type AuthResponse struct {
 // UserServiceInterface defines the interface for user operations
 type UserServiceInterface interface {
 	SignIn(ctx context.Context, input SignInInput) (string, error)
+	SignInWithPassword(ctx context.Context, input SignInInput) (*AuthResponse, error)
+	SetPassword(ctx context.Context, userID string, input SetPasswordInput) error
 	VerifyCode(ctx context.Context, input VerifyCodeInput) (*AuthResponse, error)
 	RootSignin(ctx context.Context, input RootSigninInput) (*AuthResponse, error)
 	VerifyUserSession(ctx context.Context, userID string, sessionID string) (*User, error)
@@ -101,6 +114,8 @@ type UserRepository interface {
 	// GetUserByID retrieves a user by their ID
 	GetUserByID(ctx context.Context, id string) (*User, error)
 
+	// UpdatePasswordHash stores (or clears, with an empty hash) the user's password hash
+	UpdatePasswordHash(ctx context.Context, userID string, hash string) error
 	// UpdateUserLanguage updates a user's preferred language
 	UpdateUserLanguage(ctx context.Context, userID string, language string) error
 
