@@ -3,7 +3,7 @@ import { createSwcExtractor } from "@lingui/native-tools"
 
 export default defineConfig({
   sourceLocale: "en",
-  locales: ["en", "fr", "es", "de", "ca", "pt-BR", "ja", "it"],
+  locales: ["en", "fr", "es", "de", "ca", "pt-BR", "ja", "it", "el"],
   catalogs: [
     {
       path: "src/i18n/locales/{locale}",

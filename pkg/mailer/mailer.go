@@ -12,14 +12,16 @@ import (
 //go:generate mockgen -destination=../mocks/mock_mailer.go -package=pkgmocks github.com/Notifuse/notifuse/pkg/mailer Mailer
 
 // Mailer is the interface for sending emails. The trailing language argument
-// selects the locale of the email content (see GetTranslations).
+// selects the locale of the email content (see GetTranslations). The optional
+// teamName overrides the "The … Team" signature for the sending workspace; when
+// empty it falls back to the mailer default and then the built-in translation.
 type Mailer interface {
 	// SendWorkspaceInvitation sends an invitation email with the given token
-	SendWorkspaceInvitation(email, workspaceName, inviterName, token, language string) error
+	SendWorkspaceInvitation(email, workspaceName, inviterName, token, language, teamName string) error
 	// SendMagicCode sends a magic code for authentication purposes
 	SendMagicCode(email, code, language string) error
 	// SendCircuitBreakerAlert sends a notification when a broadcast is paused due to circuit breaker
-	SendCircuitBreakerAlert(email, workspaceName, broadcastName, reason, language string) error
+	SendCircuitBreakerAlert(email, workspaceName, broadcastName, reason, language, teamName string) error
 }
 
 // Config holds the configuration for the mailer
@@ -33,6 +35,21 @@ type Config struct {
 	APIEndpoint  string
 	UseTLS       bool
 	EHLOHostname string
+	// TeamName is the default signature used in system emails when a workspace
+	// does not define its own (see WorkspaceSettings.EmailTeamName).
+	TeamName string
+}
+
+// resolveTeamName picks the email signature team name, in priority order:
+// per-workspace override, mailer default, then the translation's built-in value.
+func resolveTeamName(globalDefault, override, fallback string) string {
+	if strings.TrimSpace(override) != "" {
+		return override
+	}
+	if strings.TrimSpace(globalDefault) != "" {
+		return globalDefault
+	}
+	return fallback
 }
 
 // SMTPMailer implements the Mailer interface using SMTP
@@ -82,8 +99,8 @@ func (m *SMTPMailer) invitationURL(token string) string {
 }
 
 // SendWorkspaceInvitation sends an invitation email with the given token
-func (m *SMTPMailer) SendWorkspaceInvitation(email, workspaceName, inviterName, token, language string) error {
-	msg, err := m.invitationMessage(email, workspaceName, inviterName, token, language)
+func (m *SMTPMailer) SendWorkspaceInvitation(email, workspaceName, inviterName, token, language, teamName string) error {
+	msg, err := m.invitationMessage(email, workspaceName, inviterName, token, language, teamName)
 	if err != nil {
 		return err
 	}
@@ -114,8 +131,9 @@ func (m *SMTPMailer) SendWorkspaceInvitation(email, workspaceName, inviterName, 
 }
 
 // invitationMessage builds the workspace invitation email.
-func (m *SMTPMailer) invitationMessage(email, workspaceName, inviterName, token, language string) (*mail.Msg, error) {
+func (m *SMTPMailer) invitationMessage(email, workspaceName, inviterName, token, language, teamName string) (*mail.Msg, error) {
 	t := GetTranslations(language)
+	t.Common.TeamName = resolveTeamName(m.config.TeamName, teamName, t.Common.TeamName)
 	inviteURL := m.invitationURL(token)
 	subject := fmt.Sprintf(t.Invitation.Subject, workspaceName)
 
@@ -190,6 +208,7 @@ func (m *SMTPMailer) SendMagicCode(email, code, language string) error {
 // magicCodeMessage builds the sign-in code email.
 func (m *SMTPMailer) magicCodeMessage(email, code, language string) (*mail.Msg, error) {
 	t := GetTranslations(language)
+	t.Common.TeamName = resolveTeamName(m.config.TeamName, "", t.Common.TeamName)
 	subject := t.MagicCode.Subject
 
 	// Create HTML content
@@ -226,8 +245,8 @@ func (m *SMTPMailer) magicCodeMessage(email, code, language string) (*mail.Msg, 
 }
 
 // SendCircuitBreakerAlert sends a notification when a broadcast is paused due to circuit breaker
-func (m *SMTPMailer) SendCircuitBreakerAlert(email, workspaceName, broadcastName, reason, language string) error {
-	msg, err := m.circuitBreakerAlertMessage(email, workspaceName, broadcastName, reason, language)
+func (m *SMTPMailer) SendCircuitBreakerAlert(email, workspaceName, broadcastName, reason, language, teamName string) error {
+	msg, err := m.circuitBreakerAlertMessage(email, workspaceName, broadcastName, reason, language, teamName)
 	if err != nil {
 		return err
 	}
@@ -260,8 +279,9 @@ func (m *SMTPMailer) SendCircuitBreakerAlert(email, workspaceName, broadcastName
 
 // circuitBreakerAlertMessage builds the email sent when a broadcast is paused by the circuit
 // breaker.
-func (m *SMTPMailer) circuitBreakerAlertMessage(email, workspaceName, broadcastName, reason, language string) (*mail.Msg, error) {
+func (m *SMTPMailer) circuitBreakerAlertMessage(email, workspaceName, broadcastName, reason, language, teamName string) (*mail.Msg, error) {
 	t := GetTranslations(language)
+	t.Common.TeamName = resolveTeamName(m.config.TeamName, teamName, t.Common.TeamName)
 	subject := fmt.Sprintf(t.CircuitBreaker.Subject, broadcastName)
 
 	// Create HTML content
@@ -385,8 +405,9 @@ func NewConsoleMailer() *ConsoleMailer {
 }
 
 // SendWorkspaceInvitation logs the invitation details to console
-func (m *ConsoleMailer) SendWorkspaceInvitation(email, workspaceName, inviterName, token, language string) error {
+func (m *ConsoleMailer) SendWorkspaceInvitation(email, workspaceName, inviterName, token, language, teamName string) error {
 	t := GetTranslations(language)
+	t.Common.TeamName = resolveTeamName("", teamName, t.Common.TeamName)
 	fmt.Println("==============================================================")
 	fmt.Println("                 WORKSPACE INVITATION EMAIL                   ")
 	fmt.Println("==============================================================")
@@ -423,8 +444,9 @@ func (m *ConsoleMailer) SendMagicCode(email, code, language string) error {
 }
 
 // SendCircuitBreakerAlert logs the circuit breaker alert details to console
-func (m *ConsoleMailer) SendCircuitBreakerAlert(email, workspaceName, broadcastName, reason, language string) error {
+func (m *ConsoleMailer) SendCircuitBreakerAlert(email, workspaceName, broadcastName, reason, language, teamName string) error {
 	t := GetTranslations(language)
+	t.Common.TeamName = resolveTeamName("", teamName, t.Common.TeamName)
 	fmt.Println("==============================================================")
 	fmt.Println("                 CIRCUIT BREAKER ALERT EMAIL                  ")
 	fmt.Println("==============================================================")

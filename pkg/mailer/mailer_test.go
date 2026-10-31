@@ -55,7 +55,7 @@ func NewMockMailer(shouldFail bool) *MockMailer {
 	}
 }
 
-func (m *MockMailer) SendWorkspaceInvitation(email, workspaceName, inviterName, token, language string) error {
+func (m *MockMailer) SendWorkspaceInvitation(email, workspaceName, inviterName, token, language, teamName string) error {
 	if m.shouldFail {
 		return errors.New("mock mailer error")
 	}
@@ -69,7 +69,7 @@ func (m *MockMailer) SendMagicCode(email, code, language string) error {
 	return nil
 }
 
-func (m *MockMailer) SendCircuitBreakerAlert(email, workspaceName, broadcastName, reason, language string) error {
+func (m *MockMailer) SendCircuitBreakerAlert(email, workspaceName, broadcastName, reason, language, teamName string) error {
 	if m.shouldFail {
 		return errors.New("mock mailer error")
 	}
@@ -87,7 +87,7 @@ func NewValidatingMailer(config *Config) *ValidatingMailer {
 	}
 }
 
-func (m *ValidatingMailer) SendWorkspaceInvitation(email, workspaceName, inviterName, token, language string) error {
+func (m *ValidatingMailer) SendWorkspaceInvitation(email, workspaceName, inviterName, token, language, teamName string) error {
 	// Validate email
 	if email == "" {
 		return errors.New("email is required")
@@ -118,7 +118,7 @@ func (m *ValidatingMailer) SendWorkspaceInvitation(email, workspaceName, inviter
 func TestMockMailer_SendWorkspaceInvitation(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		mailer := NewMockMailer(false)
-		err := mailer.SendWorkspaceInvitation("test@example.com", "Test Workspace", "Test Inviter", "test-token", "en")
+		err := mailer.SendWorkspaceInvitation("test@example.com", "Test Workspace", "Test Inviter", "test-token", "en", "")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -126,7 +126,7 @@ func TestMockMailer_SendWorkspaceInvitation(t *testing.T) {
 
 	t.Run("failure", func(t *testing.T) {
 		mailer := NewMockMailer(true)
-		err := mailer.SendWorkspaceInvitation("test@example.com", "Test Workspace", "Test Inviter", "test-token", "en")
+		err := mailer.SendWorkspaceInvitation("test@example.com", "Test Workspace", "Test Inviter", "test-token", "en", "")
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -209,7 +209,7 @@ func TestValidatingMailer_SendWorkspaceInvitation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := mailer.SendWorkspaceInvitation(tc.email, tc.workspaceName, tc.inviterName, tc.token, "en")
+			err := mailer.SendWorkspaceInvitation(tc.email, tc.workspaceName, tc.inviterName, tc.token, "en", "")
 
 			if tc.expectedError == "" {
 				if err != nil {
@@ -238,7 +238,7 @@ func TestConsoleMailer_SendWorkspaceInvitation(t *testing.T) {
 
 	// Capture output
 	output := captureOutput(func() {
-		err := mailer.SendWorkspaceInvitation(email, workspaceName, inviterName, token, "en")
+		err := mailer.SendWorkspaceInvitation(email, workspaceName, inviterName, token, "en", "")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -311,7 +311,7 @@ func TestSMTPMailer_SendWorkspaceInvitation(t *testing.T) {
 
 	// Capture log output
 	logOutput := captureLog(func() {
-		err := mailer.SendWorkspaceInvitation(email, workspaceName, inviterName, token, "en")
+		err := mailer.SendWorkspaceInvitation(email, workspaceName, inviterName, token, "en", "")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -397,7 +397,7 @@ func TestSMTPMailer_WithEdgeCases(t *testing.T) {
 			mailer := NewTestSMTPMailer(config)
 
 			logOutput := captureLog(func() {
-				err := mailer.SendWorkspaceInvitation(tc.email, tc.workspaceName, tc.inviterName, tc.token, "en")
+				err := mailer.SendWorkspaceInvitation(tc.email, tc.workspaceName, tc.inviterName, tc.token, "en", "")
 				if tc.expectError && err == nil {
 					t.Error("Expected error but got nil")
 				}
@@ -584,7 +584,7 @@ func TestSMTPMailer_SendMagicCode(t *testing.T) {
 func TestMockMailer_SendCircuitBreakerAlert(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		mailer := NewMockMailer(false)
-		err := mailer.SendCircuitBreakerAlert("test@example.com", "Test Workspace", "Test Broadcast", "Rate limit exceeded", "en")
+		err := mailer.SendCircuitBreakerAlert("test@example.com", "Test Workspace", "Test Broadcast", "Rate limit exceeded", "en", "")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -592,7 +592,7 @@ func TestMockMailer_SendCircuitBreakerAlert(t *testing.T) {
 
 	t.Run("failure", func(t *testing.T) {
 		mailer := NewMockMailer(true)
-		err := mailer.SendCircuitBreakerAlert("test@example.com", "Test Workspace", "Test Broadcast", "Rate limit exceeded", "en")
+		err := mailer.SendCircuitBreakerAlert("test@example.com", "Test Workspace", "Test Broadcast", "Rate limit exceeded", "en", "")
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -614,7 +614,7 @@ func TestConsoleMailer_SendCircuitBreakerAlert(t *testing.T) {
 
 	// Capture output
 	output := captureOutput(func() {
-		err := mailer.SendCircuitBreakerAlert(email, workspaceName, broadcastName, reason, "en")
+		err := mailer.SendCircuitBreakerAlert(email, workspaceName, broadcastName, reason, "en", "")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -661,7 +661,7 @@ func TestSMTPMailer_SendCircuitBreakerAlert(t *testing.T) {
 
 	// Capture log output
 	logOutput := captureLog(func() {
-		err := mailer.SendCircuitBreakerAlert(email, workspaceName, broadcastName, reason, "en")
+		err := mailer.SendCircuitBreakerAlert(email, workspaceName, broadcastName, reason, "en", "")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -735,7 +735,7 @@ func TestSMTPMailer_SendCircuitBreakerAlert_EdgeCases(t *testing.T) {
 			mailer := NewTestSMTPMailer(config)
 
 			logOutput := captureLog(func() {
-				err := mailer.SendCircuitBreakerAlert(tc.email, tc.workspaceName, tc.broadcastName, tc.reason, "en")
+				err := mailer.SendCircuitBreakerAlert(tc.email, tc.workspaceName, tc.broadcastName, tc.reason, "en", "")
 				if tc.expectError && err == nil {
 					t.Error("Expected error but got nil")
 				}
@@ -942,14 +942,14 @@ func TestSMTPMailer_LocalizedSubjects(t *testing.T) {
 		{
 			name: "workspace invitation",
 			send: func() error {
-				return mailer.SendWorkspaceInvitation("user@example.com", "Mon Espace", "Alice", "tok", "fr")
+				return mailer.SendWorkspaceInvitation("user@example.com", "Mon Espace", "Alice", "tok", "fr", "")
 			},
 			expectedSubject: "Subject: Vous avez été invité à rejoindre Mon Espace sur Notifuse",
 		},
 		{
 			name: "circuit breaker alert",
 			send: func() error {
-				return mailer.SendCircuitBreakerAlert("user@example.com", "Mon Espace", "Ma Diffusion", "limite", "fr")
+				return mailer.SendCircuitBreakerAlert("user@example.com", "Mon Espace", "Ma Diffusion", "limite", "fr", "")
 			},
 			expectedSubject: "Subject: 🚨 Diffusion en pause - Ma Diffusion",
 		},
@@ -1019,7 +1019,7 @@ func TestConsoleMailer_IndexedPlaceholderReordering(t *testing.T) {
 	mailer := NewConsoleMailer()
 
 	output := captureOutput(func() {
-		if err := mailer.SendCircuitBreakerAlert("user@example.com", "WS", "BC", "上限超過", "ja"); err != nil {
+		if err := mailer.SendCircuitBreakerAlert("user@example.com", "WS", "BC", "上限超過", "ja", ""); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 	})
@@ -1038,8 +1038,8 @@ func TestConsoleMailer_AllLocalesRenderCleanly(t *testing.T) {
 			m := NewConsoleMailer()
 			output := captureOutput(func() {
 				_ = m.SendMagicCode("user@example.com", "123456", lang)
-				_ = m.SendWorkspaceInvitation("user@example.com", "Workspace", "Alice", "token", lang)
-				_ = m.SendCircuitBreakerAlert("user@example.com", "Workspace", "Broadcast", "reason", lang)
+				_ = m.SendWorkspaceInvitation("user@example.com", "Workspace", "Alice", "token", lang, "")
+				_ = m.SendCircuitBreakerAlert("user@example.com", "Workspace", "Broadcast", "reason", lang, "")
 			})
 			if strings.Contains(output, "%!") {
 				t.Errorf("locale %q produced a formatting error marker: %s", lang, output)

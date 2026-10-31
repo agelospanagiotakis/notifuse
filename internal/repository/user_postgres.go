@@ -159,6 +159,7 @@ func (r *userRepository) GetUserByID(ctx context.Context, id string) (*domain.Us
 		&user.ID,
 		&user.Email,
 		&user.Name,
+		&user.PasswordHash,
 		&user.Type,
 		&user.Language,
 		&user.CreatedAt,
