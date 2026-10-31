@@ -1,3 +1,24 @@
+> **This is a fork.** It is the **e-Pragma fork of Notifuse**, based on upstream **v40.0**, and it
+> runs `newsletters.e-pragma.gr` and `blog.e-pragma.gr`.
+>
+> **What it adds** — Greek notification centre (upstream has 11 languages, no Greek), e-Pragma
+> branding for the notification centre and blog, and **password sign-in** alongside the magic
+> codes (`users.password_hash`, bcrypt; `POST /api/user.signin` accepts an optional `password`).
+> Everything else is upstream, untouched.
+>
+> **Branch and image:** work lives on `epragma`; images are built by CI for `linux/amd64` and
+> published as `ghcr.io/agelospanagiotakis/notifuse-epragma:v40.0-el.N`, where `N` counts our
+> builds on that upstream base.
+>
+> **Licence:** Business Source License 1.1 — production use is permitted within the Additional Use
+> Grant, but each *Licensed Feature* needs a paid key. v39.x and earlier remain AGPL-3.0. Note that
+> upstream **v42.1 adds a sixth Licensed Feature** (administrative audit logs), which is one reason
+> this fork is pinned to v40.0.
+>
+> Full detail, including how to rebase onto a new upstream release: **[FORK.md](FORK.md)**.
+
+---
+
 # Notifuse
 
 [![Go Report Card](https://img.shields.io/badge/go%20report-A+-brightgreen.svg?style=flat)](https://goreportcard.com/report/github.com/Notifuse/notifuse)
