@@ -194,6 +194,16 @@ func (s *EmailService) SendEmail(ctx context.Context, request domain.SendEmailPr
 		request.FromName = request.Provider.Senders[0].Name
 	}
 
+	// Resend is a Resend-shaped configuration over an SMTP transport: the kind exists
+	// for its webhook events, not because sending differs. Hand the transport half to
+	// the SMTP sender rather than maintaining a second sending path that would drift.
+	if request.Provider.Kind == domain.EmailProviderKindResend {
+		if request.Provider.Resend == nil {
+			return fmt.Errorf("resend settings missing for provider %s", request.Provider.Kind)
+		}
+		request.Provider.SMTP = request.Provider.Resend.ToSMTP()
+	}
+
 	// Get the appropriate provider service
 	providerService, err := s.getProviderService(request.Provider.Kind)
 	if err != nil {
@@ -207,7 +217,7 @@ func (s *EmailService) SendEmail(ctx context.Context, request domain.SendEmailPr
 // getProviderService returns the appropriate email provider service based on provider kind
 func (s *EmailService) getProviderService(providerKind domain.EmailProviderKind) (domain.EmailProviderService, error) {
 	switch providerKind {
-	case domain.EmailProviderKindSMTP:
+	case domain.EmailProviderKindSMTP, domain.EmailProviderKindResend:
 		return s.smtpService, nil
 	case domain.EmailProviderKindSES:
 		return s.sesService, nil

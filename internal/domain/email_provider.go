@@ -30,6 +30,7 @@ const (
 	EmailProviderKindMailgun   EmailProviderKind = "mailgun"
 	EmailProviderKindMailjet   EmailProviderKind = "mailjet"
 	EmailProviderKindSendGrid  EmailProviderKind = "sendgrid"
+	EmailProviderKindResend    EmailProviderKind = "resend"
 )
 
 // transactionalOnlyProviderKinds lists provider kinds that may only be used for
@@ -73,6 +74,7 @@ type EmailProvider struct {
 	Mailgun            *MailgunSettings   `json:"mailgun,omitempty"`
 	Mailjet            *MailjetSettings   `json:"mailjet,omitempty"`
 	SendGrid           *SendGridSettings  `json:"sendgrid,omitempty"`
+	Resend             *ResendSettings    `json:"resend,omitempty"`
 	Senders            []EmailSender      `json:"senders"`
 	RateLimitPerMinute int                `json:"rate_limit_per_minute"`
 }
@@ -148,6 +150,11 @@ func (e *EmailProvider) Validate(passphrase string) error {
 			return fmt.Errorf("sendgrid settings required when email provider kind is sendgrid")
 		}
 		return e.SendGrid.Validate(passphrase)
+	case EmailProviderKindResend:
+		if e.Resend == nil {
+			return fmt.Errorf("resend settings required when email provider kind is resend")
+		}
+		return e.Resend.Validate(passphrase)
 	default:
 		return fmt.Errorf("invalid email provider kind: %s", e.Kind)
 	}
@@ -246,6 +253,15 @@ func (e *EmailProvider) EncryptSecretKeys(passphrase string) error {
 		e.SendGrid.APIKey = ""
 	}
 
+	if e.Kind == EmailProviderKindResend && e.Resend != nil {
+		if err := e.Resend.EncryptSecrets(passphrase); err != nil {
+			return err
+		}
+		// never persist the plaintext copies
+		e.Resend.Password = ""
+		e.Resend.WebhookSecret = ""
+	}
+
 	return nil
 }
 
@@ -314,6 +330,12 @@ func (e *EmailProvider) DecryptSecretKeys(passphrase string) error {
 
 	if e.Kind == EmailProviderKindSendGrid && e.SendGrid != nil && e.SendGrid.EncryptedAPIKey != "" {
 		if err := e.SendGrid.DecryptAPIKey(passphrase); err != nil {
+			return err
+		}
+	}
+
+	if e.Kind == EmailProviderKindResend && e.Resend != nil {
+		if err := e.Resend.DecryptSecrets(passphrase); err != nil {
 			return err
 		}
 	}

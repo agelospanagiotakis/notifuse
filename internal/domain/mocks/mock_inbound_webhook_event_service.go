@@ -6,6 +6,7 @@ package mocks
 
 import (
 	context "context"
+	nethttp "net/http"
 	reflect "reflect"
 
 	domain "github.com/Notifuse/notifuse/internal/domain"
@@ -65,15 +66,15 @@ func (mr *MockInboundWebhookEventServiceInterfaceMockRecorder) ProcessInboundRep
 }
 
 // ProcessWebhook mocks base method.
-func (m *MockInboundWebhookEventServiceInterface) ProcessWebhook(arg0 context.Context, arg1, arg2 string, arg3 []byte) error {
+func (m *MockInboundWebhookEventServiceInterface) ProcessWebhook(arg0 context.Context, arg1, arg2 string, arg3 nethttp.Header, arg4 []byte) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ProcessWebhook", arg0, arg1, arg2, arg3)
+	ret := m.ctrl.Call(m, "ProcessWebhook", arg0, arg1, arg2, arg3, arg4)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ProcessWebhook indicates an expected call of ProcessWebhook.
-func (mr *MockInboundWebhookEventServiceInterfaceMockRecorder) ProcessWebhook(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
+func (mr *MockInboundWebhookEventServiceInterfaceMockRecorder) ProcessWebhook(arg0, arg1, arg2, arg3, arg4 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessWebhook", reflect.TypeOf((*MockInboundWebhookEventServiceInterface)(nil).ProcessWebhook), arg0, arg1, arg2, arg3)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessWebhook", reflect.TypeOf((*MockInboundWebhookEventServiceInterface)(nil).ProcessWebhook), arg0, arg1, arg2, arg3, arg4)
 }

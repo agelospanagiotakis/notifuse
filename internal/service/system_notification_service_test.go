@@ -94,7 +94,7 @@ func TestSystemNotificationService_HandleCircuitBreakerEvent(t *testing.T) {
 		mockWorkspaceRepo.EXPECT().GetByID(ctx, "workspace-123").Return(workspace, nil)
 		mockWorkspaceRepo.EXPECT().GetWorkspaceUsersWithEmail(ctx, "workspace-123").Return(workspaceUsers, nil)
 
-		mockMailer.EXPECT().SendCircuitBreakerAlert("owner@example.com", "Test Workspace", "Test Broadcast", "High bounce rate detected", "fr").Return(nil)
+		mockMailer.EXPECT().SendCircuitBreakerAlert("owner@example.com", "Test Workspace", "Test Broadcast", "High bounce rate detected", "fr", "").Return(nil)
 
 		mockLogger.EXPECT().WithFields(gomock.Any()).Return(mockLogger)
 		mockLogger.EXPECT().Info("Notification sent successfully to workspace owner")

@@ -40,6 +40,16 @@ func (m *mockUserServiceForSettings) VerifyCode(ctx context.Context, input domai
 	return nil, nil
 }
 
+// SetPassword satisfies UserServiceInterface; added with password sign-in.
+func (m *mockUserServiceForSettings) SetPassword(ctx context.Context, userID string, input domain.SetPasswordInput) error {
+	return nil
+}
+
+// SignInWithPassword satisfies UserServiceInterface; added with password sign-in.
+func (m *mockUserServiceForSettings) SignInWithPassword(ctx context.Context, input domain.SignInInput) (*domain.AuthResponse, error) {
+	return nil, nil
+}
+
 func (m *mockUserServiceForSettings) RootSignin(ctx context.Context, input domain.RootSigninInput) (*domain.AuthResponse, error) {
 	return nil, nil
 }

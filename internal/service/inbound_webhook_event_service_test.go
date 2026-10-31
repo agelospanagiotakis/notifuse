@@ -119,7 +119,7 @@ func TestProcessWebhook_Success(t *testing.T) {
 		}
 
 		// Call method
-		err = service.ProcessWebhook(context.Background(), workspaceID, integrationID, rawPayload)
+		err = service.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, rawPayload)
 
 		// Assert
 		assert.NoError(t, err)
@@ -189,7 +189,7 @@ func TestProcessWebhook_Success(t *testing.T) {
 		}
 
 		// Call method
-		err = service.ProcessWebhook(context.Background(), workspaceID, integrationID, rawPayload)
+		err = service.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, rawPayload)
 
 		// Assert
 		assert.NoError(t, err)
@@ -220,7 +220,7 @@ func TestProcessWebhook_Success(t *testing.T) {
 		}
 
 		// Call method
-		err := service.ProcessWebhook(context.Background(), workspaceID, integrationID, rawPayload)
+		err := service.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, rawPayload)
 
 		// Assert
 		assert.Error(t, err)
@@ -270,7 +270,7 @@ func TestProcessWebhook_Success(t *testing.T) {
 		}
 
 		// Call method
-		err = service.ProcessWebhook(context.Background(), workspaceID, integrationID, rawPayload)
+		err = service.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, rawPayload)
 
 		// Assert
 		assert.Error(t, err)
@@ -315,7 +315,7 @@ func TestProcessWebhook_WorkspaceNotFound(t *testing.T) {
 	}
 
 	// Call method
-	err := service.ProcessWebhook(context.Background(), workspaceID, integrationID, rawPayload)
+	err := service.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, rawPayload)
 
 	// Assert
 	assert.Error(t, err)
@@ -2352,7 +2352,7 @@ func TestProcessWebhook_AdditionalScenarios(t *testing.T) {
 		contactRepo.EXPECT().MarkEmailsAsBounced(gomock.Any(), workspaceID, []string{"test@example.com"}, gomock.Any()).Return(nil)
 
 		// Call method
-		err = service.ProcessWebhook(context.Background(), workspaceID, integrationID, rawPayload)
+		err = service.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, rawPayload)
 		assert.NoError(t, err)
 	})
 
@@ -2390,7 +2390,7 @@ func TestProcessWebhook_AdditionalScenarios(t *testing.T) {
 			})
 
 		// Call method
-		err = service.ProcessWebhook(context.Background(), workspaceID, integrationID, rawPayload)
+		err = service.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, rawPayload)
 		assert.NoError(t, err)
 	})
 
@@ -2427,7 +2427,7 @@ func TestProcessWebhook_AdditionalScenarios(t *testing.T) {
 			})
 
 		// Call method
-		err = service.ProcessWebhook(context.Background(), workspaceID, integrationID, rawPayload)
+		err = service.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, rawPayload)
 		assert.NoError(t, err)
 	})
 
@@ -2458,7 +2458,7 @@ func TestProcessWebhook_AdditionalScenarios(t *testing.T) {
 		messageHistoryRepo.EXPECT().SetStatusesIfNotSet(gomock.Any(), workspaceID, gomock.Any()).Return(errors.New("message history error"))
 
 		// Call method
-		err = service.ProcessWebhook(context.Background(), workspaceID, integrationID, rawPayload)
+		err = service.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, rawPayload)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to update message status")
 	})
@@ -2503,7 +2503,7 @@ func TestProcessWebhook_AdditionalScenarios(t *testing.T) {
 		messageHistoryRepo.EXPECT().SetStatusesIfNotSet(gomock.Any(), workspaceID, gomock.Any()).Return(nil)
 
 		// Call method - this should work normally
-		err = customService.ProcessWebhook(context.Background(), workspaceID, integrationID, rawPayload)
+		err = customService.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, rawPayload)
 		assert.NoError(t, err)
 	})
 }
@@ -2587,7 +2587,7 @@ func TestProcessWebhook_UpdatesMessageHistory(t *testing.T) {
 	})
 
 	// Call the method
-	err = service.ProcessWebhook(context.Background(), workspaceID, integrationID, rawPayload)
+	err = service.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, rawPayload)
 
 	// Verify
 	assert.NoError(t, err)
@@ -2704,7 +2704,7 @@ func TestProcessWebhook_UpdatesMessageHistoryWithMultipleEvents(t *testing.T) {
 	contactRepo.EXPECT().MarkEmailsAsBounced(gomock.Any(), workspaceID, []string{"test2@example.com"}, gomock.Any()).Return(nil)
 
 	// Call the method
-	err = service.ProcessWebhook(context.Background(), workspaceID, integrationID, rawPayload)
+	err = service.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, rawPayload)
 
 	// Verify
 	assert.NoError(t, err)
@@ -2780,7 +2780,7 @@ func TestProcessWebhook_SES_Permanent_HardBounce(t *testing.T) {
 	// Hard bounce: no count query, direct escalation.
 	contactRepo.EXPECT().MarkEmailsAsBounced(gomock.Any(), workspaceID, []string{"hard@example.com"}, gomock.Any()).Return(nil)
 
-	require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, rawPayload))
+	require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, rawPayload))
 }
 
 func TestProcessWebhook_SES_TransientGeneral_BelowThreshold(t *testing.T) {
@@ -2808,7 +2808,7 @@ func TestProcessWebhook_SES_TransientGeneral_BelowThreshold(t *testing.T) {
 		Return(map[string]int{"soft@example.com": 2}, nil)
 	// MarkEmailsAsBounced must NOT be called — no EXPECT.
 
-	require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, rawPayload))
+	require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, rawPayload))
 	_ = contactRepo
 }
 
@@ -2832,7 +2832,7 @@ func TestProcessWebhook_SES_TransientGeneral_AtThreshold(t *testing.T) {
 		Return(map[string]int{"chronic@example.com": domain.DefaultSoftBounceThreshold}, nil)
 	contactRepo.EXPECT().MarkEmailsAsBounced(gomock.Any(), workspaceID, []string{"chronic@example.com"}, gomock.Any()).Return(nil)
 
-	require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, rawPayload))
+	require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, rawPayload))
 }
 
 func TestProcessWebhook_SES_TransientGeneral_RetryExhausted(t *testing.T) {
@@ -2854,7 +2854,7 @@ func TestProcessWebhook_SES_TransientGeneral_RetryExhausted(t *testing.T) {
 	// (No repo.EXPECT() for it.)
 	contactRepo.EXPECT().MarkEmailsAsBounced(gomock.Any(), workspaceID, []string{"expired@example.com"}, gomock.Any()).Return(nil)
 
-	require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, rawPayload))
+	require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, rawPayload))
 }
 
 func TestProcessWebhook_SES_MessageTooLarge_NoOp(t *testing.T) {
@@ -2873,7 +2873,7 @@ func TestProcessWebhook_SES_MessageTooLarge_NoOp(t *testing.T) {
 	messageHistoryRepo.EXPECT().SetStatusesIfNotSet(gomock.Any(), workspaceID, gomock.Any()).Return(nil)
 	// SoftIgnore: no count query, no escalation. (No EXPECT for either.)
 
-	require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, rawPayload))
+	require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, rawPayload))
 	_ = contactRepo
 }
 
@@ -2941,7 +2941,7 @@ func TestProcessWebhook_BatchedMixedClassifications(t *testing.T) {
 			return nil
 		})
 
-	require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, rawPayload))
+	require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, rawPayload))
 }
 
 // TestListEvents tests the ListEvents method of WebhookEventService

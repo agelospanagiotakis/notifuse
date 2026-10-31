@@ -135,7 +135,7 @@ func TestInboundWebhookEventHandler_handleIncomingWebhook_ProcessError(t *testin
 
 	// Mock service to return an error
 	mockService.EXPECT().
-		ProcessWebhook(gomock.Any(), "ws123", "int123", payload).
+		ProcessWebhook(gomock.Any(), "ws123", "int123", gomock.Any(), payload).
 		Return(errors.New("processing error"))
 
 	// Call the handler
@@ -160,7 +160,7 @@ func TestInboundWebhookEventHandler_handleIncomingWebhook_Success(t *testing.T) 
 
 	// Mock service to return success
 	mockService.EXPECT().
-		ProcessWebhook(gomock.Any(), "ws123", "int123", payload).
+		ProcessWebhook(gomock.Any(), "ws123", "int123", gomock.Any(), payload).
 		Return(nil)
 
 	// Call the handler

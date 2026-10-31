@@ -493,6 +493,7 @@ interface EmailProviderFormValues {
   mailgun?: EmailProvider['mailgun']
   mailjet?: EmailProvider['mailjet']
   sendgrid?: EmailProvider['sendgrid']
+  resend?: EmailProvider['resend']
   senders: Sender[]
   rate_limit_per_minute: number
   type?: IntegrationType
@@ -520,6 +521,8 @@ const constructProviderFromForm = (formValues: EmailProviderFormValues): EmailPr
     provider.mailjet = formValues.mailjet
   } else if (formValues.kind === 'sendgrid' && formValues.sendgrid) {
     provider.sendgrid = formValues.sendgrid
+  } else if (formValues.kind === 'resend' && formValues.resend) {
+    provider.resend = formValues.resend
   }
 
   return provider
@@ -722,7 +725,8 @@ export function Integrations({ workspace, onSave, loading, isOwner }: Integratio
         : undefined,
       mailgun: integration.email_provider.mailgun,
       mailjet: integration.email_provider.mailjet,
-      sendgrid: integration.email_provider.sendgrid
+      sendgrid: integration.email_provider.sendgrid,
+      resend: integration.email_provider.resend
     })
     setProviderDrawerVisible(true)
   }
@@ -2188,6 +2192,56 @@ export function Integrations({ workspace, onSave, loading, isOwner }: Integratio
           </Form.Item>
         )}
 
+        {providerType === 'resend' && (
+          <>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name={['resend', 'host']}
+                  label={t`SMTP Host`}
+                  initialValue="smtp.resend.com"
+                  rules={[{ required: true }]}
+                >
+                  <Input placeholder="smtp.resend.com" disabled={!isOwner} />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name={['resend', 'port']}
+                  label={t`Port`}
+                  initialValue={2587}
+                  rules={[{ required: true }]}
+                  extra={t`2587 uses STARTTLS. 465 is implicit TLS and 587 is blocked on DigitalOcean.`}
+                >
+                  <InputNumber min={1} max={65535} style={{ width: '100%' }} disabled={!isOwner} />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Form.Item name={['resend', 'username']} label={t`SMTP User`} initialValue="resend">
+              <Input placeholder="resend" disabled={!isOwner} />
+            </Form.Item>
+            <Form.Item
+              name={['resend', 'password']}
+              label={t`Resend API Key`}
+              rules={[{ required: !editingIntegrationId }]}
+              extra={t`Used as the SMTP password. Starts with re_.`}
+            >
+              <Input.Password placeholder={secretPlaceholder('resend.password', t`re_…`)} disabled={!isOwner} />
+            </Form.Item>
+            <Form.Item
+              name={['resend', 'webhook_secret']}
+              label={t`Webhook Signing Secret`}
+              rules={[{ required: !editingIntegrationId }]}
+              extra={t`Shown by Resend when the webhook is created (whsec_…). Without it bounce and complaint events cannot be verified, so they are refused.`}
+            >
+              <Input.Password
+                placeholder={secretPlaceholder('resend.webhook_secret', t`whsec_…`)}
+                disabled={!isOwner}
+              />
+            </Form.Item>
+          </>
+        )}
+
         <Form.Item
           name="rate_limit_per_minute"
           label={t`Rate limit for marketing emails (emails per minute)`}
@@ -2491,6 +2545,26 @@ export function Integrations({ workspace, onSave, loading, isOwner }: Integratio
         </Descriptions.Item>,
         <Descriptions.Item key="region" label={t`Region`}>
           {provider.mailgun.region || 'US'}
+        </Descriptions.Item>
+      )
+    } else if (provider.kind === 'resend' && provider.resend) {
+      items.push(
+        <Descriptions.Item key="resend_host" label={t`SMTP Host`}>
+          {provider.resend.host}:{provider.resend.port}
+        </Descriptions.Item>,
+        <Descriptions.Item key="resend_user" label={t`SMTP User`}>
+          {provider.resend.username}
+        </Descriptions.Item>,
+        <Descriptions.Item key="resend_secret" label={t`Webhook Secret`}>
+          {provider.resend.encrypted_webhook_secret || provider.resend.webhook_secret ? (
+            <Tag variant="filled" color="green">
+              {t`Configured`}
+            </Tag>
+          ) : (
+            <Tag variant="filled" color="red">
+              {t`Missing — bounce events will be refused`}
+            </Tag>
+          )}
         </Descriptions.Item>
       )
     } else if (provider.kind === 'postmark' && provider.postmark) {

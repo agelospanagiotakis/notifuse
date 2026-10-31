@@ -185,7 +185,7 @@ func (h *InboundWebhookEventHandler) handleIncomingWebhook(w http.ResponseWriter
 	}
 
 	// Process the webhook event
-	err = h.service.ProcessWebhook(r.Context(), workspaceID, integrationID, body)
+	err = h.service.ProcessWebhook(r.Context(), workspaceID, integrationID, r.Header, body)
 	if err != nil {
 		h.logger.WithField("error", err.Error()).
 			WithField("workspace_id", workspaceID).

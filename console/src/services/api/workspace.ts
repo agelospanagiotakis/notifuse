@@ -67,13 +67,37 @@ export interface FileManagerSettings {
   force_path_style?: boolean
 }
 
-export type EmailProviderKind = 'smtp' | 'ses' | 'sparkpost' | 'postmark' | 'mailgun' | 'mailjet' | 'sendgrid'
+export type EmailProviderKind =
+  | 'smtp'
+  | 'ses'
+  | 'sparkpost'
+  | 'postmark'
+  | 'mailgun'
+  | 'mailjet'
+  | 'sendgrid'
+  | 'resend'
 
 export interface Sender {
   id: string
   email: string
   name: string
   is_default: boolean
+}
+
+/**
+ * Resend. Sending runs over Resend's SMTP endpoint, so the transport fields mirror SMTP;
+ * the webhook secret is what makes Resend a provider kind of its own — Resend signs its
+ * webhooks (Svix) and those signatures are what let bounce and complaint events be trusted.
+ */
+export interface ResendSettings {
+  host: string
+  port: number
+  username: string
+  password?: string
+  encrypted_password?: string
+  /** Svix signing secret shown by Resend, of the form whsec_… */
+  webhook_secret?: string
+  encrypted_webhook_secret?: string
 }
 
 export interface EmailProvider {
@@ -85,6 +109,7 @@ export interface EmailProvider {
   mailgun?: MailgunSettings
   mailjet?: MailjetSettings
   sendgrid?: SendGridSettings
+  resend?: ResendSettings
   senders: Sender[]
   rate_limit_per_minute: number
 }

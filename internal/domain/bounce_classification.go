@@ -160,6 +160,15 @@ func ClassifyBounce(in BounceInput) BounceClassification {
 			return BounceClassificationSoftCount
 		}
 
+	case EmailProviderKindResend:
+		// Resend reports bounce.type as "hard", "soft" or "undetermined".
+		switch bounceType {
+		case "hard", "permanent":
+			return BounceClassificationHard
+		case "soft", "temporary", "undetermined":
+			return BounceClassificationSoftCount
+		}
+
 	case EmailProviderKindSendGrid:
 		switch bounceType {
 		case "bounce":

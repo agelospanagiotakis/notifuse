@@ -24,6 +24,8 @@ export const getProviderName = (kind: string): string => {
       return 'Mailjet'
     case 'sendgrid':
       return 'SendGrid'
+    case 'resend':
+      return 'Resend'
     case 'supabase':
       return 'Supabase'
     default:
@@ -142,6 +144,19 @@ export const emailProviders: ProviderInfo[] = [
         alt="Mailjet"
         className={`${size === 'small' ? 'h-3 object-contain inline-block' : 'h-6 object-contain inline-block'} ${className}`.trim()}
       />
+    )
+  },
+  {
+    type: 'email',
+    kind: 'resend',
+    name: 'Resend',
+    getIcon: (className = '', size = 'small') => (
+      <span
+        className={`${size === 'small' ? 'text-[10px]' : 'text-base'} font-bold tracking-tight ${className}`.trim()}
+        style={{ color: '#000' }}
+      >
+        Resend
+      </span>
     )
   },
   {

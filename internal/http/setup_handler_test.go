@@ -100,6 +100,19 @@ func (m *mockUserRepository) GetUserByID(ctx context.Context, id string) (*domai
 	return nil, nil
 }
 
+// UpdatePasswordHash satisfies domain.UserRepository. These tests never exercise the
+// password flow; the repository interface gained this method when password sign-in was
+// added, so the hand-written mock needs it to keep compiling.
+func (m *mockUserRepository) UpdatePasswordHash(ctx context.Context, userID string, hash string) error {
+	for _, u := range m.users {
+		if u.ID == userID {
+			u.PasswordHash = hash
+			return nil
+		}
+	}
+	return nil
+}
+
 func (m *mockUserRepository) GetUserByEmail(ctx context.Context, email string) (*domain.User, error) {
 	return nil, nil
 }
