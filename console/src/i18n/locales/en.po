@@ -1847,7 +1847,7 @@ msgstr "Blocks"
 #: src/components/settings/BlogSettings.tsx:226
 #: src/components/settings/BlogSettings.tsx:259
 #: src/components/settings/PermissionsMatrix.tsx:128
-#: src/components/settings/SettingsSidebar.tsx:119
+#: src/components/settings/SettingsSidebar.tsx:131
 #: src/layouts/WorkspaceLayout.tsx:262
 #: src/services/api/errors.ts:67
 msgid "Blog"
@@ -2973,6 +2973,10 @@ msgstr "Confirm"
 msgid "Confirm a contact exists and list everything it is subscribed to (also needs Lists read)"
 msgstr "Confirm a contact exists and list everything it is subscribed to (also needs Lists read)"
 
+#: src/components/settings/SecuritySettings.tsx:68
+msgid "Confirm new password"
+msgstr "Confirm new password"
+
 #: src/components/automations/config/TriggerConfigForm.tsx:79
 msgid "Confirmed"
 msgstr "Confirmed"
@@ -3611,6 +3615,10 @@ msgstr "CSS Style Editor"
 msgid "CSV must have at least a header row and one data row"
 msgstr "CSV must have at least a header row and one data row"
 
+#: src/components/settings/SecuritySettings.tsx:49
+msgid "Current password"
+msgstr "Current password"
+
 #: src/pages/DebugSegmentPage.tsx:89
 msgid "Current Segment Tree JSON"
 msgstr "Current Segment Tree JSON"
@@ -3711,7 +3719,7 @@ msgstr "Custom field label saved successfully"
 
 #: src/components/contacts/ContactsCsvUploadDrawer.tsx:1136
 #: src/components/settings/CustomFieldsConfiguration.tsx:156
-#: src/components/settings/SettingsSidebar.tsx:129
+#: src/components/settings/SettingsSidebar.tsx:141
 msgid "Custom Fields"
 msgstr "Custom Fields"
 
@@ -3848,7 +3856,7 @@ msgstr "Daily"
 
 #: src/components/settings/BlogSettings.tsx:477
 #: src/components/settings/DeleteWorkspace.tsx:45
-#: src/components/settings/SettingsSidebar.tsx:158
+#: src/components/settings/SettingsSidebar.tsx:170
 msgid "Danger Zone"
 msgstr "Danger Zone"
 
@@ -4857,8 +4865,8 @@ msgstr "email"
 #: src/components/timeline/ContactTimeline.tsx:584
 #: src/pages/ContactsPage.tsx:369
 #: src/pages/ContactsPage.tsx:536
-#: src/pages/SignInPage.tsx:219
-#: src/pages/SignInPage.tsx:226
+#: src/pages/SignInPage.tsx:253
+#: src/pages/SignInPage.tsx:260
 msgid "Email"
 msgstr "Email"
 
@@ -5265,7 +5273,7 @@ msgstr "Enter Reply-To email address"
 msgid "Enter spacing"
 msgstr "Enter spacing"
 
-#: src/pages/SignInPage.tsx:255
+#: src/pages/SignInPage.tsx:309
 msgid "Enter the 6-digit code sent to {email}"
 msgstr "Enter the 6-digit code sent to {email}"
 
@@ -5797,7 +5805,7 @@ msgstr "Failed to fetch objects: "
 msgid "Failed to fetch setup status"
 msgstr "Failed to fetch setup status"
 
-#: src/pages/WorkspaceSettingsPage.tsx:98
+#: src/pages/WorkspaceSettingsPage.tsx:99
 msgid "Failed to fetch workspace members"
 msgstr "Failed to fetch workspace members"
 
@@ -5901,7 +5909,7 @@ msgstr "Failed to render preview"
 msgid "Failed to resend invitation"
 msgstr "Failed to resend invitation"
 
-#: src/pages/SignInPage.tsx:199
+#: src/pages/SignInPage.tsx:233
 msgid "Failed to resend magic code"
 msgstr "Failed to resend magic code"
 
@@ -5952,6 +5960,10 @@ msgstr "Failed to save Supabase integration"
 msgid "Failed to save template block"
 msgstr "Failed to save template block"
 
+#: src/components/settings/SecuritySettings.tsx:34
+msgid "Failed to save the password"
+msgstr "Failed to save the password"
+
 #: src/components/blog/ThemeEditorDrawer.tsx:259
 msgid "Failed to save theme"
 msgstr "Failed to save theme"
@@ -5976,7 +5988,7 @@ msgstr "Failed to select winner"
 msgid "Failed to send broadcast"
 msgstr "Failed to send broadcast"
 
-#: src/pages/SignInPage.tsx:74
+#: src/pages/SignInPage.tsx:108
 msgid "Failed to send magic code"
 msgstr "Failed to send magic code"
 
@@ -6090,7 +6102,7 @@ msgstr "Failed to update workspace settings"
 msgid "Failed to update workspace settings: {errorMessage}"
 msgstr "Failed to update workspace settings: {errorMessage}"
 
-#: src/pages/SignInPage.tsx:45
+#: src/pages/SignInPage.tsx:48
 msgid "Failed to verify code"
 msgstr "Failed to verify code"
 
@@ -6477,7 +6489,7 @@ msgstr "gemini-3.1-pro-preview or a custom model ID"
 #~ msgid "gemini-3.5-flash, gemini-3.1-pro-preview, or a custom model ID"
 #~ msgstr "gemini-3.5-flash, gemini-3.1-pro-preview, or a custom model ID"
 
-#: src/components/settings/SettingsSidebar.tsx:139
+#: src/components/settings/SettingsSidebar.tsx:151
 #: src/components/settings/SystemSettingsDrawer.tsx:251
 msgid "General"
 msgstr "General"
@@ -7213,7 +7225,7 @@ msgid "Integration updated successfully"
 msgstr "Integration updated successfully"
 
 #: src/components/settings/Integrations.tsx:2635
-#: src/components/settings/SettingsSidebar.tsx:76
+#: src/components/settings/SettingsSidebar.tsx:88
 msgid "Integrations"
 msgstr "Integrations"
 
@@ -7225,6 +7237,10 @@ msgstr "Invalid email"
 #: src/pages/SetupWizard.tsx:508
 msgid "Invalid email format"
 msgstr "Invalid email format"
+
+#: src/pages/SignInPage.tsx:80
+msgid "Invalid email or password"
+msgstr "Invalid email or password"
 
 #. placeholder {0}: invalid.join(', ')
 #: src/components/settings/SystemSettingsDrawer.tsx:88
@@ -7546,6 +7562,10 @@ msgstr "Leave blank to use the default Firecrawl API (api.firecrawl.dev)"
 msgid "Leave empty for full container width"
 msgstr "Leave empty for full container width"
 
+#: src/components/settings/SecuritySettings.tsx:51
+msgid "Leave empty if you have never set one."
+msgstr "Leave empty if you have never set one."
+
 #: src/components/settings/SystemSettingsDrawer.tsx:605
 msgid "Leave empty to derive it from the API endpoint. Set it when the callback is reached through a proxy or a vanity domain."
 msgstr "Leave empty to derive it from the API endpoint. Set it when the callback is reached through a proxy or a vanity domain."
@@ -7591,7 +7611,7 @@ msgid "Letter Spacing"
 msgstr "Letter Spacing"
 
 #: src/components/settings/LicenseSettings.tsx:58
-#: src/components/settings/SettingsSidebar.tsx:149
+#: src/components/settings/SettingsSidebar.tsx:161
 msgid "Licence"
 msgstr "Licence"
 
@@ -7989,7 +8009,7 @@ msgstr "Lower precision = more privacy"
 msgid "lowercase"
 msgstr "lowercase"
 
-#: src/pages/SignInPage.tsx:72
+#: src/pages/SignInPage.tsx:106
 msgid "Magic code sent to your email"
 msgstr "Magic code sent to your email"
 
@@ -8497,7 +8517,7 @@ msgstr "New conversation"
 msgid "New folder"
 msgstr "New folder"
 
-#: src/pages/SignInPage.tsx:197
+#: src/pages/SignInPage.tsx:231
 msgid "New magic code sent to your email"
 msgstr "New magic code sent to your email"
 
@@ -8505,6 +8525,10 @@ msgstr "New magic code sent to your email"
 #: src/components/segment/input.tsx:793
 msgid "New message (email...)"
 msgstr "New message (email...)"
+
+#: src/components/settings/SecuritySettings.tsx:57
+msgid "New password"
+msgstr "New password"
 
 #: src/components/blog/PostsTable.tsx:388
 msgid "New Post"
@@ -8815,7 +8839,7 @@ msgstr "No nodes in this automation"
 msgid "No notes"
 msgstr "No notes"
 
-#: src/pages/SignInPage.tsx:97
+#: src/pages/SignInPage.tsx:131
 msgid "No Notifuse account is linked to that identity. Ask an administrator to invite you first."
 msgstr "No Notifuse account is linked to that identity. Ask an administrator to invite you first."
 
@@ -9368,7 +9392,7 @@ msgstr "Optional. If provided, sent as Authorization: Bearer <secret>"
 msgid "Optionally filter contacts by segments within the selected lists"
 msgstr "Optionally filter contacts by segments within the selected lists"
 
-#: src/pages/SignInPage.tsx:237
+#: src/pages/SignInPage.tsx:291
 msgid "or"
 msgstr "or"
 
@@ -9474,12 +9498,22 @@ msgid "Partitions already rewritten keep their new values."
 msgstr "Partitions already rewritten keep their new values."
 
 #: src/components/transactional/ApiCommandModal.tsx:538
+#: src/pages/SignInPage.tsx:265
+#: src/pages/SignInPage.tsx:269
 msgid "Password"
 msgstr "Password"
 
 #: src/components/settings/Integrations.tsx:2074
 msgid "Password (optional)"
 msgstr "Password (optional)"
+
+#: src/components/settings/SecuritySettings.tsx:31
+msgid "Password saved. You can now sign in with it."
+msgstr "Password saved. You can now sign in with it."
+
+#: src/components/settings/SecuritySettings.tsx:42
+msgid "Password sign-in"
+msgstr "Password sign-in"
 
 #: src/components/settings/LicenseSettings.tsx:80
 #~ msgid "Paste a licence key first"
@@ -9692,6 +9726,10 @@ msgstr "Please check the form for errors."
 msgid "Please choose a different segment name"
 msgstr "Please choose a different segment name"
 
+#: src/components/settings/SecuritySettings.tsx:72
+msgid "Please confirm the password"
+msgstr "Please confirm the password"
+
 #: src/components/settings/WebAnalyticsSettings.tsx:348
 msgid "Please enter a bounce threshold"
 msgstr "Please enter a bounce threshold"
@@ -9736,6 +9774,10 @@ msgstr "Please enter a name"
 #~ msgid "Please enter a name for the API key"
 #~ msgstr "Please enter a name for the API key"
 
+#: src/components/settings/SecuritySettings.tsx:60
+msgid "Please enter a new password"
+msgstr "Please enter a new password"
+
 #: src/components/transactional/UpsertTransactionalNotificationDrawer.tsx:265
 msgid "Please enter a notification name"
 msgstr "Please enter a notification name"
@@ -9761,7 +9803,7 @@ msgstr "Please enter a slug"
 msgid "Please enter a URL"
 msgstr "Please enter a URL"
 
-#: src/pages/SignInPage.tsx:263
+#: src/pages/SignInPage.tsx:317
 msgid "Please enter a valid 6-digit code!"
 msgstr "Please enter a valid 6-digit code!"
 
@@ -9769,7 +9811,7 @@ msgstr "Please enter a valid 6-digit code!"
 msgid "Please enter a valid email"
 msgstr "Please enter a valid email"
 
-#: src/pages/SignInPage.tsx:223
+#: src/pages/SignInPage.tsx:257
 msgid "Please enter a valid email!"
 msgstr "Please enter a valid email!"
 
@@ -9835,13 +9877,17 @@ msgstr "Please enter workspace name"
 msgid "Please enter your API key"
 msgstr "Please enter your API key"
 
-#: src/pages/SignInPage.tsx:260
+#: src/pages/SignInPage.tsx:314
 msgid "Please input the magic code!"
 msgstr "Please input the magic code!"
 
-#: src/pages/SignInPage.tsx:222
+#: src/pages/SignInPage.tsx:256
 msgid "Please input your email!"
 msgstr "Please input your email!"
+
+#: src/pages/SignInPage.tsx:267
+msgid "Please input your password!"
+msgstr "Please input your password!"
 
 #: src/components/blog/PostDrawer.tsx:871
 msgid "Please select a category"
@@ -10899,7 +10945,7 @@ msgstr "Required when SSO is enabled"
 msgid "Requires a padding"
 msgstr "Requires a padding"
 
-#: src/pages/SignInPage.tsx:294
+#: src/pages/SignInPage.tsx:348
 msgid "Resend code"
 msgstr "Resend code"
 
@@ -11280,6 +11326,10 @@ msgstr "Save for later import"
 msgid "Save Mode"
 msgstr "Save Mode"
 
+#: src/components/settings/SecuritySettings.tsx:86
+msgid "Save password"
+msgstr "Save password"
+
 #: src/components/settings/EditPermissionsDrawer.tsx:103
 msgid "Save Permissions"
 msgstr "Save Permissions"
@@ -11412,6 +11462,7 @@ msgstr "Section — {0}"
 msgid "Section Attributes"
 msgstr "Section Attributes"
 
+#: src/components/settings/SettingsSidebar.tsx:67
 #: src/components/transactional/ApiCommandModal.tsx:534
 msgid "Security"
 msgstr "Security"
@@ -11872,7 +11923,7 @@ msgstr "Send a transactional notification using TypeScript/JavaScript:"
 msgid "Send Invitation"
 msgstr "Send Invitation"
 
-#: src/pages/SignInPage.tsx:231
+#: src/pages/SignInPage.tsx:275
 msgid "Send Magic Code"
 msgstr "Send Magic Code"
 
@@ -12057,6 +12108,10 @@ msgstr "Sessions (previous)"
 msgid "Sessions with less engaged time than this count as bounces."
 msgstr "Sessions with less engaged time than this count as bounces."
 
+#: src/components/settings/SecuritySettings.tsx:44
+msgid "Set a password to sign in without waiting for an emailed code. Leave it unset and the magic code keeps working."
+msgstr "Set a password to sign in without waiting for an emailed code. Leave it unset and the magic code keeps working."
+
 #: src/components/settings/Integrations.tsx:691
 msgid "Set as default marketing email provider"
 msgstr "Set as default marketing email provider"
@@ -12190,7 +12245,7 @@ msgstr "Sets the screen width below which the email will switch to mobile layout
 msgid "Setting up..."
 msgstr "Setting up..."
 
-#: src/components/settings/SettingsSidebar.tsx:164
+#: src/components/settings/SettingsSidebar.tsx:176
 #: src/layouts/WorkspaceLayout.tsx:481
 msgid "Settings"
 msgstr "Settings"
@@ -12252,13 +12307,21 @@ msgstr "Show More ({0} remaining)"
 msgid "Showing the top 200 links by unique clicks."
 msgstr "Showing the top 200 links by unique clicks."
 
-#: src/pages/SignInPage.tsx:209
+#: src/pages/SignInPage.tsx:275
+msgid "Sign in"
+msgstr "Sign in"
+
+#: src/pages/SignInPage.tsx:243
 msgid "Sign In"
 msgstr "Sign In"
 
+#: src/pages/SignInPage.tsx:285
+msgid "Sign in with a password"
+msgstr "Sign in with a password"
+
 #: src/components/settings/SystemSettingsDrawer.tsx:627
 #: src/pages/SetupWizard.tsx:747
-#: src/pages/SignInPage.tsx:248
+#: src/pages/SignInPage.tsx:302
 msgid "Sign in with SSO"
 msgstr "Sign in with SSO"
 
@@ -12283,8 +12346,8 @@ msgstr "Single sign-on"
 msgid "Single sign-on (SSO)"
 msgstr "Single sign-on (SSO)"
 
-#: src/pages/SignInPage.tsx:107
-#: src/pages/SignInPage.tsx:124
+#: src/pages/SignInPage.tsx:141
+#: src/pages/SignInPage.tsx:158
 msgid "Single sign-on failed. Please try again or use a magic code."
 msgstr "Single sign-on failed. Please try again or use a magic code."
 
@@ -12292,7 +12355,7 @@ msgstr "Single sign-on failed. Please try again or use a magic code."
 msgid "Single sign-on is switched on, and this deployment's licence does not include it."
 msgstr "Single sign-on is switched on, and this deployment's licence does not include it."
 
-#: src/pages/SignInPage.tsx:103
+#: src/pages/SignInPage.tsx:137
 msgid "Single sign-on is temporarily unavailable. Please try a magic code."
 msgstr "Single sign-on is temporarily unavailable. Please try a magic code."
 
@@ -12335,7 +12398,7 @@ msgstr "Slug must contain only lowercase letters, numbers, and hyphens"
 msgid "SMS"
 msgstr "SMS"
 
-#: src/components/settings/SettingsSidebar.tsx:134
+#: src/components/settings/SettingsSidebar.tsx:146
 #: src/components/settings/SMTPBridgeSettings.tsx:20
 #: src/components/settings/SystemSettingsDrawer.tsx:456
 msgid "SMTP Bridge"
@@ -12782,8 +12845,9 @@ msgstr "Successful"
 msgid "Successfully processed {successful} contacts"
 msgstr "Successfully processed {successful} contacts"
 
-#: src/pages/SignInPage.tsx:38
-#: src/pages/SignInPage.tsx:119
+#: src/pages/SignInPage.tsx:41
+#: src/pages/SignInPage.tsx:75
+#: src/pages/SignInPage.tsx:153
 msgid "Successfully signed in"
 msgstr "Successfully signed in"
 
@@ -12878,7 +12942,7 @@ msgstr "Task Status"
 msgid "Task type:"
 msgstr "Task type:"
 
-#: src/components/settings/SettingsSidebar.tsx:55
+#: src/components/settings/SettingsSidebar.tsx:56
 #: src/components/settings/WorkspaceMembers.tsx:441
 msgid "Team"
 msgstr "Team"
@@ -13309,6 +13373,10 @@ msgstr "The main title for your blog"
 msgid "The outbound message log: every email the workspace sent, its delivery status, and the engagement counted against it."
 msgstr "The outbound message log: every email the workspace sent, its delivery status, and the engagement counted against it."
 
+#: src/components/settings/SecuritySettings.tsx:76
+msgid "The passwords do not match"
+msgstr "The passwords do not match"
+
 #: src/components/settings/GeneralSettings.tsx:245
 msgid "The primary language for template content. Translations are stored for other languages."
 msgstr "The primary language for template content. Translations are stored for other languages."
@@ -13430,7 +13498,11 @@ msgstr "They will be sent the same email again. Fix whatever the provider object
 msgid "Thinking"
 msgstr "Thinking"
 
-#: src/pages/SignInPage.tsx:101
+#: src/pages/SignInPage.tsx:71
+msgid "This account has no password. Send yourself a sign-in code instead."
+msgstr "This account has no password. Send yourself a sign-in code instead."
+
+#: src/pages/SignInPage.tsx:135
 msgid "This account is already linked to a different single sign-on identity."
 msgstr "This account is already linked to a different single sign-on identity."
 
@@ -13919,7 +13991,7 @@ msgstr "Toggle between mobile and desktop views to see how your email appears on
 msgid "Toggle caption"
 msgstr "Toggle caption"
 
-#: src/pages/SignInPage.tsx:105
+#: src/pages/SignInPage.tsx:139
 msgid "Too many sign-in attempts. Please wait a moment and try again."
 msgstr "Too many sign-in attempts. Please wait a moment and try again."
 
@@ -14461,7 +14533,7 @@ msgstr "URL:"
 msgid "Use"
 msgstr "Use"
 
-#: src/pages/SignInPage.tsx:286
+#: src/pages/SignInPage.tsx:340
 msgid "Use a different email"
 msgstr "Use a different email"
 
@@ -14469,9 +14541,17 @@ msgstr "Use a different email"
 msgid "Use a tenant you manage yourself. Requires a configuration set associated with it in AWS."
 msgstr "Use a tenant you manage yourself. Requires a configuration set associated with it in AWS."
 
+#: src/pages/SignInPage.tsx:285
+msgid "Use an email code instead"
+msgstr "Use an email code instead"
+
 #: src/components/file_manager/context.tsx:195
 msgid "Use Anyway"
 msgstr "Use Anyway"
+
+#: src/components/settings/SecuritySettings.tsx:61
+msgid "Use at least 8 characters"
+msgstr "Use at least 8 characters"
 
 #: src/components/settings/Integrations.tsx:451
 msgid "Use for Marketing"
@@ -14650,7 +14730,7 @@ msgstr "Variant name"
 msgid "Variations"
 msgstr "Variations"
 
-#: src/pages/SignInPage.tsx:276
+#: src/pages/SignInPage.tsx:330
 msgid "Verify Code"
 msgstr "Verify Code"
 
@@ -14799,7 +14879,7 @@ msgid "We'll automatically detect and use your website's favicon"
 msgstr "We'll automatically detect and use your website's favicon"
 
 #: src/components/settings/PermissionsMatrix.tsx:131
-#: src/components/settings/SettingsSidebar.tsx:124
+#: src/components/settings/SettingsSidebar.tsx:136
 #: src/components/settings/WebAnalyticsSettings.tsx:232
 #: src/components/settings/WebAnalyticsSettings.tsx:242
 #: src/components/settings/WebAnalyticsSettings.tsx:291
@@ -14901,7 +14981,7 @@ msgstr "Webhook URL"
 #: src/components/settings/Integrations.tsx:251
 #: src/components/settings/Integrations.tsx:259
 #: src/components/settings/Integrations.tsx:291
-#: src/components/settings/SettingsSidebar.tsx:98
+#: src/components/settings/SettingsSidebar.tsx:110
 #: src/components/settings/WebhooksSettings.tsx:207
 msgid "Webhooks"
 msgstr "Webhooks"
@@ -15407,7 +15487,7 @@ msgstr "Your blog settings have not been saved. Leaving this page discards them.
 msgid "Your files can be uploaded to any S3 compatible storage."
 msgstr "Your files can be uploaded to any S3 compatible storage."
 
-#: src/pages/SignInPage.tsx:99
+#: src/pages/SignInPage.tsx:133
 msgid "Your identity provider has not verified your email address."
 msgstr "Your identity provider has not verified your email address."
 

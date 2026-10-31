@@ -1847,7 +1847,7 @@ msgstr "Blocs"
 #: src/components/settings/BlogSettings.tsx:226
 #: src/components/settings/BlogSettings.tsx:259
 #: src/components/settings/PermissionsMatrix.tsx:128
-#: src/components/settings/SettingsSidebar.tsx:119
+#: src/components/settings/SettingsSidebar.tsx:131
 #: src/layouts/WorkspaceLayout.tsx:262
 #: src/services/api/errors.ts:67
 msgid "Blog"
@@ -2973,6 +2973,10 @@ msgstr "Confirmar"
 msgid "Confirm a contact exists and list everything it is subscribed to (also needs Lists read)"
 msgstr "Confirmar que un contacte existeix i llistar tot allò a què està subscrit (també necessita lectura de Llistes)"
 
+#: src/components/settings/SecuritySettings.tsx:68
+msgid "Confirm new password"
+msgstr ""
+
 #: src/components/automations/config/TriggerConfigForm.tsx:79
 msgid "Confirmed"
 msgstr "Confirmat"
@@ -3611,6 +3615,10 @@ msgstr "Editor d'estils CSS"
 msgid "CSV must have at least a header row and one data row"
 msgstr "El CSV ha de tenir com a mínim una fila de capçalera i una fila de dades"
 
+#: src/components/settings/SecuritySettings.tsx:49
+msgid "Current password"
+msgstr ""
+
 #: src/pages/DebugSegmentPage.tsx:89
 msgid "Current Segment Tree JSON"
 msgstr "JSON de l'arbre de segment actual"
@@ -3711,7 +3719,7 @@ msgstr "Etiqueta de camp personalitzat desada correctament"
 
 #: src/components/contacts/ContactsCsvUploadDrawer.tsx:1136
 #: src/components/settings/CustomFieldsConfiguration.tsx:156
-#: src/components/settings/SettingsSidebar.tsx:129
+#: src/components/settings/SettingsSidebar.tsx:141
 msgid "Custom Fields"
 msgstr "Camps personalitzats"
 
@@ -3848,7 +3856,7 @@ msgstr "Diari"
 
 #: src/components/settings/BlogSettings.tsx:477
 #: src/components/settings/DeleteWorkspace.tsx:45
-#: src/components/settings/SettingsSidebar.tsx:158
+#: src/components/settings/SettingsSidebar.tsx:170
 msgid "Danger Zone"
 msgstr "Zona de perill"
 
@@ -4857,8 +4865,8 @@ msgstr "Correu electrònic"
 #: src/components/timeline/ContactTimeline.tsx:584
 #: src/pages/ContactsPage.tsx:369
 #: src/pages/ContactsPage.tsx:536
-#: src/pages/SignInPage.tsx:219
-#: src/pages/SignInPage.tsx:226
+#: src/pages/SignInPage.tsx:253
+#: src/pages/SignInPage.tsx:260
 msgid "Email"
 msgstr "Correu electrònic"
 
@@ -5265,7 +5273,7 @@ msgstr "Introduïu adreça de correu de resposta"
 msgid "Enter spacing"
 msgstr "Introduïu espaiat"
 
-#: src/pages/SignInPage.tsx:255
+#: src/pages/SignInPage.tsx:309
 msgid "Enter the 6-digit code sent to {email}"
 msgstr "Introdueix el codi de 6 dígits enviat a {email}"
 
@@ -5797,7 +5805,7 @@ msgstr "No s'han pogut obtenir els objectes: "
 msgid "Failed to fetch setup status"
 msgstr "No s'ha pogut obtenir l'estat de configuració"
 
-#: src/pages/WorkspaceSettingsPage.tsx:98
+#: src/pages/WorkspaceSettingsPage.tsx:99
 msgid "Failed to fetch workspace members"
 msgstr "No s'han pogut obtenir els membres de l'espai de treball"
 
@@ -5901,7 +5909,7 @@ msgstr "No s'ha pogut renderitzar la previsualització"
 msgid "Failed to resend invitation"
 msgstr "No s'ha pogut reenviar la invitació"
 
-#: src/pages/SignInPage.tsx:199
+#: src/pages/SignInPage.tsx:233
 msgid "Failed to resend magic code"
 msgstr "Error en reenviar el codi màgic"
 
@@ -5952,6 +5960,10 @@ msgstr "No s'ha pogut desar la integració de Supabase"
 msgid "Failed to save template block"
 msgstr "No s'ha pogut desar el bloc de plantilla"
 
+#: src/components/settings/SecuritySettings.tsx:34
+msgid "Failed to save the password"
+msgstr ""
+
 #: src/components/blog/ThemeEditorDrawer.tsx:259
 msgid "Failed to save theme"
 msgstr "No s'ha pogut desar el tema"
@@ -5976,7 +5988,7 @@ msgstr "No s'ha pogut seleccionar el guanyador"
 msgid "Failed to send broadcast"
 msgstr "No s'ha pogut enviar la difusió"
 
-#: src/pages/SignInPage.tsx:74
+#: src/pages/SignInPage.tsx:108
 msgid "Failed to send magic code"
 msgstr "Error en enviar el codi màgic"
 
@@ -6090,7 +6102,7 @@ msgstr "No s'han pogut actualitzar els paràmetres de l'espai de treball"
 msgid "Failed to update workspace settings: {errorMessage}"
 msgstr "No s'han pogut actualitzar els paràmetres de l'espai de treball: {errorMessage}"
 
-#: src/pages/SignInPage.tsx:45
+#: src/pages/SignInPage.tsx:48
 msgid "Failed to verify code"
 msgstr "Error en verificar el codi"
 
@@ -6477,7 +6489,7 @@ msgstr "gemini-3.1-pro-preview o un ID de model personalitzat"
 #~ msgid "gemini-3.5-flash, gemini-3.1-pro-preview, or a custom model ID"
 #~ msgstr ""
 
-#: src/components/settings/SettingsSidebar.tsx:139
+#: src/components/settings/SettingsSidebar.tsx:151
 #: src/components/settings/SystemSettingsDrawer.tsx:251
 msgid "General"
 msgstr "General"
@@ -7213,7 +7225,7 @@ msgid "Integration updated successfully"
 msgstr "Integració actualitzada correctament"
 
 #: src/components/settings/Integrations.tsx:2635
-#: src/components/settings/SettingsSidebar.tsx:76
+#: src/components/settings/SettingsSidebar.tsx:88
 msgid "Integrations"
 msgstr "Integracions"
 
@@ -7225,6 +7237,10 @@ msgstr "Correu no vàlid"
 #: src/pages/SetupWizard.tsx:508
 msgid "Invalid email format"
 msgstr "Format de correu invàlid"
+
+#: src/pages/SignInPage.tsx:80
+msgid "Invalid email or password"
+msgstr ""
 
 #. placeholder {0}: invalid.join(', ')
 #: src/components/settings/SystemSettingsDrawer.tsx:88
@@ -7546,6 +7562,10 @@ msgstr "Deixeu en blanc per utilitzar l'API de Firecrawl per defecte (api.firecr
 msgid "Leave empty for full container width"
 msgstr "Deixeu buit per amplada completa del contenidor"
 
+#: src/components/settings/SecuritySettings.tsx:51
+msgid "Leave empty if you have never set one."
+msgstr ""
+
 #: src/components/settings/SystemSettingsDrawer.tsx:605
 msgid "Leave empty to derive it from the API endpoint. Set it when the callback is reached through a proxy or a vanity domain."
 msgstr "Deixeu-ho buit per derivar-la del punt final API. Indiqueu-la quan la crida de retorn passi per un proxy o un domini personalitzat."
@@ -7591,7 +7611,7 @@ msgid "Letter Spacing"
 msgstr "Espaiat de lletres"
 
 #: src/components/settings/LicenseSettings.tsx:58
-#: src/components/settings/SettingsSidebar.tsx:149
+#: src/components/settings/SettingsSidebar.tsx:161
 msgid "Licence"
 msgstr "Llicència"
 
@@ -7989,7 +8009,7 @@ msgstr "Menys precisió = més privadesa"
 msgid "lowercase"
 msgstr "Minúscules"
 
-#: src/pages/SignInPage.tsx:72
+#: src/pages/SignInPage.tsx:106
 msgid "Magic code sent to your email"
 msgstr "Codi màgic enviat al teu correu"
 
@@ -8497,7 +8517,7 @@ msgstr "Nova conversa"
 msgid "New folder"
 msgstr "Nova carpeta"
 
-#: src/pages/SignInPage.tsx:197
+#: src/pages/SignInPage.tsx:231
 msgid "New magic code sent to your email"
 msgstr "Nou codi màgic enviat al teu correu"
 
@@ -8505,6 +8525,10 @@ msgstr "Nou codi màgic enviat al teu correu"
 #: src/components/segment/input.tsx:793
 msgid "New message (email...)"
 msgstr "Nou missatge (correu...)"
+
+#: src/components/settings/SecuritySettings.tsx:57
+msgid "New password"
+msgstr ""
 
 #: src/components/blog/PostsTable.tsx:388
 msgid "New Post"
@@ -8815,7 +8839,7 @@ msgstr "No hi ha nodes a aquesta automatització"
 msgid "No notes"
 msgstr "Sense notes"
 
-#: src/pages/SignInPage.tsx:97
+#: src/pages/SignInPage.tsx:131
 msgid "No Notifuse account is linked to that identity. Ask an administrator to invite you first."
 msgstr "No hi ha cap compte de Notifuse vinculat a aquesta identitat. Demaneu a un administrador que us convidi primer."
 
@@ -9368,7 +9392,7 @@ msgstr "Opcional. Si es proporciona, s'envia com Authorization: Bearer <secret>"
 msgid "Optionally filter contacts by segments within the selected lists"
 msgstr "Opcionalment filtreu contactes per segments dins de les llistes seleccionades"
 
-#: src/pages/SignInPage.tsx:237
+#: src/pages/SignInPage.tsx:291
 msgid "or"
 msgstr "o"
 
@@ -9474,12 +9498,22 @@ msgid "Partitions already rewritten keep their new values."
 msgstr "Les particions ja reescrites mantenen els seus valors nous."
 
 #: src/components/transactional/ApiCommandModal.tsx:538
+#: src/pages/SignInPage.tsx:265
+#: src/pages/SignInPage.tsx:269
 msgid "Password"
 msgstr "Contrasenya"
 
 #: src/components/settings/Integrations.tsx:2074
 msgid "Password (optional)"
 msgstr "Contrasenya (opcional)"
+
+#: src/components/settings/SecuritySettings.tsx:31
+msgid "Password saved. You can now sign in with it."
+msgstr ""
+
+#: src/components/settings/SecuritySettings.tsx:42
+msgid "Password sign-in"
+msgstr ""
 
 #: src/components/settings/LicenseSettings.tsx:80
 #~ msgid "Paste a licence key first"
@@ -9692,6 +9726,10 @@ msgstr "Si us plau, comproveu el formulari per errors."
 msgid "Please choose a different segment name"
 msgstr "Trieu un nom de segment diferent"
 
+#: src/components/settings/SecuritySettings.tsx:72
+msgid "Please confirm the password"
+msgstr ""
+
 #: src/components/settings/WebAnalyticsSettings.tsx:348
 msgid "Please enter a bounce threshold"
 msgstr "Introduïu un llindar de rebot"
@@ -9736,6 +9774,10 @@ msgstr "Si us plau, introduïu un nom"
 #~ msgid "Please enter a name for the API key"
 #~ msgstr "Si us plau, introduïu un nom per a la clau API"
 
+#: src/components/settings/SecuritySettings.tsx:60
+msgid "Please enter a new password"
+msgstr ""
+
 #: src/components/transactional/UpsertTransactionalNotificationDrawer.tsx:265
 msgid "Please enter a notification name"
 msgstr "Si us plau, introduïu un nom de notificació"
@@ -9761,7 +9803,7 @@ msgstr "Si us plau, introduïu un slug"
 msgid "Please enter a URL"
 msgstr "Si us plau, introduïu una URL"
 
-#: src/pages/SignInPage.tsx:263
+#: src/pages/SignInPage.tsx:317
 msgid "Please enter a valid 6-digit code!"
 msgstr "Si us plau, introdueix un codi de 6 dígits vàlid!"
 
@@ -9769,7 +9811,7 @@ msgstr "Si us plau, introdueix un codi de 6 dígits vàlid!"
 msgid "Please enter a valid email"
 msgstr "Si us plau, introduïu un correu vàlid"
 
-#: src/pages/SignInPage.tsx:223
+#: src/pages/SignInPage.tsx:257
 msgid "Please enter a valid email!"
 msgstr "Si us plau, introdueix un correu vàlid!"
 
@@ -9835,13 +9877,17 @@ msgstr "Si us plau, introduïu el nom de l'espai de treball"
 msgid "Please enter your API key"
 msgstr "Si us plau, introduïu la vostra clau API"
 
-#: src/pages/SignInPage.tsx:260
+#: src/pages/SignInPage.tsx:314
 msgid "Please input the magic code!"
 msgstr "Si us plau, introdueix el codi màgic!"
 
-#: src/pages/SignInPage.tsx:222
+#: src/pages/SignInPage.tsx:256
 msgid "Please input your email!"
 msgstr "Si us plau, introdueix el teu correu!"
+
+#: src/pages/SignInPage.tsx:267
+msgid "Please input your password!"
+msgstr ""
 
 #: src/components/blog/PostDrawer.tsx:871
 msgid "Please select a category"
@@ -10899,7 +10945,7 @@ msgstr "Obligatori quan l'SSO està activat"
 msgid "Requires a padding"
 msgstr "Requereix un farciment"
 
-#: src/pages/SignInPage.tsx:294
+#: src/pages/SignInPage.tsx:348
 msgid "Resend code"
 msgstr "Reenviar codi"
 
@@ -11280,6 +11326,10 @@ msgstr "Desar per importar més tard"
 msgid "Save Mode"
 msgstr "Mode de desament"
 
+#: src/components/settings/SecuritySettings.tsx:86
+msgid "Save password"
+msgstr ""
+
 #: src/components/settings/EditPermissionsDrawer.tsx:103
 msgid "Save Permissions"
 msgstr "Desar permisos"
@@ -11412,6 +11462,7 @@ msgstr "Secció — {0}"
 msgid "Section Attributes"
 msgstr "Atributs de secció"
 
+#: src/components/settings/SettingsSidebar.tsx:67
 #: src/components/transactional/ApiCommandModal.tsx:534
 msgid "Security"
 msgstr "Seguretat"
@@ -11872,7 +11923,7 @@ msgstr "Envieu una notificació transaccional utilitzant TypeScript/JavaScript:"
 msgid "Send Invitation"
 msgstr "Enviar invitació"
 
-#: src/pages/SignInPage.tsx:231
+#: src/pages/SignInPage.tsx:275
 msgid "Send Magic Code"
 msgstr "Enviar codi màgic"
 
@@ -12057,6 +12108,10 @@ msgstr "Sessions (anterior)"
 msgid "Sessions with less engaged time than this count as bounces."
 msgstr "Les sessions amb menys temps d'interacció que aquest compten com a rebots."
 
+#: src/components/settings/SecuritySettings.tsx:44
+msgid "Set a password to sign in without waiting for an emailed code. Leave it unset and the magic code keeps working."
+msgstr ""
+
 #: src/components/settings/Integrations.tsx:691
 msgid "Set as default marketing email provider"
 msgstr "Establir com a proveïdor de correu de màrqueting predeterminat"
@@ -12190,7 +12245,7 @@ msgstr "Estableix l'amplada de pantalla per sota de la qual el correu canviarà 
 msgid "Setting up..."
 msgstr "Configurant..."
 
-#: src/components/settings/SettingsSidebar.tsx:164
+#: src/components/settings/SettingsSidebar.tsx:176
 #: src/layouts/WorkspaceLayout.tsx:481
 msgid "Settings"
 msgstr "Configuració"
@@ -12252,13 +12307,21 @@ msgstr "Mostrar més ({0} restants)"
 msgid "Showing the top 200 links by unique clicks."
 msgstr "Es mostren els 200 enllaços principals per clics únics."
 
-#: src/pages/SignInPage.tsx:209
+#: src/pages/SignInPage.tsx:275
+msgid "Sign in"
+msgstr ""
+
+#: src/pages/SignInPage.tsx:243
 msgid "Sign In"
 msgstr "Iniciar sessió"
 
+#: src/pages/SignInPage.tsx:285
+msgid "Sign in with a password"
+msgstr ""
+
 #: src/components/settings/SystemSettingsDrawer.tsx:627
 #: src/pages/SetupWizard.tsx:747
-#: src/pages/SignInPage.tsx:248
+#: src/pages/SignInPage.tsx:302
 msgid "Sign in with SSO"
 msgstr "Iniciar sessió amb SSO"
 
@@ -12283,8 +12346,8 @@ msgstr ""
 msgid "Single sign-on (SSO)"
 msgstr ""
 
-#: src/pages/SignInPage.tsx:107
-#: src/pages/SignInPage.tsx:124
+#: src/pages/SignInPage.tsx:141
+#: src/pages/SignInPage.tsx:158
 msgid "Single sign-on failed. Please try again or use a magic code."
 msgstr "L'inici de sessió únic ha fallat. Torneu-ho a provar o utilitzeu un codi màgic."
 
@@ -12292,7 +12355,7 @@ msgstr "L'inici de sessió únic ha fallat. Torneu-ho a provar o utilitzeu un co
 msgid "Single sign-on is switched on, and this deployment's licence does not include it."
 msgstr ""
 
-#: src/pages/SignInPage.tsx:103
+#: src/pages/SignInPage.tsx:137
 msgid "Single sign-on is temporarily unavailable. Please try a magic code."
 msgstr "L'inici de sessió únic no està disponible temporalment. Proveu amb un codi màgic."
 
@@ -12335,7 +12398,7 @@ msgstr "L'slug només pot contenir lletres minúscules, números i guions"
 msgid "SMS"
 msgstr "SMS"
 
-#: src/components/settings/SettingsSidebar.tsx:134
+#: src/components/settings/SettingsSidebar.tsx:146
 #: src/components/settings/SMTPBridgeSettings.tsx:20
 #: src/components/settings/SystemSettingsDrawer.tsx:456
 msgid "SMTP Bridge"
@@ -12782,8 +12845,9 @@ msgstr "Correcte"
 msgid "Successfully processed {successful} contacts"
 msgstr "Processats {successful} contactes correctament"
 
-#: src/pages/SignInPage.tsx:38
-#: src/pages/SignInPage.tsx:119
+#: src/pages/SignInPage.tsx:41
+#: src/pages/SignInPage.tsx:75
+#: src/pages/SignInPage.tsx:153
 msgid "Successfully signed in"
 msgstr "Sessió iniciada correctament"
 
@@ -12878,7 +12942,7 @@ msgstr "Estat de la tasca"
 msgid "Task type:"
 msgstr "Tipus de tasca:"
 
-#: src/components/settings/SettingsSidebar.tsx:55
+#: src/components/settings/SettingsSidebar.tsx:56
 #: src/components/settings/WorkspaceMembers.tsx:441
 msgid "Team"
 msgstr "Equip"
@@ -13309,6 +13373,10 @@ msgstr "El títol principal del vostre blog"
 msgid "The outbound message log: every email the workspace sent, its delivery status, and the engagement counted against it."
 msgstr "El registre de missatges sortints: cada correu que l'espai de treball ha enviat, el seu estat de lliurament i la interacció que se li ha comptabilitzat."
 
+#: src/components/settings/SecuritySettings.tsx:76
+msgid "The passwords do not match"
+msgstr ""
+
 #: src/components/settings/GeneralSettings.tsx:245
 msgid "The primary language for template content. Translations are stored for other languages."
 msgstr "L'idioma principal del contingut de les plantilles. Les traduccions es desen per als altres idiomes."
@@ -13430,7 +13498,11 @@ msgstr "Se'ls tornarà a enviar el mateix correu. Corregiu primer allò que el p
 msgid "Thinking"
 msgstr "Pensant"
 
-#: src/pages/SignInPage.tsx:101
+#: src/pages/SignInPage.tsx:71
+msgid "This account has no password. Send yourself a sign-in code instead."
+msgstr ""
+
+#: src/pages/SignInPage.tsx:135
 msgid "This account is already linked to a different single sign-on identity."
 msgstr "Aquest compte ja està vinculat a una identitat d'inici de sessió únic diferent."
 
@@ -13919,7 +13991,7 @@ msgstr "Canvieu entre les vistes mòbil i escriptori per veure com es mostra el 
 msgid "Toggle caption"
 msgstr "Alternar llegenda"
 
-#: src/pages/SignInPage.tsx:105
+#: src/pages/SignInPage.tsx:139
 msgid "Too many sign-in attempts. Please wait a moment and try again."
 msgstr "Massa intents d'inici de sessió. Espereu un moment i torneu-ho a provar."
 
@@ -14461,7 +14533,7 @@ msgstr "URL:"
 msgid "Use"
 msgstr "Utilitzar"
 
-#: src/pages/SignInPage.tsx:286
+#: src/pages/SignInPage.tsx:340
 msgid "Use a different email"
 msgstr "Utilitzar un altre correu"
 
@@ -14469,9 +14541,17 @@ msgstr "Utilitzar un altre correu"
 msgid "Use a tenant you manage yourself. Requires a configuration set associated with it in AWS."
 msgstr "Utilitzeu un tenant que gestioneu vosaltres mateixos. Requereix un conjunt de configuració associat a AWS."
 
+#: src/pages/SignInPage.tsx:285
+msgid "Use an email code instead"
+msgstr ""
+
 #: src/components/file_manager/context.tsx:195
 msgid "Use Anyway"
 msgstr "Utilitzar igualment"
+
+#: src/components/settings/SecuritySettings.tsx:61
+msgid "Use at least 8 characters"
+msgstr ""
 
 #: src/components/settings/Integrations.tsx:451
 msgid "Use for Marketing"
@@ -14650,7 +14730,7 @@ msgstr "Nom de la variant"
 msgid "Variations"
 msgstr "Variacions"
 
-#: src/pages/SignInPage.tsx:276
+#: src/pages/SignInPage.tsx:330
 msgid "Verify Code"
 msgstr "Verificar codi"
 
@@ -14799,7 +14879,7 @@ msgid "We'll automatically detect and use your website's favicon"
 msgstr "Detectarem i utilitzarem automàticament el favicon del vostre lloc web"
 
 #: src/components/settings/PermissionsMatrix.tsx:131
-#: src/components/settings/SettingsSidebar.tsx:124
+#: src/components/settings/SettingsSidebar.tsx:136
 #: src/components/settings/WebAnalyticsSettings.tsx:232
 #: src/components/settings/WebAnalyticsSettings.tsx:242
 #: src/components/settings/WebAnalyticsSettings.tsx:291
@@ -14901,7 +14981,7 @@ msgstr "URL del webhook"
 #: src/components/settings/Integrations.tsx:251
 #: src/components/settings/Integrations.tsx:259
 #: src/components/settings/Integrations.tsx:291
-#: src/components/settings/SettingsSidebar.tsx:98
+#: src/components/settings/SettingsSidebar.tsx:110
 #: src/components/settings/WebhooksSettings.tsx:207
 msgid "Webhooks"
 msgstr "Webhooks"
@@ -15407,7 +15487,7 @@ msgstr "La configuració del vostre blog no s'ha desat. Si sortiu d'aquesta pàg
 msgid "Your files can be uploaded to any S3 compatible storage."
 msgstr "Els vostres fitxers es poden pujar a qualsevol emmagatzematge compatible amb S3."
 
-#: src/pages/SignInPage.tsx:99
+#: src/pages/SignInPage.tsx:133
 msgid "Your identity provider has not verified your email address."
 msgstr "El vostre proveïdor d'identitat no ha verificat la vostra adreça de correu."
 
