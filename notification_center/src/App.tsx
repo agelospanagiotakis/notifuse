@@ -26,7 +26,8 @@ const languageNames: Record<Language, string> = {
   pt: 'Português',
   ru: 'Русский',
   ja: '日本語',
-  pl: 'Polski'
+  pl: 'Polski',
+  el: 'Ελληνικά'
 }
 
 function App() {

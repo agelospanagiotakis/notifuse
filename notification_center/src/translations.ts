@@ -1,4 +1,4 @@
-export type Language = 'en' | 'fr' | 'es' | 'de' | 'zh' | 'hi' | 'ar' | 'pt' | 'ru' | 'ja' | 'pl'
+export type Language = 'en' | 'fr' | 'es' | 'de' | 'zh' | 'hi' | 'ar' | 'pt' | 'ru' | 'ja' | 'pl' | 'el'
 
 export interface TranslationObject {
   [key: string]: {
@@ -9,6 +9,7 @@ export interface TranslationObject {
 export const translations: TranslationObject = {
   loading: {
     en: 'Loading...',
+    el: 'Φόρτωση…',
     fr: 'Chargement...',
     es: 'Cargando...',
     de: 'Wird geladen...',
@@ -22,6 +23,7 @@ export const translations: TranslationObject = {
   },
   error: {
     en: 'Error',
+    el: 'Σφάλμα',
     fr: 'Erreur',
     es: 'Error',
     de: 'Fehler',
@@ -35,6 +37,7 @@ export const translations: TranslationObject = {
   },
   missingParameters: {
     en: 'Missing required parameters. Please check the URL.',
+    el: 'Λείπουν απαραίτητες παράμετροι. Ελέγξτε τον σύνδεσμο.',
     fr: "Paramètres requis manquants. Veuillez vérifier l'URL.",
     es: 'Faltan parámetros requeridos. Por favor, compruebe la URL.',
     de: 'Erforderliche Parameter fehlen. Bitte überprüfen Sie die URL.',
@@ -48,6 +51,7 @@ export const translations: TranslationObject = {
   },
   emailSubscriptions: {
     en: 'Email Subscriptions',
+    el: 'Συνδρομές email',
     fr: 'Abonnements par e-mail',
     es: 'Suscripciones de correo electrónico',
     de: 'E-Mail-Abonnements',
@@ -61,6 +65,7 @@ export const translations: TranslationObject = {
   },
   welcome: {
     en: 'Welcome,',
+    el: 'Καλώς ήρθατε,',
     fr: 'Bienvenue,',
     es: 'Bienvenido,',
     de: 'Willkommen,',
@@ -74,6 +79,7 @@ export const translations: TranslationObject = {
   },
   processing: {
     en: 'Processing...',
+    el: 'Επεξεργασία…',
     fr: 'Traitement...',
     es: 'Procesando...',
     de: 'Verarbeitung...',
@@ -87,6 +93,7 @@ export const translations: TranslationObject = {
   },
   subscribe: {
     en: 'Subscribe',
+    el: 'Εγγραφή',
     fr: "S'abonner",
     es: 'Suscribirse',
     de: 'Abonnieren',
@@ -100,6 +107,7 @@ export const translations: TranslationObject = {
   },
   unsubscribe: {
     en: 'Unsubscribe',
+    el: 'Διαγραφή',
     fr: 'Se désabonner',
     es: 'Darse de baja',
     de: 'Abbestellen',
@@ -113,6 +121,7 @@ export const translations: TranslationObject = {
   },
   noSubscriptions: {
     en: 'No subscriptions settings available.',
+    el: 'Δεν υπάρχουν ρυθμίσεις συνδρομών.',
     fr: "Aucun paramètre d'abonnement disponible.",
     es: 'No hay configuraciones de suscripción disponibles.',
     de: 'Keine Abonnement-Einstellungen verfügbar.',
@@ -126,6 +135,7 @@ export const translations: TranslationObject = {
   },
   visitWebsite: {
     en: 'Visit our website',
+    el: 'Επισκεφθείτε την ιστοσελίδα μας',
     fr: 'Visitez notre site web',
     es: 'Visite nuestro sitio web',
     de: 'Besuchen Sie unsere Website',
@@ -139,6 +149,7 @@ export const translations: TranslationObject = {
   },
   successSubscribed: {
     en: 'Successfully subscribed',
+    el: 'Η εγγραφή ολοκληρώθηκε',
     fr: 'Abonnement réussi',
     es: 'Suscripción exitosa',
     de: 'Erfolgreich abonniert',
@@ -152,6 +163,7 @@ export const translations: TranslationObject = {
   },
   successUnsubscribed: {
     en: 'Successfully unsubscribed',
+    el: 'Η διαγραφή ολοκληρώθηκε',
     fr: 'Désabonnement réussi',
     es: 'Cancelación exitosa',
     de: 'Erfolgreich abbestellt',
@@ -165,6 +177,7 @@ export const translations: TranslationObject = {
   },
   failedSubscribe: {
     en: 'Failed to subscribe. Please try again.',
+    el: 'Η εγγραφή απέτυχε. Δοκιμάστε ξανά.',
     fr: "Échec de l'abonnement. Veuillez réessayer.",
     es: 'Error al suscribirse. Por favor, inténtelo de nuevo.',
     de: 'Abonnement fehlgeschlagen. Bitte versuchen Sie es erneut.',
@@ -178,6 +191,7 @@ export const translations: TranslationObject = {
   },
   failedUnsubscribe: {
     en: 'Failed to unsubscribe. Please try again.',
+    el: 'Η διαγραφή απέτυχε. Δοκιμάστε ξανά.',
     fr: 'Échec du désabonnement. Veuillez réessayer.',
     es: 'Error al darse de baja. Por favor, inténtelo de nuevo.',
     de: 'Abbestellung fehlgeschlagen. Bitte versuchen Sie es erneut.',
@@ -191,6 +205,7 @@ export const translations: TranslationObject = {
   },
   failedToLoad: {
     en: 'Failed to load notifications',
+    el: 'Αποτυχία φόρτωσης ειδοποιήσεων',
     fr: 'Échec du chargement des notifications',
     es: 'Error al cargar las notificaciones',
     de: 'Benachrichtigungen konnten nicht geladen werden',
@@ -204,6 +219,7 @@ export const translations: TranslationObject = {
   },
   successHeader: {
     en: '✓ Success!',
+    el: '✓ Επιτυχία!',
     fr: '✓ Succès !',
     es: '✓ ¡Éxito!',
     de: '✓ Erfolg!',
@@ -217,6 +233,7 @@ export const translations: TranslationObject = {
   },
   errorHeader: {
     en: '✗ Error',
+    el: '✗ Σφάλμα',
     fr: '✗ Erreur',
     es: '✗ Error',
     de: '✗ Fehler',
@@ -230,6 +247,7 @@ export const translations: TranslationObject = {
   },
   confirmSubscriptionSuccess: {
     en: 'Subscription confirmed successfully!',
+    el: 'Η συνδρομή επιβεβαιώθηκε με επιτυχία!',
     fr: 'Abonnement confirmé avec succès !',
     es: '¡Suscripción confirmada con éxito!',
     de: 'Abonnement erfolgreich bestätigt!',
@@ -243,6 +261,7 @@ export const translations: TranslationObject = {
   },
   confirmSubscriptionFailed: {
     en: 'Failed to confirm subscription',
+    el: 'Η επιβεβαίωση της συνδρομής απέτυχε',
     fr: "Échec de la confirmation de l'abonnement",
     es: 'Error al confirmar la suscripción',
     de: 'Abonnement konnte nicht bestätigt werden',
@@ -256,6 +275,7 @@ export const translations: TranslationObject = {
   },
   unsubscribeSuccess: {
     en: 'You have been unsubscribed successfully.',
+    el: 'Η διαγραφή σας ολοκληρώθηκε με επιτυχία.',
     fr: 'Vous avez été désabonné avec succès.',
     es: 'Se ha dado de baja correctamente.',
     de: 'Sie wurden erfolgreich abgemeldet.',
@@ -269,6 +289,7 @@ export const translations: TranslationObject = {
   },
   unsubscribeFailed: {
     en: 'Failed to unsubscribe',
+    el: 'Η διαγραφή απέτυχε',
     fr: 'Échec du désabonnement',
     es: 'Error al darse de baja',
     de: 'Abmeldung fehlgeschlagen',
@@ -298,7 +319,8 @@ export function getLanguage(): Language {
     'pt',
     'ru',
     'ja',
-    'pl'
+    'pl',
+    'el'
   ]
 
   if (supportedLanguages.includes(browserLang as Language)) {
