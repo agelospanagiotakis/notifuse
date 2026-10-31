@@ -10,7 +10,7 @@ name: Build image
 #     and no "denied: requested access to the resource is denied".
 #
 # Consumed by epragma-mailer/Dockerfile as
-#   FROM ghcr.io/agelospanagiotakis/notifuse:vX.Y-el
+#   FROM ghcr.io/agelospanagiotakis/notifuse-epragma:vX.Y-el
 
 on:
   push:
@@ -22,7 +22,7 @@ on:
         required: true
 
 env:
-  IMAGE: ghcr.io/agelospanagiotakis/notifuse
+  IMAGE: ghcr.io/agelospanagiotakis/notifuse-epragma
 
 jobs:
   image:
