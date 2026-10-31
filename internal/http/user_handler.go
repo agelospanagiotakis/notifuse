@@ -22,6 +22,8 @@ import (
 // UserServiceInterface defines the methods required from a user service
 type UserServiceInterface interface {
 	SignIn(ctx context.Context, input domain.SignInInput) (string, error)
+	SignInWithPassword(ctx context.Context, input domain.SignInInput) (*domain.AuthResponse, error)
+	SetPassword(ctx context.Context, userID string, input domain.SetPasswordInput) error
 	VerifyCode(ctx context.Context, input domain.VerifyCodeInput) (*domain.AuthResponse, error)
 	RootSignin(ctx context.Context, input domain.RootSigninInput) (*domain.AuthResponse, error)
 	VerifyUserSession(ctx context.Context, userID string, sessionID string) (*domain.User, error)
@@ -109,6 +111,27 @@ func (h *UserHandler) SignIn(w http.ResponseWriter, r *http.Request) {
 	span.AddAttributes(trace.StringAttribute("user.email.domain", extractEmailDomain(input.Email)))
 
 	h.tracer.AddAttribute(ctx, "operation", "SignIn")
+
+	// Password sign-in: the same endpoint, a different credential. When a password is supplied
+	// the session is minted here and the token returned directly — no email is sent, because
+	// the caller has already proved who they are.
+	if input.Password != "" {
+		auth, err := h.userService.SignInWithPassword(ctx, input)
+		if err != nil {
+			h.tracer.MarkSpanError(ctx, err)
+			// 401 for bad credentials; 400 when the account simply has no password yet.
+			status := http.StatusUnauthorized
+			if strings.Contains(err.Error(), "no password is set") {
+				status = http.StatusBadRequest
+			}
+			WriteJSONError(w, err.Error(), status)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(auth)
+		return
+	}
+
 	code, err := h.userService.SignIn(ctx, input)
 	if err != nil {
 		// Check if it's a user not found error and return 400
@@ -483,6 +506,37 @@ func (h *UserHandler) UpdateLanguage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// SetPassword sets or changes the password of the authenticated user.
+func (h *UserHandler) SetPassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		WriteJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	ctx, span := h.tracer.StartSpan(r.Context(), "UserHandler.SetPassword")
+	defer span.End()
+
+	userID, ok := ctx.Value(domain.UserIDKey).(string)
+	if !ok || userID == "" {
+		WriteJSONError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var input domain.SetPasswordInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		WriteJSONError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.userService.SetPassword(ctx, userID, input); err != nil {
+		h.tracer.MarkSpanError(ctx, err)
+		WriteJSONError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": "Password updated successfully"})
+}
+
 func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 	// Public routes (no auth required)
 	mux.HandleFunc("/api/user.signin", h.SignIn)
@@ -497,4 +551,5 @@ func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/user.me", requireAuth(http.HandlerFunc(h.GetCurrentUser)))
 	mux.Handle("/api/user.logout", requireAuth(http.HandlerFunc(h.Logout)))
 	mux.Handle("/api/user.updateLanguage", requireAuth(http.HandlerFunc(h.UpdateLanguage)))
+	mux.Handle("/api/user.setPassword", requireAuth(http.HandlerFunc(h.SetPassword)))
 }

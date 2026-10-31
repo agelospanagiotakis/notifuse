@@ -207,3 +207,17 @@ func (mr *MockUserRepositoryMockRecorder) UpdateUserLanguage(arg0, arg1, arg2 in
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserLanguage", reflect.TypeOf((*MockUserRepository)(nil).UpdateUserLanguage), arg0, arg1, arg2)
 }
+
+// UpdatePasswordHash mocks base method.
+func (m *MockUserRepository) UpdatePasswordHash(arg0 context.Context, arg1, arg2 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdatePasswordHash", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdatePasswordHash indicates an expected call of UpdatePasswordHash.
+func (mr *MockUserRepositoryMockRecorder) UpdatePasswordHash(arg0, arg1, arg2 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePasswordHash", reflect.TypeOf((*MockUserRepository)(nil).UpdatePasswordHash), arg0, arg1, arg2)
+}

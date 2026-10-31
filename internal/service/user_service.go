@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"golang.org/x/crypto/bcrypt"
 	"time"
 
 	"github.com/Notifuse/notifuse/config"
@@ -160,6 +161,117 @@ func (s *UserService) SignIn(ctx context.Context, input domain.SignInInput) (str
 	}
 
 	return "", nil
+}
+
+// SignInWithPassword authenticates a user with a password instead of a magic code.
+//
+// The stored value is a bcrypt hash; nothing reversible is kept. Failures deliberately do not
+// distinguish "no such account", "no password set" and "wrong password" from the outside, so
+// this endpoint cannot be used to enumerate addresses. The magic-code flow is untouched: an
+// account without a password simply keeps using it.
+func (s *UserService) SignInWithPassword(ctx context.Context, input domain.SignInInput) (*domain.AuthResponse, error) {
+	ctx, span := s.tracer.StartServiceSpan(ctx, "UserService", "SignInWithPassword")
+	defer span.End()
+
+	// Same rate-limit bucket as the magic-code sign-in: password guessing must not get a
+	// separate budget just because it is a different code path.
+	if s.rateLimiter != nil && !s.rateLimiter.Allow("signin", input.Email) {
+		s.logger.WithField("email", input.Email).Warn("Password sign-in rate limit exceeded")
+		s.tracer.MarkSpanError(ctx, fmt.Errorf("rate limit exceeded"))
+		return nil, fmt.Errorf("too many sign-in attempts, please try again in a few minutes")
+	}
+
+	invalid := fmt.Errorf("invalid credentials")
+
+	user, err := s.repo.GetUserByEmail(ctx, input.Email)
+	if err != nil {
+		if _, ok := err.(*domain.ErrUserNotFound); ok {
+			s.tracer.AddAttribute(ctx, "error", "user_not_found")
+			return nil, invalid
+		}
+		s.tracer.MarkSpanError(ctx, err)
+		return nil, err
+	}
+
+	// API keys are users rows too; they must never obtain a human session.
+	if user.Type == domain.UserTypeAPIKey {
+		s.tracer.AddAttribute(ctx, "error", "api_key_signin_refused")
+		return nil, invalid
+	}
+
+	if user.PasswordHash == "" {
+		// No password configured: tell the caller to use the code flow rather than fail silently.
+		s.tracer.AddAttribute(ctx, "error", "no_password_set")
+		return nil, fmt.Errorf("no password is set for this account - use the emailed sign-in code")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.Password)); err != nil {
+		s.logger.WithField("user_id", user.ID).Warn("Password sign-in failed")
+		s.tracer.AddAttribute(ctx, "error", "wrong_password")
+		return nil, invalid
+	}
+
+	// A session with no magic code: this login is already authenticated.
+	session := &domain.Session{
+		ID:        generateID(),
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(s.sessionExpiry),
+		CreatedAt: time.Now(),
+	}
+	if err := s.repo.CreateSession(ctx, session); err != nil {
+		s.logger.WithField("user_id", user.ID).WithField("error", err.Error()).Error("Failed to create session")
+		s.tracer.MarkSpanError(ctx, err)
+		return nil, err
+	}
+
+	if s.rateLimiter != nil {
+		s.rateLimiter.Reset("signin", input.Email)
+	}
+
+	user.PasswordHash = ""
+	token := s.authService.GenerateUserAuthToken(user, session.ID, session.ExpiresAt)
+	s.tracer.AddAttribute(ctx, "session.id", session.ID)
+
+	return &domain.AuthResponse{Token: token, User: *user, ExpiresAt: session.ExpiresAt}, nil
+}
+
+// SetPassword sets or changes the password of an authenticated user. The current password is
+// required only when one is already set, so accounts created with magic codes can adopt one.
+func (s *UserService) SetPassword(ctx context.Context, userID string, input domain.SetPasswordInput) error {
+	ctx, span := s.tracer.StartServiceSpan(ctx, "UserService", "SetPassword")
+	defer span.End()
+
+	if len(input.NewPassword) < 8 {
+		return fmt.Errorf("password must be at least 8 characters")
+	}
+	if len(input.NewPassword) > 128 {
+		return fmt.Errorf("password must be at most 128 characters")
+	}
+
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if user.PasswordHash != "" {
+		if input.CurrentPassword == "" {
+			return fmt.Errorf("current password is required")
+		}
+		if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.CurrentPassword)); err != nil {
+			return fmt.Errorf("current password is incorrect")
+		}
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(input.NewPassword), 12)
+	if err != nil {
+		s.tracer.MarkSpanError(ctx, err)
+		return fmt.Errorf("failed to hash password")
+	}
+	if err := s.repo.UpdatePasswordHash(ctx, userID, string(hash)); err != nil {
+		s.tracer.MarkSpanError(ctx, err)
+		return err
+	}
+	s.logger.WithField("user_id", userID).Info("Password updated")
+	return nil
 }
 
 func (s *UserService) VerifyCode(ctx context.Context, input domain.VerifyCodeInput) (*domain.AuthResponse, error) {

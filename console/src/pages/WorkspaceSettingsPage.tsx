@@ -14,6 +14,7 @@ import { WebAnalyticsSettings } from '../components/settings/WebAnalyticsSetting
 import { WebhooksSettings } from '../components/settings/WebhooksSettings'
 import { useAuth } from '../contexts/AuthContext'
 import { isRootUser } from '../services/api/auth'
+import { SecuritySettings } from '../components/settings/SecuritySettings'
 import { LicenseSettings } from '../components/settings/LicenseSettings'
 import { DeleteWorkspaceSection } from '../components/settings/DeleteWorkspace'
 import {
@@ -152,6 +153,8 @@ export function WorkspaceSettingsPage() {
         )
       case 'smtp-bridge':
         return <SMTPBridgeSettings />
+      case 'security':
+        return <SecuritySettings />
       case 'general':
         return (
           <GeneralSettings

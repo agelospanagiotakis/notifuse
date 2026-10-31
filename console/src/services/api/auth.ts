@@ -5,11 +5,28 @@ import type { Entitlements } from '../../types/license'
 // Authentication types
 export interface SignInRequest {
   email: string
+  /** Optional. When present the backend authenticates against the stored bcrypt hash and
+   *  returns a token instead of emailing a magic code (e-Pragma fork). */
+  password?: string
 }
 
 export interface SignInResponse {
-  message: string
+  message?: string
   code?: string
+  /** Present only for password sign-in: the session token, ready to store. */
+  token?: string
+  expires_at?: string
+  user?: {
+    id: string
+    email: string
+    name?: string
+    language: string
+  }
+}
+
+export interface SetPasswordRequest {
+  current_password: string
+  new_password: string
 }
 
 export interface VerifyCodeRequest {
@@ -103,6 +120,8 @@ async function oidcExchange(code: string): Promise<VerifyResponse> {
 
 export const authService = {
   signIn: (data: SignInRequest) => api.post<SignInResponse>('/api/user.signin', data),
+  setPassword: (data: SetPasswordRequest) =>
+    api.post<{ message: string }>('/api/user.setPassword', data),
   verifyCode: (data: VerifyCodeRequest) => api.post<VerifyResponse>('/api/user.verify', data),
   oidcExchange,
   getCurrentUser: () => api.get<GetCurrentUserResponse>('/api/user.me'),

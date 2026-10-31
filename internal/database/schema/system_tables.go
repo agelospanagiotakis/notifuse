@@ -10,6 +10,7 @@ var TableDefinitions = []string{
 		type VARCHAR(20) NOT NULL,
 		email VARCHAR(255) UNIQUE NOT NULL,
 		name VARCHAR(255),
+		password_hash VARCHAR(255),  -- bcrypt; NULL/empty means magic-code only
 		language VARCHAR(10) NOT NULL DEFAULT 'en',
 		created_at TIMESTAMP NOT NULL,
 		updated_at TIMESTAMP NOT NULL
@@ -131,6 +132,8 @@ var MigrationStatements = []string{
 		UNIQUE (key)
 	)`,
 	// V27: Add recurring_interval and integration_id columns to tasks
+	// V41: optional password authentication alongside magic codes.
+	`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)`,
 	`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recurring_interval INTEGER`,
 	`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS integration_id VARCHAR(36)`,
 	`CREATE INDEX IF NOT EXISTS idx_tasks_integration_id ON tasks (integration_id) WHERE integration_id IS NOT NULL`,
