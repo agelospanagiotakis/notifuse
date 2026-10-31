@@ -279,7 +279,7 @@ func compactReplyPayload(reply *domain.InboundReply, source domain.WebhookSource
 }
 
 // ProcessWebhook processes a webhook event from an email provider
-func (s *InboundWebhookEventService) ProcessWebhook(ctx context.Context, workspaceID string, integrationID string, rawPayload []byte) error {
+func (s *InboundWebhookEventService) ProcessWebhook(ctx context.Context, workspaceID string, integrationID string, headers http.Header, rawPayload []byte) error {
 	// codecov:ignore:start
 	ctx, span := tracing.StartServiceSpan(ctx, "InboundWebhookEventService", "ProcessWebhook")
 	defer tracing.EndSpan(span, nil)
@@ -327,6 +327,10 @@ func (s *InboundWebhookEventService) ProcessWebhook(ctx context.Context, workspa
 		events, err = s.processSMTPWebhook(integration.ID, rawPayload)
 	case domain.EmailProviderKindSendGrid:
 		events, err = s.processSendGridWebhook(integration.ID, rawPayload)
+	case domain.EmailProviderKindResend:
+		// Resend signs in HEADERS (Svix), unlike every other provider here, whose
+		// auth travels inside the body — so this case needs the headers.
+		events, err = s.processResendWebhook(&integration, headers, rawPayload)
 	default:
 		err := fmt.Errorf("unsupported email provider kind %q: %w", integration.EmailProvider.Kind, domain.ErrWebhookProviderUnsupported)
 		// codecov:ignore:start

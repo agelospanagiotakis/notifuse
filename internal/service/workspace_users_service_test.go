@@ -811,6 +811,7 @@ func TestWorkspaceService_InviteMember(t *testing.T) {
 				"Test Inviter",
 				"test-token",
 				"de",
+				"",
 			).Return(nil)
 
 		invitation, token, err := service.InviteMember(ctx, workspaceID, email, domain.UserPermissions{})

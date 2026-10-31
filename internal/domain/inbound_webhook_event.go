@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"net/http"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -96,6 +97,9 @@ const (
 
 	// WebhookSourceSendGrid indicates webhook from SendGrid
 	WebhookSourceSendGrid WebhookSource = "sendgrid"
+
+	// WebhookSourceResend indicates webhook from Resend
+	WebhookSourceResend WebhookSource = "resend"
 )
 
 // WebhookSources are the accepted values of the source filter of inboundWebhookEvents.list.
@@ -298,7 +302,9 @@ type InboundWebhookEventListResult struct {
 // InboundWebhookEventServiceInterface defines the interface for inbound webhook event service
 type InboundWebhookEventServiceInterface interface {
 	// ProcessWebhook processes a webhook event from an email provider
-	ProcessWebhook(ctx context.Context, workspaceID, integrationID string, rawPayload []byte) error
+	// ProcessWebhook handles a provider callback. headers carries the provider's
+	// signature for schemes that sign headers rather than the body (Resend/Svix).
+	ProcessWebhook(ctx context.Context, workspaceID, integrationID string, headers http.Header, rawPayload []byte) error
 
 	// ProcessInboundReply ingests an inbound reply forwarded by a provider's inbound
 	// parsing feature: it verifies the provider signature, parses + classifies the

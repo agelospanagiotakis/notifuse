@@ -197,7 +197,7 @@ func (h *InboundWebhookEventHandler) handleIncomingWebhook(w http.ResponseWriter
 	}
 
 	// Process the webhook event
-	err = h.service.ProcessWebhook(r.Context(), workspaceID, integrationID, body)
+	err = h.service.ProcessWebhook(r.Context(), workspaceID, integrationID, r.Header, body)
 	if err != nil {
 		// The status tells the provider whether to send the event again: a 4xx for a request
 		// that will never succeed, a 500 for a failure on our side, which it retries.
