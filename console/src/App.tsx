@@ -16,6 +16,7 @@ import caES from 'antd/locale/ca_ES'
 import ptBR from 'antd/locale/pt_BR'
 import jaJP from 'antd/locale/ja_JP'
 import itIT from 'antd/locale/it_IT'
+import elGR from 'antd/locale/el_GR'
 import type { Locale as AntdLocale } from 'antd/es/locale'
 import type { Locale } from './i18n'
 
@@ -30,6 +31,7 @@ const antdLocales: Record<Locale, AntdLocale> = {
   'pt-BR': ptBR,
   ja: jaJP,
   it: itIT,
+  el: elGR,
 }
 
 const queryClient = new QueryClient({

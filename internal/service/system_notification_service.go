@@ -104,7 +104,7 @@ func (s *SystemNotificationService) HandleCircuitBreakerEvent(ctx context.Contex
 
 	// Send notification to workspace owners
 	err = s.notifyWorkspaceOwners(ctx, payload.WorkspaceID, func(owner *domain.UserWorkspaceWithEmail) error {
-		return s.mailer.SendCircuitBreakerAlert(owner.Email, workspace.Name, broadcast.Name, reason, owner.Language)
+		return s.mailer.SendCircuitBreakerAlert(owner.Email, workspace.Name, broadcast.Name, reason, owner.Language, workspace.Settings.EmailTeamName)
 	})
 
 	if err != nil {

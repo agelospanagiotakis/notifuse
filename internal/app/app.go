@@ -408,6 +408,9 @@ func (a *App) InitMailer() error {
 			APIEndpoint:  a.config.APIEndpoint,
 			UseTLS:       a.config.SMTP.UseTLS,
 			EHLOHostname: a.config.SMTP.EHLOHostname,
+			// Global default signature for system emails; per-workspace override
+			// comes from WorkspaceSettings.EmailTeamName.
+			TeamName: os.Getenv("SMTP_TEAM_NAME"),
 		}
 
 		a.mailer = mailer.NewSMTPMailer(mailerConfig)

@@ -897,7 +897,7 @@ func (s *WorkspaceService) InviteMember(ctx context.Context, workspaceID, email 
 	// have no language preference of their own — the email is localized in the
 	// inviter's language.
 	if !s.config.IsDevelopment() {
-		err = s.mailer.SendWorkspaceInvitation(email, workspace.Name, inviterName, token, inviterDetails.Language)
+		err = s.mailer.SendWorkspaceInvitation(email, workspace.Name, inviterName, token, inviterDetails.Language, workspace.Settings.EmailTeamName)
 		if err != nil {
 			s.logger.WithField("workspace_id", workspaceID).WithField("email", email).WithField("error", err.Error()).Error("Failed to send invitation email")
 			// Continue even if email sending fails

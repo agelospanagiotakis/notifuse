@@ -451,6 +451,10 @@ type WorkspaceSettings struct {
 	WebAnalytics      *WebAnalyticsSettings `json:"web_analytics,omitempty"` // Web analytics configuration
 	DefaultLanguage   string                `json:"default_language"`
 	Languages         []string              `json:"languages"`
+	// EmailTeamName overrides the signature ("The … Team") used in this
+	// workspace's system emails (invitation, circuit-breaker alert). Empty falls
+	// back to the mailer's global TeamName and then the built-in translation.
+	EmailTeamName string `json:"email_team_name,omitempty"`
 
 	// decoded secret key, not stored in the database
 	SecretKey string `json:"-"`
