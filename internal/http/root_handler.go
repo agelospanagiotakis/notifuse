@@ -5,9 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 
@@ -191,6 +191,38 @@ func (h *RootHandler) serveConfigJS(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(configJS))
 }
 
+
+// staticAssetExtensions are suffixes that mean "a file", not "an SPA route". A route the
+// frontend does not know must reach the shell so client-side routing can handle it; a file
+// must not, because the shell is HTML and the client is expecting the content type it asked for.
+var staticAssetExtensions = map[string]bool{
+	".js": true, ".mjs": true, ".css": true, ".map": true, ".json": true,
+	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".svg": true, ".webp": true,
+	".ico": true, ".woff": true, ".woff2": true, ".ttf": true, ".eot": true,
+	".txt": true, ".xml": true, ".wasm": true,
+}
+
+// isStaticAssetPath reports whether a request is for a file rather than a client-side route.
+func isStaticAssetPath(p string) bool {
+	if strings.HasPrefix(p, "/assets/") {
+		return true
+	}
+	return staticAssetExtensions[strings.ToLower(path.Ext(p))]
+}
+
+// setStaticCacheHeaders makes a deploy take effect on the next page load.
+//
+// Vite names bundles by content hash, so they can be cached forever; index.html must not be,
+// because it is the only file that knows which hash is current. Without this a browser reuses
+// a stale shell, asks for a bundle that the new image no longer has, and the app never boots.
+func setStaticCacheHeaders(w http.ResponseWriter, p string) {
+	if strings.HasPrefix(p, "/assets/") {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+}
+
 // serveConsole handles serving static files, with a fallback for SPA routing
 func (h *RootHandler) serveConsole(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -210,9 +242,19 @@ func (h *RootHandler) serveConsole(w http.ResponseWriter, r *http.Request) {
 
 	path := h.consoleDir + r.URL.Path
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		// If the requested file doesn't exist, serve index.html for SPA routing
+		// A missing FILE is not an SPA route. Answering a script request with index.html
+		// hands the browser HTML where it expects JavaScript: the module fails to parse,
+		// the app never mounts, and every tab that was open across a deploy sits on a
+		// spinner forever. Only extension-less paths fall back to the shell.
+		if isStaticAssetPath(r.URL.Path) {
+			http.NotFound(w, r)
+			return
+		}
+		// If the requested route doesn't exist, serve index.html for SPA routing
 		r.URL.Path = "/"
 	}
+
+	setStaticCacheHeaders(w, r.URL.Path)
 
 	h.logger.WithField("original_path", originalPath).WithField("served_path", r.URL.Path).Debug("Serving console")
 
@@ -236,11 +278,17 @@ func (h *RootHandler) serveNotificationCenter(w http.ResponseWriter, r *http.Req
 	fs := http.FileServer(http.Dir(h.notificationCenterDir))
 
 	path := h.notificationCenterDir + r.URL.Path
-	log.Println("path", path)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		// If the requested file doesn't exist, serve index.html for SPA routing
+		// See serveConsole: a missing asset must 404, never return the shell.
+		if isStaticAssetPath(r.URL.Path) {
+			http.NotFound(w, r)
+			return
+		}
+		// If the requested route doesn't exist, serve index.html for SPA routing
 		r.URL.Path = "/"
 	}
+
+	setStaticCacheHeaders(w, r.URL.Path)
 
 	fs.ServeHTTP(w, r)
 }
