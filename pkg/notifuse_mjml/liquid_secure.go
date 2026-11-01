@@ -12,7 +12,10 @@ import (
 // Security limits for Liquid template rendering
 const (
 	DefaultRenderTimeout   = 5 * time.Second
-	DefaultMaxTemplateSize = 100 * 1024       // 100KB
+	// A guard against giant *untrusted* templates, not a content limit. Real Mailchimp
+	// newsletters are 150-180KB of inline CSS and nested tables, so 100KB refused archived
+	// campaigns that are perfectly legitimate. 2MB still bounds the work the renderer does.
+	DefaultMaxTemplateSize = 2 * 1024 * 1024   // 2MB
 	DefaultMaxMemory       = 10 * 1024 * 1024 // 10MB (informational, not enforced by Go Liquid)
 )
 
