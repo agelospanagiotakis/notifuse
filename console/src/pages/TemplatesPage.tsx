@@ -305,7 +305,10 @@ export function TemplatesPage() {
       title: '',
       key: 'actions',
       render: (_: unknown, record: Template) => (
-        <Space>
+        // Row clicks open the preview; the action buttons do their own thing and
+        // must not also trigger it (delete would otherwise open the drawer behind
+        // its own confirmation modal).
+        <Space onClick={(e) => e.stopPropagation()}>
           {workspace && (
             <Tooltip
               title={
