@@ -84,3 +84,48 @@ describe('TemplatePreviewDrawer metadata tab', () => {
     expect(screen.queryByText('Metadata')).not.toBeInTheDocument()
   })
 })
+
+describe('TemplatePreviewDrawer driven by the templates table', () => {
+  const renderControlled = (open: boolean, onOpenChange = vi.fn()) =>
+    render(
+      <ConfigProvider>
+        <App>
+          <TemplatePreviewDrawer
+            record={template}
+            workspace={workspace}
+            open={open}
+            onOpenChange={onOpenChange}
+          />
+        </App>
+      </ConfigProvider>
+    )
+
+  it('opens with no trigger of its own', async () => {
+    renderControlled(true)
+
+    // No children were passed, so there is no wrapper to click: the drawer is the entry point.
+    await waitFor(() => expect(screen.getByText('Template Data')).toBeInTheDocument())
+  })
+
+  it('reports a close request back to the caller', async () => {
+    const onOpenChange = vi.fn()
+    renderControlled(true, onOpenChange)
+
+    const closeButton = await screen.findByLabelText('Close')
+    fireEvent.click(closeButton)
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('toggles between the readable and the expanded width', async () => {
+    renderControlled(true)
+
+    // Width lives in the drawer panel style, so the button's own label is the observable state.
+    const expand = await screen.findByRole('button', { name: 'Expand preview' })
+    fireEvent.click(expand)
+    expect(await screen.findByRole('button', { name: 'Collapse preview' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse preview' }))
+    expect(await screen.findByRole('button', { name: 'Expand preview' })).toBeInTheDocument()
+  })
+})
