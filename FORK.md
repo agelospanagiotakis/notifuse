@@ -85,5 +85,24 @@ on any terms. The Greek notification-centre translation is the one change worth 
 ## What consumes this image
 
 `agelospanagiotakis/epragma-mailer` → `Dockerfile`:
-`FROM ghcr.io/agelospanagiotakis/notifuse-epragma:v40.0-el.1`, deployed by Coolify as app 34 on
+`FROM ghcr.io/agelospanagiotakis/notifuse-epragma:v40.0-el.9`, deployed by Coolify as app 34 on
 server3. Coolify builds with `--pull`, so the tag must exist in the registry before a deploy.
+
+## What our builds change
+
+| Tag | Change | Why |
+|---|---|---|
+| `el.1` | Greek console catalogs, password sign-in | the reason the fork exists |
+| `el.4` | 404 for missing assets; cache headers | a missing asset was answered with the SPA shell, so the console hung on a spinner |
+| `el.5` | Resend webhook provider | `webhook registration not implemented for provider: resend` |
+| `el.6` | Resend events carry a UUID | `invalid input syntax for type uuid: ""` |
+| `el.7` | Liquid template cap 100 KB → 2 MB | imported Mailchimp campaigns were 1–2 MB |
+| `el.8` | Templates preview sidebar | preview was eye-button only, and the mask forced a close-and-reopen per template |
+| `el.9` | Row clicks skip the action buttons | delete opened the preview behind its own confirmation modal |
+
+The preview sidebar (el.8, el.9) is `TemplatePreviewDrawer`, which already shipped upstream as a
+trigger-wrapped drawer. The change is that it also accepts `open`/`onOpenChange`, so
+`TemplatesPage` owns a single instance and drives it from `onRow`; the mask is off so a second row
+click swaps the preview in place, and the drawer widens either by dragging its edge (antd 6
+`resizable`) or with the expand/collapse button in the title.
+
