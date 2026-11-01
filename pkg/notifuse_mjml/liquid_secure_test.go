@@ -64,8 +64,10 @@ func TestSecureLiquidEngine_TemplateSizeLimit(t *testing.T) {
 	t.Run("rejects templates exceeding size limit", func(t *testing.T) {
 		engine := NewSecureLiquidEngine()
 
-		// Create a template larger than 100KB
-		largeTemplate := strings.Repeat("<div>{{ item }}</div>\n", 10000) // ~200KB
+		// One byte over the configured cap, whatever it is: the cap moved from 100KB
+		// to 2MB for the Mailchimp import, and a hardcoded 200KB fixture silently
+		// stopped testing the limit at all.
+		largeTemplate := strings.Repeat("x", DefaultMaxTemplateSize+1)
 		data := map[string]interface{}{
 			"item": "test",
 		}
@@ -83,7 +85,7 @@ func TestSecureLiquidEngine_TemplateSizeLimit(t *testing.T) {
 	t.Run("accepts templates within size limit", func(t *testing.T) {
 		engine := NewSecureLiquidEngine()
 
-		// Template under 100KB (about 2KB)
+		// A small template, well under any cap
 		template := strings.Repeat("<div>{{ item }}</div>\n", 100)
 		data := map[string]interface{}{
 			"item": "test",

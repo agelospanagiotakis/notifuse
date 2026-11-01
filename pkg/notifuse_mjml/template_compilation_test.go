@@ -914,9 +914,13 @@ func TestPreprocessMjmlForXML(t *testing.T) {
 			expected: "<mj-text>&#169; 2024</mj-text>",
 		},
 		{
-			name:     "preserve xml predefined entities",
+			// &lt; and &quot; are rewritten to their numeric forms on purpose: gomjml
+			// decodes an entity before it lexes an attribute, so the named form of
+			// either one breaks any attribute that contains it. The code point, and
+			// therefore the rendering, is unchanged.
+			name:     "rewrite the two entities that break attributes",
 			input:    "<mj-text>&amp; &lt; &gt; &quot; &apos;</mj-text>",
-			expected: "<mj-text>&amp; &lt; &gt; &quot; &apos;</mj-text>",
+			expected: "<mj-text>&amp; &#60; &gt; &#34; &apos;</mj-text>",
 		},
 		{
 			name:     "preserve numeric entities",

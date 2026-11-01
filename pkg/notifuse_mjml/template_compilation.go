@@ -97,6 +97,23 @@ func preprocessMjmlForXML(mjmlString string) string {
 		return match
 	})
 
+	// Step 3: Rewrite the two predefined entities that gomjml cannot lex inside an
+	// attribute value.
+	//
+	// gomjml decodes an entity before it lexes the attribute, so a &quot; becomes a
+	// literal quote and closes the attribute early — "expected attribute name in
+	// element" — and a &lt; becomes a literal angle bracket — "unescaped < inside
+	// quoted string". Both are arbitrary HTML that a real newsletter carries:
+	// Mailchimp escapes the quotes in a font stack as
+	// style="font-family: Arial, &quot;Helvetica Neue&quot;" in every campaign before
+	// about 2021, which is why those templates fail to compile at all.
+	//
+	// The numeric form of the same code point parses fine in an attribute and
+	// renders identically in text, so this is a pure encoding change, not an edit
+	// to anyone's content. &apos; and &#39; are left alone: they already compile.
+	processed = strings.ReplaceAll(processed, "&quot;", "&#34;")
+	processed = strings.ReplaceAll(processed, "&lt;", "&#60;")
+
 	return processed
 }
 
