@@ -71,8 +71,8 @@ msgstr "(空)"
 
 #. placeholder {0}: record.email.reply_to
 #. placeholder {0}: templateSender?.name || defaultSender?.name
-#: src/components/templates/TemplatePreviewDrawer.tsx:272
-#: src/components/templates/TemplatePreviewDrawer.tsx:308
+#: src/components/templates/TemplatePreviewDrawer.tsx:294
+#: src/components/templates/TemplatePreviewDrawer.tsx:330
 msgid "(original: {0})"
 msgstr "(元: {0})"
 
@@ -1017,7 +1017,7 @@ msgstr "配置"
 #: src/components/web_analytics/tabs/AnnotationsTab.tsx:124
 #: src/components/web_analytics/tabs/FiltersTab.tsx:152
 #: src/pages/BroadcastsPage.tsx:1636
-#: src/pages/TemplatesPage.tsx:124
+#: src/pages/TemplatesPage.tsx:128
 msgid "All"
 msgstr "すべて"
 
@@ -1373,7 +1373,7 @@ msgstr "このヘッダーを削除してもよろしいですか？"
 msgid "Are you sure you want to delete this node?"
 msgstr "このノードを削除してもよろしいですか?"
 
-#: src/pages/TemplatesPage.tsx:358
+#: src/pages/TemplatesPage.tsx:372
 msgid "Are you sure you want to delete this template?"
 msgstr "このテンプレートを削除してもよろしいですか?"
 
@@ -1766,7 +1766,7 @@ msgstr "Basic認証 (ユーザー名/パスワード)"
 msgid "Basic Information"
 msgstr "基本情報"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:342
+#: src/components/templates/TemplatePreviewDrawer.tsx:364
 msgid "BCC"
 msgstr "BCC"
 
@@ -1839,7 +1839,7 @@ msgstr "ブロック設定パネル"
 msgid "Block type:"
 msgstr "ブロックタイプ:"
 
-#: src/pages/TemplatesPage.tsx:131
+#: src/pages/TemplatesPage.tsx:135
 msgid "Blocklist"
 msgstr "ブロックリスト"
 
@@ -1958,7 +1958,7 @@ msgstr "バウンス"
 #: src/components/timeline/ContactTimeline.tsx:653
 #: src/components/web_analytics/explore/BreakdownDrawer.tsx:219
 #: src/components/webhooks/InboundWebhookEventsTab.tsx:72
-#: src/pages/TemplatesPage.tsx:130
+#: src/pages/TemplatesPage.tsx:134
 msgid "Bounce"
 msgstr "バウンス"
 
@@ -2325,7 +2325,7 @@ msgstr "キャンペーン"
 #: src/pages/BroadcastsPage.tsx:1054
 #: src/pages/BroadcastsPage.tsx:1789
 #: src/pages/ListsPage.tsx:318
-#: src/pages/TemplatesPage.tsx:366
+#: src/pages/TemplatesPage.tsx:380
 #: src/pages/TransactionalNotificationsPage.tsx:149
 msgid "Cancel"
 msgstr "キャンセル"
@@ -2398,7 +2398,7 @@ msgstr "カテゴリ"
 #: src/components/blog/ThemeEditorDrawer.tsx:428
 #: src/components/blog/ThemePresetPreviewDrawer.tsx:75
 #: src/components/templates/CreateTemplateDrawer.tsx:851
-#: src/pages/TemplatesPage.tsx:231
+#: src/pages/TemplatesPage.tsx:245
 msgid "Category"
 msgstr "カテゴリ"
 
@@ -2419,7 +2419,7 @@ msgstr "カテゴリを更新しました"
 msgid "Category:"
 msgstr "カテゴリ:"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:330
+#: src/components/templates/TemplatePreviewDrawer.tsx:352
 msgid "CC"
 msgstr "CC"
 
@@ -2687,7 +2687,7 @@ msgid "Clone email template"
 msgstr "メールテンプレートを複製"
 
 #: src/components/templates/CreateTemplateDrawer.tsx:605
-#: src/pages/TemplatesPage.tsx:322
+#: src/pages/TemplatesPage.tsx:336
 msgid "Clone Template"
 msgstr "テンプレートを複製"
 
@@ -2711,7 +2711,7 @@ msgid "Closed Captions (CC)"
 msgstr "字幕 (CC)"
 
 #: src/components/email_builder/MjmlCodeEditor.tsx:678
-#: src/pages/TemplatesPage.tsx:224
+#: src/pages/TemplatesPage.tsx:238
 msgid "Code"
 msgstr "コード"
 
@@ -2727,6 +2727,11 @@ msgstr "コードエディター"
 #: src/layouts/WorkspaceLayout.tsx:574
 msgid "Collapse"
 msgstr "折りたたむ"
+
+#: src/components/templates/TemplatePreviewDrawer.tsx:465
+#: src/components/templates/TemplatePreviewDrawer.tsx:466
+msgid "Collapse preview"
+msgstr ""
 
 #: src/components/blog_editor/menus/block-actions/BlockColorPopover.tsx:97
 #: src/components/email_builder/blocks/MjDividerBlock.tsx:42
@@ -3549,7 +3554,7 @@ msgstr "最初の通知を作成して始めましょう"
 msgid "Create Your First Post"
 msgstr "最初の投稿を作成"
 
-#: src/pages/TemplatesPage.tsx:464
+#: src/pages/TemplatesPage.tsx:492
 msgid "Create your first template to get started"
 msgstr "最初のテンプレートを作成して始めましょう"
 
@@ -3559,7 +3564,7 @@ msgstr "作成済み"
 
 #: src/components/automations/config/TriggerConfigForm.tsx:68
 #: src/components/webhooks/OutgoingWebhooksTab.tsx:418
-#: src/pages/TemplatesPage.tsx:275
+#: src/pages/TemplatesPage.tsx:289
 msgid "Created"
 msgstr "作成日"
 
@@ -3916,7 +3921,7 @@ msgid "Deduplication:"
 msgstr "重複排除:"
 
 #: src/components/templates/SendTemplateModal.tsx:66
-#: src/pages/TemplatesPage.tsx:252
+#: src/pages/TemplatesPage.tsx:266
 msgid "default"
 msgstr "デフォルト"
 
@@ -4166,11 +4171,11 @@ msgstr "投稿を削除"
 msgid "Delete segment"
 msgstr "セグメントを削除"
 
-#: src/pages/TemplatesPage.tsx:345
+#: src/pages/TemplatesPage.tsx:359
 msgid "Delete Template"
 msgstr "テンプレートを削除"
 
-#: src/pages/TemplatesPage.tsx:355
+#: src/pages/TemplatesPage.tsx:369
 msgid "Delete template?"
 msgstr "テンプレートを削除しますか？"
 
@@ -4790,7 +4795,7 @@ msgid "Edit Sender"
 msgstr "送信者を編集"
 
 #: src/components/templates/CreateTemplateDrawer.tsx:605
-#: src/pages/TemplatesPage.tsx:300
+#: src/pages/TemplatesPage.tsx:314
 msgid "Edit Template"
 msgstr "テンプレートを編集"
 
@@ -5353,7 +5358,7 @@ msgstr "オートメーションの読み込みエラー"
 msgid "Error loading data"
 msgstr "データの読み込みエラー"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:374
+#: src/components/templates/TemplatePreviewDrawer.tsx:396
 msgid "Error loading preview"
 msgstr "プレビューの読み込みエラー"
 
@@ -5513,6 +5518,11 @@ msgstr "離脱数"
 msgid "Expand"
 msgstr "展開"
 
+#: src/components/templates/TemplatePreviewDrawer.tsx:465
+#: src/components/templates/TemplatePreviewDrawer.tsx:466
+msgid "Expand preview"
+msgstr ""
+
 #: src/components/settings/LicenseSettings.tsx:110
 msgid "Expired"
 msgstr ""
@@ -5627,7 +5637,7 @@ msgstr "ブロードキャストのキャンセルに失敗しました"
 msgid "Failed to clear field"
 msgstr "フィールドのクリアに失敗しました"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:171
+#: src/components/templates/TemplatePreviewDrawer.tsx:193
 msgid "Failed to compile template preview."
 msgstr "テンプレートプレビューのコンパイルに失敗しました。"
 
@@ -5744,7 +5754,7 @@ msgstr "投稿の削除に失敗しました"
 msgid "Failed to delete segment"
 msgstr "セグメントの削除に失敗しました"
 
-#: src/pages/TemplatesPage.tsx:170
+#: src/pages/TemplatesPage.tsx:174
 msgid "Failed to delete template: {errorMsg}"
 msgstr "テンプレートの削除に失敗しました: {errorMsg}"
 
@@ -6428,7 +6438,7 @@ msgstr "{0}からの未保存の変更が見つかりました"
 msgid "Frequency"
 msgstr "頻度"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:263
+#: src/components/templates/TemplatePreviewDrawer.tsx:285
 msgid "From"
 msgstr "差出人"
 
@@ -6818,12 +6828,12 @@ msgstr "HTMLエクスポートに失敗しました"
 msgid "HTML exported successfully"
 msgstr "HTMLを正常にエクスポートしました"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:204
+#: src/components/templates/TemplatePreviewDrawer.tsx:226
 msgid "HTML Preview"
 msgstr "HTMLプレビュー"
 
 #. placeholder {0}: record.name
-#: src/components/templates/TemplatePreviewDrawer.tsx:210
+#: src/components/templates/TemplatePreviewDrawer.tsx:232
 msgid "HTML Preview of {0}"
 msgstr "{0}のHTMLプレビュー"
 
@@ -6892,7 +6902,7 @@ msgstr "IDは小文字の英字、数字、アンダースコアのみ使用で�
 msgid "ID doesn't match"
 msgstr "IDが一致しません"
 
-#: src/pages/TemplatesPage.tsx:220
+#: src/pages/TemplatesPage.tsx:234
 msgid "ID for API:"
 msgstr "API用ID:"
 
@@ -7281,7 +7291,7 @@ msgstr "フィールド{field}のJSONが無効です"
 msgid "Invalid or expired invitation token"
 msgstr "無効または期限切れの招待トークンです"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:123
+#: src/components/templates/TemplatePreviewDrawer.tsx:145
 msgid "Invalid template structure data."
 msgstr "無効なテンプレート構造データです。"
 
@@ -7481,7 +7491,7 @@ msgstr "ランディングページ"
 #: src/components/contacts/ContactsCsvUploadDrawer.tsx:96
 #: src/components/contacts/ExportContactsModal.tsx:68
 #: src/components/templates/SendTemplateModal.tsx:326
-#: src/components/templates/TemplatePreviewDrawer.tsx:353
+#: src/components/templates/TemplatePreviewDrawer.tsx:375
 #: src/pages/ContactsPage.tsx:375
 #: src/pages/ContactsPage.tsx:431
 #: src/pages/ContactsPage.tsx:706
@@ -7653,7 +7663,7 @@ msgstr "行"
 #. placeholder {0}: detail.line
 #. placeholder {1}: detail.tagName
 #. placeholder {2}: detail.message
-#: src/components/templates/TemplatePreviewDrawer.tsx:389
+#: src/components/templates/TemplatePreviewDrawer.tsx:411
 msgid "Line {0} ({1}): {2}"
 msgstr "行 {0} ({1}): {2}"
 
@@ -7959,7 +7969,7 @@ msgstr "Webhookステータスを読み込み中..."
 #: src/pages/ContactsPage.tsx:1161
 #: src/pages/ListsPage.tsx:149
 #: src/pages/LogsPage.tsx:18
-#: src/pages/TemplatesPage.tsx:203
+#: src/pages/TemplatesPage.tsx:217
 #: src/pages/TransactionalNotificationsPage.tsx:383
 msgid "Loading..."
 msgstr "読み込み中..."
@@ -8094,7 +8104,7 @@ msgstr "チャートの動きを説明する日付 — ローンチ、キャン�
 msgid "Marked as spam"
 msgstr "スパムとしてマーク"
 
-#: src/pages/TemplatesPage.tsx:125
+#: src/pages/TemplatesPage.tsx:129
 msgid "Marketing"
 msgstr "マーケティング"
 
@@ -8250,7 +8260,7 @@ msgstr "メタタイトル"
 
 #: src/components/messages/MessageHistoryTable.tsx:146
 #: src/components/messages/MessageHistoryTable.tsx:190
-#: src/components/templates/TemplatePreviewDrawer.tsx:243
+#: src/components/templates/TemplatePreviewDrawer.tsx:265
 msgid "Metadata"
 msgstr "メタデータ"
 
@@ -8304,7 +8314,7 @@ msgstr ""
 msgid "Missing Tags"
 msgstr "不足しているタグ"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:77
+#: src/components/templates/TemplatePreviewDrawer.tsx:99
 msgid "Missing workspace ID or template data."
 msgstr "ワークスペースIDまたはテンプレートデータがありません。"
 
@@ -8327,7 +8337,7 @@ msgid "MJML compilation completed successfully with no warnings or errors."
 msgstr "MJMLコンパイルが警告やエラーなしで正常に完了しました。"
 
 #. placeholder {0}: mjmlError.message
-#: src/components/templates/TemplatePreviewDrawer.tsx:381
+#: src/components/templates/TemplatePreviewDrawer.tsx:403
 msgid "MJML Compilation Error: {0}"
 msgstr "MJMLコンパイルエラー: {0}"
 
@@ -8359,7 +8369,7 @@ msgstr "MJMLインポートエラー"
 msgid "MJML Import Validation Failed"
 msgstr "MJMLインポート検証に失敗しました"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:220
+#: src/components/templates/TemplatePreviewDrawer.tsx:242
 msgid "MJML Source"
 msgstr "MJMLソース"
 
@@ -8726,7 +8736,7 @@ msgstr "データが見つかりません"
 msgid "No data returned"
 msgstr "データが返されませんでした"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:293
+#: src/components/templates/TemplatePreviewDrawer.tsx:315
 msgid "No default sender configured"
 msgstr "デフォルトの差出人が設定されていません"
 
@@ -8744,7 +8754,7 @@ msgstr "ディメンションが見つかりません"
 msgid "No draft posts"
 msgstr "下書き投稿がありません"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:268
+#: src/components/templates/TemplatePreviewDrawer.tsx:290
 msgid "no email"
 msgstr "メールなし"
 
@@ -8868,7 +8878,7 @@ msgstr "このカテゴリに投稿がありません"
 msgid "No posts yet"
 msgstr "投稿がまだありません"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:418
+#: src/components/templates/TemplatePreviewDrawer.tsx:440
 msgid "No preview available or template is empty."
 msgstr "プレビューが利用できないか、テンプレートが空です。"
 
@@ -8932,12 +8942,12 @@ msgstr "head要素の設定はありません。"
 msgid "No source data"
 msgstr "ソースのデータがありません"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:394
+#: src/components/templates/TemplatePreviewDrawer.tsx:416
 msgid "No specific details provided."
 msgstr "詳細が提供されていません。"
 
 #: src/components/templates/TemplateSelectorInput.tsx:258
-#: src/pages/TemplatesPage.tsx:462
+#: src/pages/TemplatesPage.tsx:490
 msgid "No templates found"
 msgstr "テンプレートが見つかりません"
 
@@ -8946,11 +8956,11 @@ msgstr "テンプレートが見つかりません"
 msgid "No templates found for {0} category"
 msgstr "{0}カテゴリのテンプレートが見つかりません"
 
-#: src/pages/TemplatesPage.tsx:490
+#: src/pages/TemplatesPage.tsx:518
 msgid "No templates found for category \"{selectedCategory}\""
 msgstr "カテゴリ「{selectedCategory}」のテンプレートが見つかりません"
 
-#: src/pages/TemplatesPage.tsx:454
+#: src/pages/TemplatesPage.tsx:469
 msgid "No templates match your search"
 msgstr "検索に一致するテンプレートはありません"
 
@@ -9086,7 +9096,7 @@ msgstr "未解決"
 #: src/components/settings/GeneralSettings.tsx:149
 #: src/components/settings/SMTPBridgeSettings.tsx:42
 #: src/components/settings/SMTPBridgeSettings.tsx:46
-#: src/components/templates/TemplatePreviewDrawer.tsx:313
+#: src/components/templates/TemplatePreviewDrawer.tsx:335
 msgid "Not set"
 msgstr "未設定"
 
@@ -9098,7 +9108,7 @@ msgstr "未マッピングのチャネル"
 msgid "Note: mj-raw components can only be placed directly in mj-body or mj-head, not inside mj-wrapper. Consider moving the mj-raw content outside the wrapper or converting it to appropriate MJML components."
 msgstr "注意: mj-rawコンポーネントはmj-bodyまたはmj-headの直下にのみ配置でき、mj-wrapper内には配置できません。mj-rawコンテンツをラッパー外に移動するか、適切なMJMLコンポーネントに変換することを検討してください。"
 
-#: src/pages/TemplatesPage.tsx:360
+#: src/pages/TemplatesPage.tsx:374
 msgid "Note: The template will be hidden from your workspace but preserved to maintain the ability to preview previously sent broadcasts and messages that used this template."
 msgstr "注意: テンプレートはワークスペースから非表示になりますが、このテンプレートを使用して送信されたブロードキャストやメッセージをプレビューできるよう保持されます。"
 
@@ -9371,7 +9381,7 @@ msgstr "操作の結果:"
 msgid "Operations"
 msgstr "操作"
 
-#: src/pages/TemplatesPage.tsx:128
+#: src/pages/TemplatesPage.tsx:132
 msgid "Opt-in"
 msgstr "オプトイン"
 
@@ -9418,7 +9428,7 @@ msgstr "OS"
 
 #: src/components/blog_editor/menus/suggestion/SlashPopoverContent.tsx:74
 #: src/components/settings/WebhooksSettings.tsx:353
-#: src/pages/TemplatesPage.tsx:132
+#: src/pages/TemplatesPage.tsx:136
 msgid "Other"
 msgstr "その他"
 
@@ -10143,7 +10153,7 @@ msgid "Preview template"
 msgstr "テンプレートをプレビュー"
 
 #: src/pages/BroadcastsPage.tsx:1018
-#: src/pages/TemplatesPage.tsx:386
+#: src/pages/TemplatesPage.tsx:400
 msgid "Preview Template"
 msgstr "テンプレートをプレビュー"
 
@@ -10891,7 +10901,7 @@ msgstr "返信転送が設定されました。受信返信には、ドメイン
 #~ msgstr ""
 
 #: src/components/templates/CreateTemplateDrawer.tsx:950
-#: src/components/templates/TemplatePreviewDrawer.tsx:302
+#: src/components/templates/TemplatePreviewDrawer.tsx:324
 msgid "Reply to"
 msgstr "返信先"
 
@@ -10997,7 +11007,7 @@ msgstr "インテグレーションの同期タスクをリセットし、最初
 msgid "Reset formatting"
 msgstr "書式をリセット"
 
-#: src/pages/TemplatesPage.tsx:495
+#: src/pages/TemplatesPage.tsx:523
 msgid "reset the filter"
 msgstr "フィルターをリセット"
 
@@ -11423,7 +11433,7 @@ msgid "Search"
 msgstr "検索"
 
 #: src/pages/BroadcastsPage.tsx:1646
-#: src/pages/TemplatesPage.tsx:435
+#: src/pages/TemplatesPage.tsx:449
 msgid "Search by name"
 msgstr "名前で検索"
 
@@ -11966,7 +11976,7 @@ msgstr "テストを送信"
 #: src/components/templates/SendTemplateModal.tsx:263
 #: src/components/templates/SendTemplateModal.tsx:277
 #: src/pages/BroadcastsPage.tsx:1002
-#: src/pages/TemplatesPage.tsx:376
+#: src/pages/TemplatesPage.tsx:390
 msgid "Send Test Email"
 msgstr "テストメールを送信"
 
@@ -11976,7 +11986,7 @@ msgstr "SMTPリレーを使用してトランザクション通知を送信。�
 
 #: src/components/templates/CreateTemplateDrawer.tsx:906
 #: src/components/templates/SendTemplateModal.tsx:303
-#: src/pages/TemplatesPage.tsx:237
+#: src/pages/TemplatesPage.tsx:251
 msgid "Sender"
 msgstr "送信者"
 
@@ -12755,16 +12765,16 @@ msgstr "スタイル"
 msgid "Style Attributes"
 msgstr "スタイル属性"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:318
+#: src/components/templates/TemplatePreviewDrawer.tsx:340
 #: src/components/templates/TemplateTranslationsTab.tsx:226
 #: src/pages/BroadcastsPage.tsx:876
-#: src/pages/TemplatesPage.tsx:258
+#: src/pages/TemplatesPage.tsx:272
 msgid "Subject"
 msgstr "件名"
 
 #: src/components/email_builder/blocks/MjPreviewBlock.tsx:33
 #: src/components/templates/CreateTemplateDrawer.tsx:929
-#: src/components/templates/TemplatePreviewDrawer.tsx:323
+#: src/components/templates/TemplatePreviewDrawer.tsx:345
 #: src/components/templates/TemplateTranslationsTab.tsx:235
 msgid "Subject preview"
 msgstr "件名プレビュー"
@@ -12995,7 +13005,7 @@ msgstr "テンプレート"
 #: src/components/messages/MessageHistoryTable.tsx:234
 #: src/pages/BroadcastsPage.tsx:871
 #: src/pages/BroadcastsPage.tsx:873
-#: src/pages/TemplatesPage.tsx:208
+#: src/pages/TemplatesPage.tsx:222
 msgid "Template"
 msgstr "テンプレート"
 
@@ -13031,7 +13041,7 @@ msgid "Template created successfully"
 msgstr "テンプレートが正常に作成されました"
 
 #: src/components/email_builder/panels/Preview.tsx:336
-#: src/components/templates/TemplatePreviewDrawer.tsx:231
+#: src/components/templates/TemplatePreviewDrawer.tsx:253
 msgid "Template Data"
 msgstr "テンプレートデータ"
 
@@ -13039,7 +13049,7 @@ msgstr "テンプレートデータ"
 msgid "Template Data & Liquid Templating"
 msgstr "テンプレートデータとLiquidテンプレート"
 
-#: src/pages/TemplatesPage.tsx:164
+#: src/pages/TemplatesPage.tsx:168
 msgid "Template deleted successfully"
 msgstr "テンプレートが正常に削除されました"
 
@@ -13071,7 +13081,7 @@ msgstr "テンプレート名"
 msgid "Template set"
 msgstr "テンプレート設定済み"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:134
+#: src/components/templates/TemplatePreviewDrawer.tsx:156
 msgid "Template structure data is missing or invalid."
 msgstr "テンプレート構造データが見つからないか無効です。"
 
@@ -13099,7 +13109,7 @@ msgstr "テンプレート:"
 
 #: src/components/settings/PermissionsMatrix.tsx:123
 #: src/layouts/WorkspaceLayout.tsx:251
-#: src/pages/TemplatesPage.tsx:404
+#: src/pages/TemplatesPage.tsx:418
 #: src/services/api/errors.ts:62
 msgid "Templates"
 msgstr "テンプレート"
@@ -13728,7 +13738,7 @@ msgstr "このセグメントは相対日付フィルターを使用しており
 msgid "This template is already used in another variation"
 msgstr "このテンプレートは既に別のバリエーションで使用されています"
 
-#: src/pages/TemplatesPage.tsx:342
+#: src/pages/TemplatesPage.tsx:356
 msgid "This template is managed by an integration and cannot be deleted"
 msgstr "このテンプレートは連携によって管理されており、削除できません"
 
@@ -14143,7 +14153,7 @@ msgstr "どのフィルタールールも分類していないトラフィック
 #: src/components/settings/PermissionsMatrix.tsx:125
 #: src/components/webhooks/InboundWebhookEventsTab.tsx:408
 #: src/layouts/WorkspaceLayout.tsx:440
-#: src/pages/TemplatesPage.tsx:126
+#: src/pages/TemplatesPage.tsx:130
 #: src/services/api/errors.ts:64
 msgid "Transactional"
 msgstr "トランザクション"
@@ -14204,7 +14214,7 @@ msgstr "特定のフィールド変更でトリガー"
 msgid "Try adjusting your search or status filter"
 msgstr "検索条件やステータスフィルターを調整してみてください"
 
-#: src/pages/TemplatesPage.tsx:493
+#: src/pages/TemplatesPage.tsx:521
 msgid "Try selecting a different category or"
 msgstr "別のカテゴリを選択するか、"
 
@@ -14392,7 +14402,7 @@ msgstr "解除"
 msgid "Unsub."
 msgstr "解除"
 
-#: src/pages/TemplatesPage.tsx:129
+#: src/pages/TemplatesPage.tsx:133
 msgid "Unsubscribe"
 msgstr "購読解除"
 
@@ -15075,7 +15085,7 @@ msgstr "週次"
 msgid "Weight"
 msgstr "太さ"
 
-#: src/pages/TemplatesPage.tsx:127
+#: src/pages/TemplatesPage.tsx:131
 msgid "Welcome"
 msgstr "ようこそ"
 
@@ -15382,7 +15392,7 @@ msgstr "はい、クリア"
 msgid "Yes, delete"
 msgstr "はい、削除"
 
-#: src/pages/TemplatesPage.tsx:364
+#: src/pages/TemplatesPage.tsx:378
 #: src/pages/TransactionalNotificationsPage.tsx:148
 msgid "Yes, Delete"
 msgstr "はい、削除"
@@ -15465,10 +15475,10 @@ msgstr "コンタクトの書き込み権限がありません"
 msgid "You don't have write permission for lists"
 msgstr "リストの書き込み権限がありません"
 
-#: src/pages/TemplatesPage.tsx:299
-#: src/pages/TemplatesPage.tsx:321
-#: src/pages/TemplatesPage.tsx:344
-#: src/pages/TemplatesPage.tsx:409
+#: src/pages/TemplatesPage.tsx:313
+#: src/pages/TemplatesPage.tsx:335
+#: src/pages/TemplatesPage.tsx:358
+#: src/pages/TemplatesPage.tsx:423
 msgid "You don't have write permission for templates"
 msgstr "テンプレートの書き込み権限がありません"
 
@@ -15500,7 +15510,7 @@ msgid "You must configure a Custom Endpoint URL in General Settings above before
 msgstr "ブログを有効にする前に、上の一般設定でカスタムエンドポイントURLを設定する必要があります。"
 
 #: src/pages/BroadcastsPage.tsx:1001
-#: src/pages/TemplatesPage.tsx:375
+#: src/pages/TemplatesPage.tsx:389
 msgid "You need read template and write contact permissions to send test emails"
 msgstr "テストメールを送信するには、テンプレートの読み取りとコンタクトの書き込み権限が必要です"
 

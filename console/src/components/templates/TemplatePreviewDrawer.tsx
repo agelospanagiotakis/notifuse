@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useLingui } from '@lingui/react/macro'
-import { Drawer, Typography, Spin, Alert, Tabs, Tag, Space, Descriptions, Segmented } from 'antd'
+import { Drawer, Typography, Spin, Alert, Tabs, Tag, Space, Descriptions, Segmented, Button } from 'antd'
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
+import { faCompress, faExpand } from '@fortawesome/free-solid-svg-icons'
 import type { Template, MjmlCompileError, Workspace } from '../../services/api/types'
 import { templatesApi } from '../../services/api/template'
 import type { CompileTemplateRequest } from '../../services/api/template'
@@ -11,12 +13,23 @@ import { SUPPORTED_LANGUAGES } from '../../lib/languages'
 
 const { Text } = Typography
 
+/** Preview sidebar starts at a readable email width and can widen to near full screen. */
+const DEFAULT_DRAWER_SIZE = 650
+const EXPANDED_DRAWER_SIZE = '85%'
+
 interface TemplatePreviewDrawerProps {
   record: Template
   workspace: Workspace
   templateData?: Record<string, unknown>
   messageHistory?: MessageHistory
-  children: React.ReactNode
+  /**
+   * Optional trigger. Omit it (together with `open`) when the caller drives the
+   * drawer itself, e.g. from a table row click.
+   */
+  children?: React.ReactNode
+  /** Controlled open state. Omit to keep the trigger-based behaviour. */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 const TemplatePreviewDrawer: React.FC<TemplatePreviewDrawerProps> = ({
@@ -24,7 +37,9 @@ const TemplatePreviewDrawer: React.FC<TemplatePreviewDrawerProps> = ({
   workspace,
   templateData,
   messageHistory,
-  children
+  children,
+  open: controlledOpen,
+  onOpenChange
 }) => {
   const { t } = useLingui()
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
@@ -32,7 +47,14 @@ const TemplatePreviewDrawer: React.FC<TemplatePreviewDrawerProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [mjmlError, setMjmlError] = useState<MjmlCompileError | null>(null)
-  const [isOpen, setIsOpen] = useState<boolean>(false)
+  const [internalOpen, setInternalOpen] = useState<boolean>(false)
+  const isOpen = controlledOpen ?? internalOpen
+  const setIsOpen = (next: boolean) => {
+    setInternalOpen(next)
+    onOpenChange?.(next)
+  }
+  const [isExpanded, setIsExpanded] = useState<boolean>(false)
+  const [drawerSize, setDrawerSize] = useState<number | string>(DEFAULT_DRAWER_SIZE)
   const [activeTabKey, setActiveTabKey] = useState<string>('1') // State for active tab
   const [renderedSubject, setRenderedSubject] = useState<string | null>(null)
   const [renderedSubjectPreview, setRenderedSubjectPreview] = useState<string | null>(null)
@@ -424,15 +446,42 @@ const TemplatePreviewDrawer: React.FC<TemplatePreviewDrawerProps> = ({
 
   return (
     <>
-      <div onClick={() => setIsOpen(true)}>{children}</div>
+      {children ? <div onClick={() => setIsOpen(true)}>{children}</div> : null}
       <Drawer
-        title={`${record.name}`}
+        title={
+          <div className="flex items-center justify-between gap-3">
+            <span className="truncate" title={record.name}>
+              {record.name}
+            </span>
+            <Button
+              type="text"
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation()
+                const next = !isExpanded
+                setIsExpanded(next)
+                setDrawerSize(next ? EXPANDED_DRAWER_SIZE : DEFAULT_DRAWER_SIZE)
+              }}
+              aria-label={isExpanded ? t`Collapse preview` : t`Expand preview`}
+              title={isExpanded ? t`Collapse preview` : t`Expand preview`}
+            >
+              <FontAwesomeIcon icon={isExpanded ? faCompress : faExpand} />
+            </Button>
+          </div>
+        }
         placement="right"
-        size={650}
+        size={drawerSize}
+        maxSize={typeof window !== 'undefined' ? window.innerWidth : undefined}
+        resizable={{
+          onResize: (next: number) => {
+            setDrawerSize(next)
+            setIsExpanded(false)
+          }
+        }}
         open={isOpen}
         onClose={() => setIsOpen(false)}
         destroyOnHidden={true}
-        mask={{ enabled: true, closable: true }}
+        mask={false}
         keyboard={true}
         forceRender={false}
       >

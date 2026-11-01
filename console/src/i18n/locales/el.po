@@ -69,8 +69,8 @@ msgstr "(άδειο)"
 
 #. placeholder {0}: record.email.reply_to
 #. placeholder {0}: templateSender?.name || defaultSender?.name
-#: src/components/templates/TemplatePreviewDrawer.tsx:272
-#: src/components/templates/TemplatePreviewDrawer.tsx:308
+#: src/components/templates/TemplatePreviewDrawer.tsx:294
+#: src/components/templates/TemplatePreviewDrawer.tsx:330
 msgid "(original: {0})"
 msgstr "(πρωτότυπο: {0})"
 
@@ -1015,7 +1015,7 @@ msgstr "Ευθυγράμμιση"
 #: src/components/web_analytics/tabs/AnnotationsTab.tsx:124
 #: src/components/web_analytics/tabs/FiltersTab.tsx:152
 #: src/pages/BroadcastsPage.tsx:1636
-#: src/pages/TemplatesPage.tsx:124
+#: src/pages/TemplatesPage.tsx:128
 msgid "All"
 msgstr "Όλα"
 
@@ -1371,7 +1371,7 @@ msgstr "Είστε βέβαιοι ότι θέλετε να διαγράψετε 
 msgid "Are you sure you want to delete this node?"
 msgstr "Είστε βέβαιοι ότι θέλετε να διαγράψετε αυτόν τον κόμβο;"
 
-#: src/pages/TemplatesPage.tsx:358
+#: src/pages/TemplatesPage.tsx:372
 msgid "Are you sure you want to delete this template?"
 msgstr "Είστε βέβαιοι ότι θέλετε να διαγράψετε αυτό το πρότυπο;"
 
@@ -1764,7 +1764,7 @@ msgstr "Βασικός έλεγχος ταυτότητας (Όνομα χρήσ�
 msgid "Basic Information"
 msgstr "Βασικές Πληροφορίες"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:342
+#: src/components/templates/TemplatePreviewDrawer.tsx:364
 msgid "BCC"
 msgstr "BCC"
 
@@ -1837,7 +1837,7 @@ msgstr "Πίνακας ρυθμίσεων αποκλεισμού"
 msgid "Block type:"
 msgstr "Τύπος μπλοκ:"
 
-#: src/pages/TemplatesPage.tsx:131
+#: src/pages/TemplatesPage.tsx:135
 msgid "Blocklist"
 msgstr "Λίστα μπλοκ"
 
@@ -1956,7 +1956,7 @@ msgstr "αναπήδηση"
 #: src/components/timeline/ContactTimeline.tsx:653
 #: src/components/web_analytics/explore/BreakdownDrawer.tsx:219
 #: src/components/webhooks/InboundWebhookEventsTab.tsx:72
-#: src/pages/TemplatesPage.tsx:130
+#: src/pages/TemplatesPage.tsx:134
 msgid "Bounce"
 msgstr "Αναπήδηση"
 
@@ -2323,7 +2323,7 @@ msgstr "καμπάνιες"
 #: src/pages/BroadcastsPage.tsx:1054
 #: src/pages/BroadcastsPage.tsx:1789
 #: src/pages/ListsPage.tsx:318
-#: src/pages/TemplatesPage.tsx:366
+#: src/pages/TemplatesPage.tsx:380
 #: src/pages/TransactionalNotificationsPage.tsx:149
 msgid "Cancel"
 msgstr "Ακύρωση"
@@ -2396,7 +2396,7 @@ msgstr "Κατηγορίες"
 #: src/components/blog/ThemeEditorDrawer.tsx:428
 #: src/components/blog/ThemePresetPreviewDrawer.tsx:75
 #: src/components/templates/CreateTemplateDrawer.tsx:851
-#: src/pages/TemplatesPage.tsx:231
+#: src/pages/TemplatesPage.tsx:245
 msgid "Category"
 msgstr "Κατηγορία"
 
@@ -2417,7 +2417,7 @@ msgstr "Η κατηγορία ενημερώθηκε με επιτυχία"
 msgid "Category:"
 msgstr "Κατηγορία:"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:330
+#: src/components/templates/TemplatePreviewDrawer.tsx:352
 msgid "CC"
 msgstr "CC"
 
@@ -2685,7 +2685,7 @@ msgid "Clone email template"
 msgstr "Κλωνοποίηση προτύπου email"
 
 #: src/components/templates/CreateTemplateDrawer.tsx:605
-#: src/pages/TemplatesPage.tsx:322
+#: src/pages/TemplatesPage.tsx:336
 msgid "Clone Template"
 msgstr "Πρότυπο κλώνου"
 
@@ -2709,7 +2709,7 @@ msgid "Closed Captions (CC)"
 msgstr "Υπότιτλοι (CC)"
 
 #: src/components/email_builder/MjmlCodeEditor.tsx:678
-#: src/pages/TemplatesPage.tsx:224
+#: src/pages/TemplatesPage.tsx:238
 msgid "Code"
 msgstr "Κωδικός"
 
@@ -2725,6 +2725,11 @@ msgstr "Επεξεργαστής κώδικα"
 #: src/layouts/WorkspaceLayout.tsx:574
 msgid "Collapse"
 msgstr "Κατάρρευση"
+
+#: src/components/templates/TemplatePreviewDrawer.tsx:465
+#: src/components/templates/TemplatePreviewDrawer.tsx:466
+msgid "Collapse preview"
+msgstr "Σύμπτυξη προεπισκόπησης"
 
 #: src/components/blog_editor/menus/block-actions/BlockColorPopover.tsx:97
 #: src/components/email_builder/blocks/MjDividerBlock.tsx:42
@@ -3547,7 +3552,7 @@ msgstr "Δημιουργήστε την πρώτη σας ειδοποίηση �
 msgid "Create Your First Post"
 msgstr "Δημιουργήστε την πρώτη σας ανάρτηση"
 
-#: src/pages/TemplatesPage.tsx:464
+#: src/pages/TemplatesPage.tsx:492
 msgid "Create your first template to get started"
 msgstr "Δημιουργήστε το πρώτο σας πρότυπο για να ξεκινήσετε"
 
@@ -3557,7 +3562,7 @@ msgstr "δημιουργήθηκε"
 
 #: src/components/automations/config/TriggerConfigForm.tsx:68
 #: src/components/webhooks/OutgoingWebhooksTab.tsx:418
-#: src/pages/TemplatesPage.tsx:275
+#: src/pages/TemplatesPage.tsx:289
 msgid "Created"
 msgstr "Δημιουργήθηκε"
 
@@ -3914,7 +3919,7 @@ msgid "Deduplication:"
 msgstr "Αποδιπλασιασμός:"
 
 #: src/components/templates/SendTemplateModal.tsx:66
-#: src/pages/TemplatesPage.tsx:252
+#: src/pages/TemplatesPage.tsx:266
 msgid "default"
 msgstr "προεπιλογή"
 
@@ -4164,11 +4169,11 @@ msgstr "Διαγραφή ανάρτησης"
 msgid "Delete segment"
 msgstr "Διαγραφή τμήματος"
 
-#: src/pages/TemplatesPage.tsx:345
+#: src/pages/TemplatesPage.tsx:359
 msgid "Delete Template"
 msgstr "Διαγραφή προτύπου"
 
-#: src/pages/TemplatesPage.tsx:355
+#: src/pages/TemplatesPage.tsx:369
 msgid "Delete template?"
 msgstr "Διαγραφή προτύπου;"
 
@@ -4788,7 +4793,7 @@ msgid "Edit Sender"
 msgstr "Επεξεργασία αποστολέα"
 
 #: src/components/templates/CreateTemplateDrawer.tsx:605
-#: src/pages/TemplatesPage.tsx:300
+#: src/pages/TemplatesPage.tsx:314
 msgid "Edit Template"
 msgstr "Επεξεργασία προτύπου"
 
@@ -5351,7 +5356,7 @@ msgstr "Σφάλμα φόρτωσης αυτοματισμών"
 msgid "Error loading data"
 msgstr "Σφάλμα κατά τη φόρτωση δεδομένων"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:374
+#: src/components/templates/TemplatePreviewDrawer.tsx:396
 msgid "Error loading preview"
 msgstr "Σφάλμα κατά τη φόρτωση της προεπισκόπησης"
 
@@ -5511,6 +5516,11 @@ msgstr "Έξοδοι"
 msgid "Expand"
 msgstr "Ανάπτυξη"
 
+#: src/components/templates/TemplatePreviewDrawer.tsx:465
+#: src/components/templates/TemplatePreviewDrawer.tsx:466
+msgid "Expand preview"
+msgstr "Ανάπτυξη προεπισκόπησης"
+
 #: src/components/settings/LicenseSettings.tsx:110
 msgid "Expired"
 msgstr "Λήξη"
@@ -5625,7 +5635,7 @@ msgstr "Η ακύρωση της εκπομπής απέτυχε"
 msgid "Failed to clear field"
 msgstr "Απέτυχε η εκκαθάριση του πεδίου"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:171
+#: src/components/templates/TemplatePreviewDrawer.tsx:193
 msgid "Failed to compile template preview."
 msgstr "Αποτυχία μεταγλώττισης προεπισκόπησης προτύπου."
 
@@ -5742,7 +5752,7 @@ msgstr "Η διαγραφή της ανάρτησης απέτυχε"
 msgid "Failed to delete segment"
 msgstr "Αποτυχία διαγραφής τμήματος"
 
-#: src/pages/TemplatesPage.tsx:170
+#: src/pages/TemplatesPage.tsx:174
 msgid "Failed to delete template: {errorMsg}"
 msgstr "Αποτυχία διαγραφής προτύπου: {errorMsg}"
 
@@ -6426,7 +6436,7 @@ msgstr "Βρέθηκαν μη αποθηκευμένες αλλαγές από �
 msgid "Frequency"
 msgstr "Συχνότητα"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:263
+#: src/components/templates/TemplatePreviewDrawer.tsx:285
 msgid "From"
 msgstr "Από"
 
@@ -6816,12 +6826,12 @@ msgstr "Η εξαγωγή HTML απέτυχε"
 msgid "HTML exported successfully"
 msgstr "Η εξαγωγή HTML έγινε με επιτυχία"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:204
+#: src/components/templates/TemplatePreviewDrawer.tsx:226
 msgid "HTML Preview"
 msgstr "Προεπισκόπηση HTML"
 
 #. placeholder {0}: record.name
-#: src/components/templates/TemplatePreviewDrawer.tsx:210
+#: src/components/templates/TemplatePreviewDrawer.tsx:232
 msgid "HTML Preview of {0}"
 msgstr "Προεπισκόπηση HTML του {0}"
 
@@ -6890,7 +6900,7 @@ msgstr "Το αναγνωριστικό μπορεί να περιέχει μό�
 msgid "ID doesn't match"
 msgstr "Η ταυτότητα δεν ταιριάζει"
 
-#: src/pages/TemplatesPage.tsx:220
+#: src/pages/TemplatesPage.tsx:234
 msgid "ID for API:"
 msgstr "Αναγνωριστικό για API:"
 
@@ -7279,7 +7289,7 @@ msgstr "Μη έγκυρο JSON στο πεδίο {field}"
 msgid "Invalid or expired invitation token"
 msgstr "Μη έγκυρο ή ληγμένο διακριτικό πρόσκλησης"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:123
+#: src/components/templates/TemplatePreviewDrawer.tsx:145
 msgid "Invalid template structure data."
 msgstr "Μη έγκυρα δεδομένα δομής προτύπου."
 
@@ -7479,7 +7489,7 @@ msgstr "Σελίδες προορισμού"
 #: src/components/contacts/ContactsCsvUploadDrawer.tsx:96
 #: src/components/contacts/ExportContactsModal.tsx:68
 #: src/components/templates/SendTemplateModal.tsx:326
-#: src/components/templates/TemplatePreviewDrawer.tsx:353
+#: src/components/templates/TemplatePreviewDrawer.tsx:375
 #: src/pages/ContactsPage.tsx:375
 #: src/pages/ContactsPage.tsx:431
 #: src/pages/ContactsPage.tsx:706
@@ -7651,7 +7661,7 @@ msgstr "Γραμμή"
 #. placeholder {0}: detail.line
 #. placeholder {1}: detail.tagName
 #. placeholder {2}: detail.message
-#: src/components/templates/TemplatePreviewDrawer.tsx:389
+#: src/components/templates/TemplatePreviewDrawer.tsx:411
 msgid "Line {0} ({1}): {2}"
 msgstr "Γραμμή {0} ({1}): {2}"
 
@@ -7957,7 +7967,7 @@ msgstr "Φόρτωση κατάστασης webhook..."
 #: src/pages/ContactsPage.tsx:1161
 #: src/pages/ListsPage.tsx:149
 #: src/pages/LogsPage.tsx:18
-#: src/pages/TemplatesPage.tsx:203
+#: src/pages/TemplatesPage.tsx:217
 #: src/pages/TransactionalNotificationsPage.tsx:383
 msgid "Loading..."
 msgstr "Φόρτωση..."
@@ -8092,7 +8102,7 @@ msgstr "Σημειώστε τις ημερομηνίες που εξηγούν �
 msgid "Marked as spam"
 msgstr "Επισημάνθηκε ως ανεπιθύμητο"
 
-#: src/pages/TemplatesPage.tsx:125
+#: src/pages/TemplatesPage.tsx:129
 msgid "Marketing"
 msgstr "Μάρκετινγκ"
 
@@ -8248,7 +8258,7 @@ msgstr "Meta Τίτλος"
 
 #: src/components/messages/MessageHistoryTable.tsx:146
 #: src/components/messages/MessageHistoryTable.tsx:190
-#: src/components/templates/TemplatePreviewDrawer.tsx:243
+#: src/components/templates/TemplatePreviewDrawer.tsx:265
 msgid "Metadata"
 msgstr "Μεταδεδομένα"
 
@@ -8302,7 +8312,7 @@ msgstr "Λείπει — τα συμβάντα απόρριψης θα απορ�
 msgid "Missing Tags"
 msgstr "Ετικέτες που λείπουν"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:77
+#: src/components/templates/TemplatePreviewDrawer.tsx:99
 msgid "Missing workspace ID or template data."
 msgstr "Λείπουν το αναγνωριστικό χώρου εργασίας ή τα δεδομένα προτύπου."
 
@@ -8325,7 +8335,7 @@ msgid "MJML compilation completed successfully with no warnings or errors."
 msgstr "Η συλλογή MJML ολοκληρώθηκε με επιτυχία χωρίς προειδοποιήσεις ή σφάλματα."
 
 #. placeholder {0}: mjmlError.message
-#: src/components/templates/TemplatePreviewDrawer.tsx:381
+#: src/components/templates/TemplatePreviewDrawer.tsx:403
 msgid "MJML Compilation Error: {0}"
 msgstr "Σφάλμα μεταγλώττισης MJML: {0}"
 
@@ -8357,7 +8367,7 @@ msgstr "Σφάλμα εισαγωγής MJML"
 msgid "MJML Import Validation Failed"
 msgstr "Η επικύρωση εισαγωγής MJML απέτυχε"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:220
+#: src/components/templates/TemplatePreviewDrawer.tsx:242
 msgid "MJML Source"
 msgstr "Πηγή MJML"
 
@@ -8724,7 +8734,7 @@ msgstr "Δεν βρέθηκαν δεδομένα"
 msgid "No data returned"
 msgstr "Δεν επιστράφηκαν δεδομένα"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:293
+#: src/components/templates/TemplatePreviewDrawer.tsx:315
 msgid "No default sender configured"
 msgstr "Δεν έχει διαμορφωθεί προεπιλεγμένος αποστολέας"
 
@@ -8742,7 +8752,7 @@ msgstr "Δεν βρέθηκαν διαστάσεις"
 msgid "No draft posts"
 msgstr "Χωρίς πρόχειρες αναρτήσεις"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:268
+#: src/components/templates/TemplatePreviewDrawer.tsx:290
 msgid "no email"
 msgstr "κανένα email"
 
@@ -8866,7 +8876,7 @@ msgstr "Δεν υπάρχουν δημοσιεύσεις σε αυτήν την 
 msgid "No posts yet"
 msgstr "Δεν υπάρχουν ακόμη δημοσιεύσεις"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:418
+#: src/components/templates/TemplatePreviewDrawer.tsx:440
 msgid "No preview available or template is empty."
 msgstr "Δεν υπάρχει διαθέσιμη προεπισκόπηση ή το πρότυπο είναι κενό."
 
@@ -8930,12 +8940,12 @@ msgstr "Δεν υπάρχουν διαθέσιμες ρυθμίσεις για �
 msgid "No source data"
 msgstr "Δεν υπάρχουν δεδομένα πηγής"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:394
+#: src/components/templates/TemplatePreviewDrawer.tsx:416
 msgid "No specific details provided."
 msgstr "Δεν παρέχονται συγκεκριμένες λεπτομέρειες."
 
 #: src/components/templates/TemplateSelectorInput.tsx:258
-#: src/pages/TemplatesPage.tsx:462
+#: src/pages/TemplatesPage.tsx:490
 msgid "No templates found"
 msgstr "Δεν βρέθηκαν πρότυπα"
 
@@ -8944,11 +8954,11 @@ msgstr "Δεν βρέθηκαν πρότυπα"
 msgid "No templates found for {0} category"
 msgstr "Δεν βρέθηκαν πρότυπα για την κατηγορία {0}"
 
-#: src/pages/TemplatesPage.tsx:490
+#: src/pages/TemplatesPage.tsx:518
 msgid "No templates found for category \"{selectedCategory}\""
 msgstr "Δεν βρέθηκαν πρότυπα για την κατηγορία \"{selectedCategory}\""
 
-#: src/pages/TemplatesPage.tsx:454
+#: src/pages/TemplatesPage.tsx:469
 msgid "No templates match your search"
 msgstr "Δεν υπάρχουν πρότυπα που να ταιριάζουν με την αναζήτησή σας"
 
@@ -9084,7 +9094,7 @@ msgstr "Δεν επιλύθηκε"
 #: src/components/settings/GeneralSettings.tsx:149
 #: src/components/settings/SMTPBridgeSettings.tsx:42
 #: src/components/settings/SMTPBridgeSettings.tsx:46
-#: src/components/templates/TemplatePreviewDrawer.tsx:313
+#: src/components/templates/TemplatePreviewDrawer.tsx:335
 msgid "Not set"
 msgstr "Δεν έχει οριστεί"
 
@@ -9096,7 +9106,7 @@ msgstr "Μη χαρτογραφημένα κανάλια"
 msgid "Note: mj-raw components can only be placed directly in mj-body or mj-head, not inside mj-wrapper. Consider moving the mj-raw content outside the wrapper or converting it to appropriate MJML components."
 msgstr ""
 
-#: src/pages/TemplatesPage.tsx:360
+#: src/pages/TemplatesPage.tsx:374
 msgid "Note: The template will be hidden from your workspace but preserved to maintain the ability to preview previously sent broadcasts and messages that used this template."
 msgstr "Σημείωση: Το πρότυπο θα είναι κρυφό από τον χώρο εργασίας σας, αλλά θα διατηρηθεί για να διατηρείται η δυνατότητα προεπισκόπησης των εκπομπών και των μηνυμάτων που είχαν σταλεί προηγουμένως που χρησιμοποιούσαν αυτό το πρότυπο."
 
@@ -9369,7 +9379,7 @@ msgstr "Αποτελέσματα λειτουργίας:"
 msgid "Operations"
 msgstr "Λειτουργίες"
 
-#: src/pages/TemplatesPage.tsx:128
+#: src/pages/TemplatesPage.tsx:132
 msgid "Opt-in"
 msgstr "Συμμετοχή"
 
@@ -9416,7 +9426,7 @@ msgstr "OS"
 
 #: src/components/blog_editor/menus/suggestion/SlashPopoverContent.tsx:74
 #: src/components/settings/WebhooksSettings.tsx:353
-#: src/pages/TemplatesPage.tsx:132
+#: src/pages/TemplatesPage.tsx:136
 msgid "Other"
 msgstr "Άλλο"
 
@@ -10141,7 +10151,7 @@ msgid "Preview template"
 msgstr "Πρότυπο προεπισκόπησης"
 
 #: src/pages/BroadcastsPage.tsx:1018
-#: src/pages/TemplatesPage.tsx:386
+#: src/pages/TemplatesPage.tsx:400
 msgid "Preview Template"
 msgstr "Πρότυπο προεπισκόπησης"
 
@@ -10889,7 +10899,7 @@ msgstr ""
 #~ msgstr "Reply forwarding route is set up. Inbound replies also require your domain's MX records to point at Mailgun."
 
 #: src/components/templates/CreateTemplateDrawer.tsx:950
-#: src/components/templates/TemplatePreviewDrawer.tsx:302
+#: src/components/templates/TemplatePreviewDrawer.tsx:324
 msgid "Reply to"
 msgstr "Απάντηση σε"
 
@@ -10995,7 +11005,7 @@ msgstr "Επαναφέρετε μια εργασία συγχρονισμού ε
 msgid "Reset formatting"
 msgstr "Επαναφορά μορφοποίησης"
 
-#: src/pages/TemplatesPage.tsx:495
+#: src/pages/TemplatesPage.tsx:523
 msgid "reset the filter"
 msgstr "επαναφέρετε το φίλτρο"
 
@@ -11421,7 +11431,7 @@ msgid "Search"
 msgstr "Αναζήτηση"
 
 #: src/pages/BroadcastsPage.tsx:1646
-#: src/pages/TemplatesPage.tsx:435
+#: src/pages/TemplatesPage.tsx:449
 msgid "Search by name"
 msgstr "Αναζήτηση με όνομα"
 
@@ -11964,7 +11974,7 @@ msgstr "Αποστολή δοκιμής"
 #: src/components/templates/SendTemplateModal.tsx:263
 #: src/components/templates/SendTemplateModal.tsx:277
 #: src/pages/BroadcastsPage.tsx:1002
-#: src/pages/TemplatesPage.tsx:376
+#: src/pages/TemplatesPage.tsx:390
 msgid "Send Test Email"
 msgstr "Αποστολή δοκιμαστικού email"
 
@@ -11974,7 +11984,7 @@ msgstr ""
 
 #: src/components/templates/CreateTemplateDrawer.tsx:906
 #: src/components/templates/SendTemplateModal.tsx:303
-#: src/pages/TemplatesPage.tsx:237
+#: src/pages/TemplatesPage.tsx:251
 msgid "Sender"
 msgstr "Αποστολέας"
 
@@ -12753,16 +12763,16 @@ msgstr "Στυλ"
 msgid "Style Attributes"
 msgstr "Χαρακτηριστικά στυλ"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:318
+#: src/components/templates/TemplatePreviewDrawer.tsx:340
 #: src/components/templates/TemplateTranslationsTab.tsx:226
 #: src/pages/BroadcastsPage.tsx:876
-#: src/pages/TemplatesPage.tsx:258
+#: src/pages/TemplatesPage.tsx:272
 msgid "Subject"
 msgstr "Θέμα"
 
 #: src/components/email_builder/blocks/MjPreviewBlock.tsx:33
 #: src/components/templates/CreateTemplateDrawer.tsx:929
-#: src/components/templates/TemplatePreviewDrawer.tsx:323
+#: src/components/templates/TemplatePreviewDrawer.tsx:345
 #: src/components/templates/TemplateTranslationsTab.tsx:235
 msgid "Subject preview"
 msgstr "Προεπισκόπηση θέματος"
@@ -12993,7 +13003,7 @@ msgstr "πρότυπο"
 #: src/components/messages/MessageHistoryTable.tsx:234
 #: src/pages/BroadcastsPage.tsx:871
 #: src/pages/BroadcastsPage.tsx:873
-#: src/pages/TemplatesPage.tsx:208
+#: src/pages/TemplatesPage.tsx:222
 msgid "Template"
 msgstr "Πρότυπο"
 
@@ -13029,7 +13039,7 @@ msgid "Template created successfully"
 msgstr "Το πρότυπο δημιουργήθηκε με επιτυχία"
 
 #: src/components/email_builder/panels/Preview.tsx:336
-#: src/components/templates/TemplatePreviewDrawer.tsx:231
+#: src/components/templates/TemplatePreviewDrawer.tsx:253
 msgid "Template Data"
 msgstr "Δεδομένα προτύπου"
 
@@ -13037,7 +13047,7 @@ msgstr "Δεδομένα προτύπου"
 msgid "Template Data & Liquid Templating"
 msgstr "Template Data & Liquid Templating"
 
-#: src/pages/TemplatesPage.tsx:164
+#: src/pages/TemplatesPage.tsx:168
 msgid "Template deleted successfully"
 msgstr "Το πρότυπο διαγράφηκε με επιτυχία"
 
@@ -13069,7 +13079,7 @@ msgstr "Όνομα προτύπου"
 msgid "Template set"
 msgstr "Σύνολο προτύπων"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:134
+#: src/components/templates/TemplatePreviewDrawer.tsx:156
 msgid "Template structure data is missing or invalid."
 msgstr "Τα δεδομένα δομής προτύπου λείπουν ή δεν είναι έγκυρα."
 
@@ -13097,7 +13107,7 @@ msgstr "Πρότυπο:"
 
 #: src/components/settings/PermissionsMatrix.tsx:123
 #: src/layouts/WorkspaceLayout.tsx:251
-#: src/pages/TemplatesPage.tsx:404
+#: src/pages/TemplatesPage.tsx:418
 #: src/services/api/errors.ts:62
 msgid "Templates"
 msgstr "Πρότυπα"
@@ -13726,7 +13736,7 @@ msgstr "Αυτό το τμήμα χρησιμοποιεί φίλτρα σχετ�
 msgid "This template is already used in another variation"
 msgstr "Αυτό το πρότυπο χρησιμοποιείται ήδη σε άλλη παραλλαγή"
 
-#: src/pages/TemplatesPage.tsx:342
+#: src/pages/TemplatesPage.tsx:356
 msgid "This template is managed by an integration and cannot be deleted"
 msgstr "Αυτό το πρότυπο διαχειρίζεται μια ενοποίηση και δεν μπορεί να διαγραφεί"
 
@@ -14141,7 +14151,7 @@ msgstr "Ο κανόνας κυκλοφορίας χωρίς φίλτρο έχε�
 #: src/components/settings/PermissionsMatrix.tsx:125
 #: src/components/webhooks/InboundWebhookEventsTab.tsx:408
 #: src/layouts/WorkspaceLayout.tsx:440
-#: src/pages/TemplatesPage.tsx:126
+#: src/pages/TemplatesPage.tsx:130
 #: src/services/api/errors.ts:64
 msgid "Transactional"
 msgstr "Συναλλακτική"
@@ -14202,7 +14212,7 @@ msgstr "Ενεργοποίηση σε συγκεκριμένες αλλαγές 
 msgid "Try adjusting your search or status filter"
 msgstr "Δοκιμάστε να προσαρμόσετε το φίλτρο αναζήτησης ή κατάστασης"
 
-#: src/pages/TemplatesPage.tsx:493
+#: src/pages/TemplatesPage.tsx:521
 msgid "Try selecting a different category or"
 msgstr "Δοκιμάστε να επιλέξετε διαφορετική κατηγορία ή"
 
@@ -14390,7 +14400,7 @@ msgstr "Κατάργηση υπο"
 msgid "Unsub."
 msgstr "Κατάργηση υπο."
 
-#: src/pages/TemplatesPage.tsx:129
+#: src/pages/TemplatesPage.tsx:133
 msgid "Unsubscribe"
 msgstr "Απεγγραφή"
 
@@ -15073,7 +15083,7 @@ msgstr "Εβδομαδιαία"
 msgid "Weight"
 msgstr "Βάρος"
 
-#: src/pages/TemplatesPage.tsx:127
+#: src/pages/TemplatesPage.tsx:131
 msgid "Welcome"
 msgstr "Καλώς ήρθατε"
 
@@ -15380,7 +15390,7 @@ msgstr "Ναι, καθαρίστε το"
 msgid "Yes, delete"
 msgstr "Ναι, διαγραφή"
 
-#: src/pages/TemplatesPage.tsx:364
+#: src/pages/TemplatesPage.tsx:378
 #: src/pages/TransactionalNotificationsPage.tsx:148
 msgid "Yes, Delete"
 msgstr "Ναι, Διαγραφή"
@@ -15463,10 +15473,10 @@ msgstr "Δεν έχετε άδεια εγγραφής για επαφές"
 msgid "You don't have write permission for lists"
 msgstr "Δεν έχετε άδεια εγγραφής για λίστες"
 
-#: src/pages/TemplatesPage.tsx:299
-#: src/pages/TemplatesPage.tsx:321
-#: src/pages/TemplatesPage.tsx:344
-#: src/pages/TemplatesPage.tsx:409
+#: src/pages/TemplatesPage.tsx:313
+#: src/pages/TemplatesPage.tsx:335
+#: src/pages/TemplatesPage.tsx:358
+#: src/pages/TemplatesPage.tsx:423
 msgid "You don't have write permission for templates"
 msgstr "Δεν έχετε άδεια εγγραφής για πρότυπα"
 
@@ -15498,7 +15508,7 @@ msgid "You must configure a Custom Endpoint URL in General Settings above before
 msgstr "Πρέπει να διαμορφώσετε μια προσαρμοσμένη διεύθυνση URL τελικού σημείου στις Γενικές ρυθμίσεις παραπάνω πριν ενεργοποιήσετε το ιστολόγιο."
 
 #: src/pages/BroadcastsPage.tsx:1001
-#: src/pages/TemplatesPage.tsx:375
+#: src/pages/TemplatesPage.tsx:389
 msgid "You need read template and write contact permissions to send test emails"
 msgstr "Χρειάζεστε δικαιώματα ανάγνωσης προτύπου και εγγραφής επαφών για να στείλετε δοκιμαστικά μηνύματα ηλεκτρονικού ταχυδρομείου"
 

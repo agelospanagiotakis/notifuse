@@ -79,6 +79,10 @@ export function TemplatesPage() {
   // Add state for the test template modal
   const [testModalOpen, setTestModalOpen] = useState(false)
   const [templateToTest, setTemplateToTest] = useState<Template | null>(null)
+  // Preview sidebar: one drawer for the whole table, opened by clicking a row
+  // or the eye button. Clicking another row swaps the preview in place.
+  const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null)
+  const [previewOpen, setPreviewOpen] = useState(false)
 
   // Function to update search params
   const setSelectedCategory = (category: string) => {
@@ -191,6 +195,16 @@ export function TemplatesPage() {
     setTemplateToTest(template)
     setTestModalOpen(true)
   }
+
+  // Open the preview sidebar for a template. Kept on the page (not per row) so a
+  // second row click reuses the same drawer instead of stacking a new one.
+  const openPreview = (template: Template) => {
+    setPreviewTemplateId(template.id)
+    setPreviewOpen(true)
+  }
+
+  const previewTemplate =
+    allTemplates.find((tpl) => tpl.id === previewTemplateId) ?? null
 
   const marketingEmailProvider = workspace?.integrations?.find(
     (integration) => integration.id === workspace.settings.marketing_email_provider_id
@@ -384,14 +398,14 @@ export function TemplatesPage() {
             />
           </Tooltip>
           <Tooltip title={t`Preview Template`}>
-            <>
-              <TemplatePreviewDrawer record={record} workspace={workspace}>
-                <Button
-                  type="text"
-                  icon={<FontAwesomeIcon icon={faEye} style={{ opacity: 0.7 }} />}
-                />
-              </TemplatePreviewDrawer>
-            </>
+            <Button
+              type="text"
+              icon={<FontAwesomeIcon icon={faEye} style={{ opacity: 0.7 }} />}
+              onClick={(e) => {
+                e.stopPropagation()
+                openPreview(record)
+              }}
+            />
           </Tooltip>
         </Space>
       )
@@ -446,14 +460,28 @@ export function TemplatesPage() {
       {isLoading ? (
         <Table columns={columns} dataSource={[]} loading={true} rowKey="id" />
       ) : hasTemplates ? (
-        <Table
-          columns={columns}
-          dataSource={filteredTemplates}
-          rowKey="id"
-          pagination={{ hideOnSinglePage: true }}
-          locale={{ emptyText: t`No templates match your search` }}
-          className="border border-gray-200 rounded-md"
-        />
+        <>
+          <Table
+            columns={columns}
+            dataSource={filteredTemplates}
+            rowKey="id"
+            pagination={{ hideOnSinglePage: true }}
+            locale={{ emptyText: t`No templates match your search` }}
+            className="border border-gray-200 rounded-md"
+            onRow={(record) => ({
+              onClick: () => openPreview(record),
+              style: { cursor: 'pointer' }
+            })}
+          />
+          {previewTemplate && (
+            <TemplatePreviewDrawer
+              record={previewTemplate}
+              workspace={workspace}
+              open={previewOpen}
+              onOpenChange={setPreviewOpen}
+            />
+          )}
+        </>
       ) : (
         <div className="text-center py-12">
           {selectedCategory === 'all' ? (

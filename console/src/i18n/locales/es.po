@@ -71,8 +71,8 @@ msgstr "(vacío)"
 
 #. placeholder {0}: record.email.reply_to
 #. placeholder {0}: templateSender?.name || defaultSender?.name
-#: src/components/templates/TemplatePreviewDrawer.tsx:272
-#: src/components/templates/TemplatePreviewDrawer.tsx:308
+#: src/components/templates/TemplatePreviewDrawer.tsx:294
+#: src/components/templates/TemplatePreviewDrawer.tsx:330
 msgid "(original: {0})"
 msgstr "(original: {0})"
 
@@ -1017,7 +1017,7 @@ msgstr "Alineación"
 #: src/components/web_analytics/tabs/AnnotationsTab.tsx:124
 #: src/components/web_analytics/tabs/FiltersTab.tsx:152
 #: src/pages/BroadcastsPage.tsx:1636
-#: src/pages/TemplatesPage.tsx:124
+#: src/pages/TemplatesPage.tsx:128
 msgid "All"
 msgstr "Todos"
 
@@ -1373,7 +1373,7 @@ msgstr "¿Estás seguro de que quieres eliminar esta cabecera?"
 msgid "Are you sure you want to delete this node?"
 msgstr "¿Estás seguro de que quieres eliminar este nodo?"
 
-#: src/pages/TemplatesPage.tsx:358
+#: src/pages/TemplatesPage.tsx:372
 msgid "Are you sure you want to delete this template?"
 msgstr "¿Estás seguro de que quieres eliminar esta plantilla?"
 
@@ -1766,7 +1766,7 @@ msgstr "Autenticación básica (Usuario/Contraseña)"
 msgid "Basic Information"
 msgstr "Información básica"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:342
+#: src/components/templates/TemplatePreviewDrawer.tsx:364
 msgid "BCC"
 msgstr "CCO"
 
@@ -1839,7 +1839,7 @@ msgstr "Panel de configuración del bloque"
 msgid "Block type:"
 msgstr "Tipo de bloque:"
 
-#: src/pages/TemplatesPage.tsx:131
+#: src/pages/TemplatesPage.tsx:135
 msgid "Blocklist"
 msgstr "Lista de bloqueo"
 
@@ -1958,7 +1958,7 @@ msgstr "rebote"
 #: src/components/timeline/ContactTimeline.tsx:653
 #: src/components/web_analytics/explore/BreakdownDrawer.tsx:219
 #: src/components/webhooks/InboundWebhookEventsTab.tsx:72
-#: src/pages/TemplatesPage.tsx:130
+#: src/pages/TemplatesPage.tsx:134
 msgid "Bounce"
 msgstr "Rebote"
 
@@ -2325,7 +2325,7 @@ msgstr "Campañas"
 #: src/pages/BroadcastsPage.tsx:1054
 #: src/pages/BroadcastsPage.tsx:1789
 #: src/pages/ListsPage.tsx:318
-#: src/pages/TemplatesPage.tsx:366
+#: src/pages/TemplatesPage.tsx:380
 #: src/pages/TransactionalNotificationsPage.tsx:149
 msgid "Cancel"
 msgstr "Cancelar"
@@ -2398,7 +2398,7 @@ msgstr "Categorías"
 #: src/components/blog/ThemeEditorDrawer.tsx:428
 #: src/components/blog/ThemePresetPreviewDrawer.tsx:75
 #: src/components/templates/CreateTemplateDrawer.tsx:851
-#: src/pages/TemplatesPage.tsx:231
+#: src/pages/TemplatesPage.tsx:245
 msgid "Category"
 msgstr "Categoría"
 
@@ -2419,7 +2419,7 @@ msgstr "Categoría actualizada exitosamente"
 msgid "Category:"
 msgstr "Categoría:"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:330
+#: src/components/templates/TemplatePreviewDrawer.tsx:352
 msgid "CC"
 msgstr "CC"
 
@@ -2687,7 +2687,7 @@ msgid "Clone email template"
 msgstr "Clonar plantilla de correo"
 
 #: src/components/templates/CreateTemplateDrawer.tsx:605
-#: src/pages/TemplatesPage.tsx:322
+#: src/pages/TemplatesPage.tsx:336
 msgid "Clone Template"
 msgstr "Clonar plantilla"
 
@@ -2711,7 +2711,7 @@ msgid "Closed Captions (CC)"
 msgstr "Subtítulos (CC)"
 
 #: src/components/email_builder/MjmlCodeEditor.tsx:678
-#: src/pages/TemplatesPage.tsx:224
+#: src/pages/TemplatesPage.tsx:238
 msgid "Code"
 msgstr "Código"
 
@@ -2727,6 +2727,11 @@ msgstr "Editor de código"
 #: src/layouts/WorkspaceLayout.tsx:574
 msgid "Collapse"
 msgstr "Contraer"
+
+#: src/components/templates/TemplatePreviewDrawer.tsx:465
+#: src/components/templates/TemplatePreviewDrawer.tsx:466
+msgid "Collapse preview"
+msgstr ""
 
 #: src/components/blog_editor/menus/block-actions/BlockColorPopover.tsx:97
 #: src/components/email_builder/blocks/MjDividerBlock.tsx:42
@@ -3549,7 +3554,7 @@ msgstr "Crea tu primera notificación para comenzar"
 msgid "Create Your First Post"
 msgstr "Crea tu primera publicación"
 
-#: src/pages/TemplatesPage.tsx:464
+#: src/pages/TemplatesPage.tsx:492
 msgid "Create your first template to get started"
 msgstr "Crea tu primera plantilla para comenzar"
 
@@ -3559,7 +3564,7 @@ msgstr "creado"
 
 #: src/components/automations/config/TriggerConfigForm.tsx:68
 #: src/components/webhooks/OutgoingWebhooksTab.tsx:418
-#: src/pages/TemplatesPage.tsx:275
+#: src/pages/TemplatesPage.tsx:289
 msgid "Created"
 msgstr "Creado"
 
@@ -3916,7 +3921,7 @@ msgid "Deduplication:"
 msgstr "Deduplicación:"
 
 #: src/components/templates/SendTemplateModal.tsx:66
-#: src/pages/TemplatesPage.tsx:252
+#: src/pages/TemplatesPage.tsx:266
 msgid "default"
 msgstr "predeterminado"
 
@@ -4166,11 +4171,11 @@ msgstr "Eliminar publicación"
 msgid "Delete segment"
 msgstr "Eliminar segmento"
 
-#: src/pages/TemplatesPage.tsx:345
+#: src/pages/TemplatesPage.tsx:359
 msgid "Delete Template"
 msgstr "Eliminar plantilla"
 
-#: src/pages/TemplatesPage.tsx:355
+#: src/pages/TemplatesPage.tsx:369
 msgid "Delete template?"
 msgstr "¿Eliminar plantilla?"
 
@@ -4790,7 +4795,7 @@ msgid "Edit Sender"
 msgstr "Editar remitente"
 
 #: src/components/templates/CreateTemplateDrawer.tsx:605
-#: src/pages/TemplatesPage.tsx:300
+#: src/pages/TemplatesPage.tsx:314
 msgid "Edit Template"
 msgstr "Editar plantilla"
 
@@ -5353,7 +5358,7 @@ msgstr "Error al cargar automatizaciones"
 msgid "Error loading data"
 msgstr "Error al cargar datos"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:374
+#: src/components/templates/TemplatePreviewDrawer.tsx:396
 msgid "Error loading preview"
 msgstr "Error al cargar vista previa"
 
@@ -5513,6 +5518,11 @@ msgstr "Salidas"
 msgid "Expand"
 msgstr "Expandir"
 
+#: src/components/templates/TemplatePreviewDrawer.tsx:465
+#: src/components/templates/TemplatePreviewDrawer.tsx:466
+msgid "Expand preview"
+msgstr ""
+
 #: src/components/settings/LicenseSettings.tsx:110
 msgid "Expired"
 msgstr ""
@@ -5627,7 +5637,7 @@ msgstr "Error al cancelar envío masivo"
 msgid "Failed to clear field"
 msgstr "Error al limpiar campo"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:171
+#: src/components/templates/TemplatePreviewDrawer.tsx:193
 msgid "Failed to compile template preview."
 msgstr "Error al compilar vista previa de plantilla."
 
@@ -5744,7 +5754,7 @@ msgstr "Error al eliminar publicación"
 msgid "Failed to delete segment"
 msgstr "Error al eliminar segmento"
 
-#: src/pages/TemplatesPage.tsx:170
+#: src/pages/TemplatesPage.tsx:174
 msgid "Failed to delete template: {errorMsg}"
 msgstr "Error al eliminar plantilla: {errorMsg}"
 
@@ -6428,7 +6438,7 @@ msgstr "Se encontraron cambios sin guardar de {0}"
 msgid "Frequency"
 msgstr "Frecuencia"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:263
+#: src/components/templates/TemplatePreviewDrawer.tsx:285
 msgid "From"
 msgstr "Desde"
 
@@ -6818,12 +6828,12 @@ msgstr "Error en la exportación HTML"
 msgid "HTML exported successfully"
 msgstr "HTML exportado exitosamente"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:204
+#: src/components/templates/TemplatePreviewDrawer.tsx:226
 msgid "HTML Preview"
 msgstr "Vista previa HTML"
 
 #. placeholder {0}: record.name
-#: src/components/templates/TemplatePreviewDrawer.tsx:210
+#: src/components/templates/TemplatePreviewDrawer.tsx:232
 msgid "HTML Preview of {0}"
 msgstr "Vista previa HTML de {0}"
 
@@ -6892,7 +6902,7 @@ msgstr "El ID solo puede contener letras minúsculas, números y guiones bajos"
 msgid "ID doesn't match"
 msgstr "El ID no coincide"
 
-#: src/pages/TemplatesPage.tsx:220
+#: src/pages/TemplatesPage.tsx:234
 msgid "ID for API:"
 msgstr "ID para API:"
 
@@ -7281,7 +7291,7 @@ msgstr "JSON inválido en campo {field}"
 msgid "Invalid or expired invitation token"
 msgstr "Token de invitación inválido o expirado"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:123
+#: src/components/templates/TemplatePreviewDrawer.tsx:145
 msgid "Invalid template structure data."
 msgstr "Datos de estructura de plantilla inválidos."
 
@@ -7481,7 +7491,7 @@ msgstr "Páginas de destino"
 #: src/components/contacts/ContactsCsvUploadDrawer.tsx:96
 #: src/components/contacts/ExportContactsModal.tsx:68
 #: src/components/templates/SendTemplateModal.tsx:326
-#: src/components/templates/TemplatePreviewDrawer.tsx:353
+#: src/components/templates/TemplatePreviewDrawer.tsx:375
 #: src/pages/ContactsPage.tsx:375
 #: src/pages/ContactsPage.tsx:431
 #: src/pages/ContactsPage.tsx:706
@@ -7653,7 +7663,7 @@ msgstr "Línea"
 #. placeholder {0}: detail.line
 #. placeholder {1}: detail.tagName
 #. placeholder {2}: detail.message
-#: src/components/templates/TemplatePreviewDrawer.tsx:389
+#: src/components/templates/TemplatePreviewDrawer.tsx:411
 msgid "Line {0} ({1}): {2}"
 msgstr "Línea {0} ({1}): {2}"
 
@@ -7959,7 +7969,7 @@ msgstr "Cargando estado del webhook..."
 #: src/pages/ContactsPage.tsx:1161
 #: src/pages/ListsPage.tsx:149
 #: src/pages/LogsPage.tsx:18
-#: src/pages/TemplatesPage.tsx:203
+#: src/pages/TemplatesPage.tsx:217
 #: src/pages/TransactionalNotificationsPage.tsx:383
 msgid "Loading..."
 msgstr "Cargando..."
@@ -8094,7 +8104,7 @@ msgstr "Marca las fechas que explican un gráfico —un lanzamiento, una campañ
 msgid "Marked as spam"
 msgstr "Marcado como spam"
 
-#: src/pages/TemplatesPage.tsx:125
+#: src/pages/TemplatesPage.tsx:129
 msgid "Marketing"
 msgstr "Marketing"
 
@@ -8250,7 +8260,7 @@ msgstr "Meta título"
 
 #: src/components/messages/MessageHistoryTable.tsx:146
 #: src/components/messages/MessageHistoryTable.tsx:190
-#: src/components/templates/TemplatePreviewDrawer.tsx:243
+#: src/components/templates/TemplatePreviewDrawer.tsx:265
 msgid "Metadata"
 msgstr "Metadatos"
 
@@ -8304,7 +8314,7 @@ msgstr ""
 msgid "Missing Tags"
 msgstr "Etiquetas faltantes"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:77
+#: src/components/templates/TemplatePreviewDrawer.tsx:99
 msgid "Missing workspace ID or template data."
 msgstr "Falta ID del espacio de trabajo o datos de plantilla."
 
@@ -8327,7 +8337,7 @@ msgid "MJML compilation completed successfully with no warnings or errors."
 msgstr "La compilación MJML se completó exitosamente sin advertencias ni errores."
 
 #. placeholder {0}: mjmlError.message
-#: src/components/templates/TemplatePreviewDrawer.tsx:381
+#: src/components/templates/TemplatePreviewDrawer.tsx:403
 msgid "MJML Compilation Error: {0}"
 msgstr "Error de compilación MJML: {0}"
 
@@ -8359,7 +8369,7 @@ msgstr "Error de importación MJML"
 msgid "MJML Import Validation Failed"
 msgstr "Error en la validación de importación MJML"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:220
+#: src/components/templates/TemplatePreviewDrawer.tsx:242
 msgid "MJML Source"
 msgstr "Fuente MJML"
 
@@ -8726,7 +8736,7 @@ msgstr "No se encontraron datos"
 msgid "No data returned"
 msgstr "No se devolvieron datos"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:293
+#: src/components/templates/TemplatePreviewDrawer.tsx:315
 msgid "No default sender configured"
 msgstr "No hay remitente predeterminado configurado"
 
@@ -8744,7 +8754,7 @@ msgstr "No se encontraron dimensiones"
 msgid "No draft posts"
 msgstr "Sin publicaciones en borrador"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:268
+#: src/components/templates/TemplatePreviewDrawer.tsx:290
 msgid "no email"
 msgstr "sin correo"
 
@@ -8868,7 +8878,7 @@ msgstr "Sin publicaciones en esta categoría"
 msgid "No posts yet"
 msgstr "Sin publicaciones aún"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:418
+#: src/components/templates/TemplatePreviewDrawer.tsx:440
 msgid "No preview available or template is empty."
 msgstr "No hay vista previa disponible o la plantilla está vacía."
 
@@ -8932,12 +8942,12 @@ msgstr "No hay configuración disponible para el elemento head."
 msgid "No source data"
 msgstr "Sin datos de fuentes"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:394
+#: src/components/templates/TemplatePreviewDrawer.tsx:416
 msgid "No specific details provided."
 msgstr "No se proporcionaron detalles específicos."
 
 #: src/components/templates/TemplateSelectorInput.tsx:258
-#: src/pages/TemplatesPage.tsx:462
+#: src/pages/TemplatesPage.tsx:490
 msgid "No templates found"
 msgstr "No se encontraron plantillas"
 
@@ -8946,11 +8956,11 @@ msgstr "No se encontraron plantillas"
 msgid "No templates found for {0} category"
 msgstr "No se encontraron plantillas para la categoría {0}"
 
-#: src/pages/TemplatesPage.tsx:490
+#: src/pages/TemplatesPage.tsx:518
 msgid "No templates found for category \"{selectedCategory}\""
 msgstr "No se encontraron plantillas para la categoría \"{selectedCategory}\""
 
-#: src/pages/TemplatesPage.tsx:454
+#: src/pages/TemplatesPage.tsx:469
 msgid "No templates match your search"
 msgstr "Ninguna plantilla coincide con tu búsqueda"
 
@@ -9086,7 +9096,7 @@ msgstr "No resuelto"
 #: src/components/settings/GeneralSettings.tsx:149
 #: src/components/settings/SMTPBridgeSettings.tsx:42
 #: src/components/settings/SMTPBridgeSettings.tsx:46
-#: src/components/templates/TemplatePreviewDrawer.tsx:313
+#: src/components/templates/TemplatePreviewDrawer.tsx:335
 msgid "Not set"
 msgstr "No establecido"
 
@@ -9098,7 +9108,7 @@ msgstr "Canales no asignados"
 msgid "Note: mj-raw components can only be placed directly in mj-body or mj-head, not inside mj-wrapper. Consider moving the mj-raw content outside the wrapper or converting it to appropriate MJML components."
 msgstr "Nota: los componentes mj-raw solo pueden colocarse directamente en mj-body o mj-head, no dentro de mj-wrapper. Considera mover el contenido mj-raw fuera del contenedor o convertirlo a componentes MJML apropiados."
 
-#: src/pages/TemplatesPage.tsx:360
+#: src/pages/TemplatesPage.tsx:374
 msgid "Note: The template will be hidden from your workspace but preserved to maintain the ability to preview previously sent broadcasts and messages that used this template."
 msgstr "Nota: La plantilla se ocultará de tu espacio de trabajo pero se preservará para mantener la capacidad de previsualizar envíos masivos y mensajes anteriores que usaron esta plantilla."
 
@@ -9371,7 +9381,7 @@ msgstr "Resultados de la operación:"
 msgid "Operations"
 msgstr "Operaciones"
 
-#: src/pages/TemplatesPage.tsx:128
+#: src/pages/TemplatesPage.tsx:132
 msgid "Opt-in"
 msgstr "Suscripción"
 
@@ -9418,7 +9428,7 @@ msgstr "SO"
 
 #: src/components/blog_editor/menus/suggestion/SlashPopoverContent.tsx:74
 #: src/components/settings/WebhooksSettings.tsx:353
-#: src/pages/TemplatesPage.tsx:132
+#: src/pages/TemplatesPage.tsx:136
 msgid "Other"
 msgstr "Otro"
 
@@ -10143,7 +10153,7 @@ msgid "Preview template"
 msgstr "Previsualizar plantilla"
 
 #: src/pages/BroadcastsPage.tsx:1018
-#: src/pages/TemplatesPage.tsx:386
+#: src/pages/TemplatesPage.tsx:400
 msgid "Preview Template"
 msgstr "Previsualizar plantilla"
 
@@ -10891,7 +10901,7 @@ msgstr "El reenvío de respuestas está configurado. Las respuestas entrantes ta
 #~ msgstr ""
 
 #: src/components/templates/CreateTemplateDrawer.tsx:950
-#: src/components/templates/TemplatePreviewDrawer.tsx:302
+#: src/components/templates/TemplatePreviewDrawer.tsx:324
 msgid "Reply to"
 msgstr "Responder a"
 
@@ -10997,7 +11007,7 @@ msgstr "Restablecer una tarea de sincronización de integración para que se vue
 msgid "Reset formatting"
 msgstr "Restablecer formato"
 
-#: src/pages/TemplatesPage.tsx:495
+#: src/pages/TemplatesPage.tsx:523
 msgid "reset the filter"
 msgstr "restablecer el filtro"
 
@@ -11423,7 +11433,7 @@ msgid "Search"
 msgstr "Buscar"
 
 #: src/pages/BroadcastsPage.tsx:1646
-#: src/pages/TemplatesPage.tsx:435
+#: src/pages/TemplatesPage.tsx:449
 msgid "Search by name"
 msgstr "Buscar por nombre"
 
@@ -11966,7 +11976,7 @@ msgstr "Enviar prueba"
 #: src/components/templates/SendTemplateModal.tsx:263
 #: src/components/templates/SendTemplateModal.tsx:277
 #: src/pages/BroadcastsPage.tsx:1002
-#: src/pages/TemplatesPage.tsx:376
+#: src/pages/TemplatesPage.tsx:390
 msgid "Send Test Email"
 msgstr "Enviar correo de prueba"
 
@@ -11976,7 +11986,7 @@ msgstr "Envía notificaciones transaccionales usando retransmisión SMTP. Perfec
 
 #: src/components/templates/CreateTemplateDrawer.tsx:906
 #: src/components/templates/SendTemplateModal.tsx:303
-#: src/pages/TemplatesPage.tsx:237
+#: src/pages/TemplatesPage.tsx:251
 msgid "Sender"
 msgstr "Remitente"
 
@@ -12755,16 +12765,16 @@ msgstr "Estilo"
 msgid "Style Attributes"
 msgstr "Atributos de estilo"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:318
+#: src/components/templates/TemplatePreviewDrawer.tsx:340
 #: src/components/templates/TemplateTranslationsTab.tsx:226
 #: src/pages/BroadcastsPage.tsx:876
-#: src/pages/TemplatesPage.tsx:258
+#: src/pages/TemplatesPage.tsx:272
 msgid "Subject"
 msgstr "Asunto"
 
 #: src/components/email_builder/blocks/MjPreviewBlock.tsx:33
 #: src/components/templates/CreateTemplateDrawer.tsx:929
-#: src/components/templates/TemplatePreviewDrawer.tsx:323
+#: src/components/templates/TemplatePreviewDrawer.tsx:345
 #: src/components/templates/TemplateTranslationsTab.tsx:235
 msgid "Subject preview"
 msgstr "Vista previa del asunto"
@@ -12995,7 +13005,7 @@ msgstr "plantilla"
 #: src/components/messages/MessageHistoryTable.tsx:234
 #: src/pages/BroadcastsPage.tsx:871
 #: src/pages/BroadcastsPage.tsx:873
-#: src/pages/TemplatesPage.tsx:208
+#: src/pages/TemplatesPage.tsx:222
 msgid "Template"
 msgstr "Plantilla"
 
@@ -13031,7 +13041,7 @@ msgid "Template created successfully"
 msgstr "Plantilla creada exitosamente"
 
 #: src/components/email_builder/panels/Preview.tsx:336
-#: src/components/templates/TemplatePreviewDrawer.tsx:231
+#: src/components/templates/TemplatePreviewDrawer.tsx:253
 msgid "Template Data"
 msgstr "Datos de plantilla"
 
@@ -13039,7 +13049,7 @@ msgstr "Datos de plantilla"
 msgid "Template Data & Liquid Templating"
 msgstr "Datos de plantilla y plantillas Liquid"
 
-#: src/pages/TemplatesPage.tsx:164
+#: src/pages/TemplatesPage.tsx:168
 msgid "Template deleted successfully"
 msgstr "Plantilla eliminada exitosamente"
 
@@ -13071,7 +13081,7 @@ msgstr "Nombre de plantilla"
 msgid "Template set"
 msgstr "Conjunto de plantillas"
 
-#: src/components/templates/TemplatePreviewDrawer.tsx:134
+#: src/components/templates/TemplatePreviewDrawer.tsx:156
 msgid "Template structure data is missing or invalid."
 msgstr "Los datos de estructura de la plantilla faltan o son inválidos."
 
@@ -13099,7 +13109,7 @@ msgstr "Plantilla:"
 
 #: src/components/settings/PermissionsMatrix.tsx:123
 #: src/layouts/WorkspaceLayout.tsx:251
-#: src/pages/TemplatesPage.tsx:404
+#: src/pages/TemplatesPage.tsx:418
 #: src/services/api/errors.ts:62
 msgid "Templates"
 msgstr "Plantillas"
@@ -13728,7 +13738,7 @@ msgstr "Este segmento usa filtros de fecha relativos y se recalculará automáti
 msgid "This template is already used in another variation"
 msgstr "Esta plantilla ya está siendo usada en otra variación"
 
-#: src/pages/TemplatesPage.tsx:342
+#: src/pages/TemplatesPage.tsx:356
 msgid "This template is managed by an integration and cannot be deleted"
 msgstr "Esta plantilla está administrada por una integración y no puede ser eliminada"
 
@@ -14143,7 +14153,7 @@ msgstr "Tráfico que ninguna regla de filtro ha clasificado"
 #: src/components/settings/PermissionsMatrix.tsx:125
 #: src/components/webhooks/InboundWebhookEventsTab.tsx:408
 #: src/layouts/WorkspaceLayout.tsx:440
-#: src/pages/TemplatesPage.tsx:126
+#: src/pages/TemplatesPage.tsx:130
 #: src/services/api/errors.ts:64
 msgid "Transactional"
 msgstr "Transaccional"
@@ -14204,7 +14214,7 @@ msgstr "Activar en cambios de campo específicos"
 msgid "Try adjusting your search or status filter"
 msgstr "Prueba a ajustar tu búsqueda o el filtro de estado"
 
-#: src/pages/TemplatesPage.tsx:493
+#: src/pages/TemplatesPage.tsx:521
 msgid "Try selecting a different category or"
 msgstr "Intenta seleccionar una categoría diferente o"
 
@@ -14392,7 +14402,7 @@ msgstr "Baja"
 msgid "Unsub."
 msgstr "Baja."
 
-#: src/pages/TemplatesPage.tsx:129
+#: src/pages/TemplatesPage.tsx:133
 msgid "Unsubscribe"
 msgstr "Cancelar suscripción"
 
@@ -15075,7 +15085,7 @@ msgstr "Semanal"
 msgid "Weight"
 msgstr "Peso"
 
-#: src/pages/TemplatesPage.tsx:127
+#: src/pages/TemplatesPage.tsx:131
 msgid "Welcome"
 msgstr "Bienvenido"
 
@@ -15382,7 +15392,7 @@ msgstr "Sí, limpiar"
 msgid "Yes, delete"
 msgstr "Sí, eliminar"
 
-#: src/pages/TemplatesPage.tsx:364
+#: src/pages/TemplatesPage.tsx:378
 #: src/pages/TransactionalNotificationsPage.tsx:148
 msgid "Yes, Delete"
 msgstr "Sí, eliminar"
@@ -15465,10 +15475,10 @@ msgstr "No tienes permiso de escritura para contactos"
 msgid "You don't have write permission for lists"
 msgstr "No tienes permiso de escritura para listas"
 
-#: src/pages/TemplatesPage.tsx:299
-#: src/pages/TemplatesPage.tsx:321
-#: src/pages/TemplatesPage.tsx:344
-#: src/pages/TemplatesPage.tsx:409
+#: src/pages/TemplatesPage.tsx:313
+#: src/pages/TemplatesPage.tsx:335
+#: src/pages/TemplatesPage.tsx:358
+#: src/pages/TemplatesPage.tsx:423
 msgid "You don't have write permission for templates"
 msgstr "No tienes permiso de escritura para plantillas"
 
@@ -15500,7 +15510,7 @@ msgid "You must configure a Custom Endpoint URL in General Settings above before
 msgstr "Debes configurar una URL de punto final personalizado en la Configuración general arriba antes de habilitar el blog."
 
 #: src/pages/BroadcastsPage.tsx:1001
-#: src/pages/TemplatesPage.tsx:375
+#: src/pages/TemplatesPage.tsx:389
 msgid "You need read template and write contact permissions to send test emails"
 msgstr "Necesitas permisos de lectura de plantilla y escritura de contacto para enviar correos de prueba"
 
