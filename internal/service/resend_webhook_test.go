@@ -127,6 +127,7 @@ func TestProcessResendWebhook_HardBounce(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, events, 1)
 
+	assert.NotEmpty(t, events[0].ID, "the event id is a uuid primary key; an empty one fails the insert")
 	assert.Equal(t, domain.EmailEventBounce, events[0].Type)
 	assert.Equal(t, domain.WebhookSourceResend, events[0].Source)
 	assert.Equal(t, "bounced@example.com", events[0].RecipientEmail, "recipient must be normalised to lower case")

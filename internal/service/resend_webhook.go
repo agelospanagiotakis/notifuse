@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Notifuse/notifuse/internal/domain"
+	"github.com/google/uuid"
 )
 
 // resendSignatureTolerance bounds how old a webhook may be. Svix recommends five
@@ -90,6 +91,7 @@ func (s *InboundWebhookEventService) processResendWebhook(integration *domain.In
 			continue
 		}
 		event := &domain.InboundWebhookEvent{
+			ID:             uuid.New().String(),
 			Type:           eventType,
 			Source:         domain.WebhookSourceResend,
 			IntegrationID:  integration.ID,
