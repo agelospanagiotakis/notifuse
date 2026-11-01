@@ -65,6 +65,10 @@ func NewWebhookRegistrationService(
 		svc.webhookProviders[domain.EmailProviderKindSendGrid] = provider
 	}
 
+	// Resend needs no injected service: it talks to Resend's API with the integration's own
+	// key, which the provider config already carries.
+	svc.webhookProviders[domain.EmailProviderKindResend] = NewResendWebhookProvider(logger)
+
 	return svc
 }
 
