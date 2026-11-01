@@ -85,7 +85,7 @@ on any terms. The Greek notification-centre translation is the one change worth 
 ## What consumes this image
 
 `agelospanagiotakis/epragma-mailer` → `Dockerfile`:
-`FROM ghcr.io/agelospanagiotakis/notifuse-epragma:v40.0-el.9`, deployed by Coolify as app 34 on
+`FROM ghcr.io/agelospanagiotakis/notifuse-epragma:v40.0-el.10`, deployed by Coolify as app 34 on
 server3. Coolify builds with `--pull`, so the tag must exist in the registry before a deploy.
 
 ## What our builds change
@@ -99,6 +99,7 @@ server3. Coolify builds with `--pull`, so the tag must exist in the registry bef
 | `el.7` | Liquid template cap 100 KB → 2 MB | imported Mailchimp campaigns were 1–2 MB |
 | `el.8` | Templates preview sidebar | preview was eye-button only, and the mask forced a close-and-reopen per template |
 | `el.9` | Row clicks skip the action buttons | delete opened the preview behind its own confirmation modal |
+| `el.10` | `&quot;`/`&lt;` rewritten to numeric form before parsing | gomjml decodes an entity before it lexes an attribute, so every pre-2021 Mailchimp campaign — font stacks escaped as `&quot;Helvetica Neue&quot;` — failed to compile at all |
 
 The preview sidebar (el.8, el.9) is `TemplatePreviewDrawer`, which already shipped upstream as a
 trigger-wrapped drawer. The change is that it also accepts `open`/`onOpenChange`, so
