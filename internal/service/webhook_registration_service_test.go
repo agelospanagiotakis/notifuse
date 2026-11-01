@@ -799,8 +799,12 @@ func TestNewWebhookRegistrationService(t *testing.T) {
 	assert.Equal(t, apiEndpoint, svc.apiEndpoint)
 	assert.NotNil(t, svc.webhookProviders)
 
-	// The webhook providers map should be empty since our mocks don't implement the WebhookProvider interface
-	assert.Equal(t, 0, len(svc.webhookProviders))
+	// The mocks do not implement WebhookProvider, so only providers registered
+	// unconditionally appear here — Resend, which needs no injected service because it
+	// talks to Resend's API with the integration's own key.
+	assert.Equal(t, 1, len(svc.webhookProviders))
+	_, hasResend := svc.webhookProviders[domain.EmailProviderKindResend]
+	assert.True(t, hasResend)
 }
 
 // TestWebhookRegistrationService_OwnerOnly pins decision 8: ESP-side registration

@@ -119,7 +119,7 @@ func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*dom
 func (r *userRepository) GetUserByEmailInsensitive(ctx context.Context, email string) (*domain.User, error) {
 	var user domain.User
 	query := `
-		SELECT id, email, name, type, language, created_at, updated_at
+		SELECT id, email, name, COALESCE(password_hash, ''), type, language, created_at, updated_at
 		FROM users
 		WHERE lower(email)=lower($1)
 	`
