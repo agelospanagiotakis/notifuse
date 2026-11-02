@@ -254,3 +254,19 @@ func TestArchive_SubscribeSuccessDoesNotPromiseAnEmail(t *testing.T) {
 	// which this page does not read, so it must not claim one is coming.
 	assert.NotContains(t, body, "Check your inbox")
 }
+
+func TestArchive_HomeCarriesAnInlineSignup(t *testing.T) {
+	ws := archiveWorkspace(&domain.ArchiveSettings{Enabled: true, SubscribeListIDs: []string{"newsletter"}})
+	body := get(archiveHandler(t, ws, &fakeArchiveRepo{}), "/archive/koisoptics/", nil).Body.String()
+
+	// Mailchimp's archive home offers signup in the page, not only a link: a reader
+	// forwarded one campaign has arrived without ever subscribing.
+	assert.Contains(t, body, `class="inline-signup"`)
+	assert.Contains(t, body, `action="/archive/kois-optics/subscribe"`)
+}
+
+func TestArchive_HomeHasNoSignupWithoutAList(t *testing.T) {
+	ws := archiveWorkspace(&domain.ArchiveSettings{Enabled: true})
+	body := get(archiveHandler(t, ws, &fakeArchiveRepo{}), "/archive/koisoptics/", nil).Body.String()
+	assert.NotContains(t, body, `class="inline-signup"`)
+}
