@@ -2,11 +2,14 @@ package http
 
 import (
 	"crypto/subtle"
+	"encoding/xml"
 	"fmt"
 	"html"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Notifuse/notifuse/internal/domain"
 	"github.com/Notifuse/notifuse/pkg/logger"
@@ -91,10 +94,12 @@ func (h *ArchiveHandler) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	switch len(parts) {
-	case 1:
+	switch {
+	case len(parts) == 2 && (parts[1] == "feed.xml" || parts[1] == "feed"):
+		h.renderFeed(w, r, workspace, settings)
+	case len(parts) == 1:
 		h.renderList(w, r, workspace, settings)
-	case 2:
+	case len(parts) == 2:
 		h.renderCampaign(w, r, workspace, settings, parts[1])
 	default:
 		http.NotFound(w, r)
@@ -190,7 +195,15 @@ func (h *ArchiveHandler) renderList(w http.ResponseWriter, r *http.Request, work
 	b.WriteString("<meta name=\"robots\" content=\"noindex\">")
 	b.WriteString("<title>" + html.EscapeString(title) + "</title>")
 	b.WriteString(archiveCSS)
-	b.WriteString("</head><body><main>")
+	b.WriteString("</head><body>")
+	b.WriteString(toolbarHTML(archiveBarOptions{
+		workspaceSlug: slugify(workspace.Name),
+		workspaceName: workspace.Name,
+		pageURL:       absoluteURL(r, r.URL.Path),
+		subscribeURL:  subscribeTarget(workspace, settings),
+		public:        settings.BasicAuthUser == "",
+	}))
+	b.WriteString("<main>")
 	b.WriteString("<header><h1>" + html.EscapeString(title) + "</h1>")
 	b.WriteString(fmt.Sprintf("<p class=\"count\">%d campaign%s</p></header>",
 		len(entries), plural(len(entries))))
@@ -244,9 +257,17 @@ func (h *ArchiveHandler) renderCampaign(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
+	page := withToolbar(htmlOut, toolbarHTML(archiveBarOptions{
+		workspaceSlug: slugify(workspace.Name),
+		workspaceName: workspace.Name,
+		pageURL:       absoluteURL(r, r.URL.Path),
+		subscribeURL:  subscribeTarget(workspace, settings),
+		public:        settings.BasicAuthUser == "",
+	}))
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Robots-Tag", "noindex")
-	_, _ = w.Write([]byte(htmlOut))
+	_, _ = w.Write([]byte(page))
 }
 
 // compileForWeb renders the sent template as a web page: the email channel, minus
@@ -323,4 +344,144 @@ ol.campaigns span{flex:1;min-width:0}
 footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
 footer a{color:var(--brand)}
 @media(max-width:520px){ol.campaigns a{flex-direction:column;gap:2px}ol.campaigns time{width:auto}}
+</style>`
+
+// ==================== archive chrome ====================
+//
+// Mailchimp's archive page carries a toolbar: Subscribe, Past Issues, RSS,
+// Translate. It is the one part of their page that is not the campaign, and it is
+// what makes the archive feel like a publication rather than a copy of an email.
+// Ours is the same four controls, with one difference that has a reason:
+//
+// Translate is a link into Google's translate proxy, which fetches the page
+// server-side. While the archive is behind basic auth that fetch gets a 401, so
+// the control is omitted rather than offered and broken. It appears on its own
+// the moment the gate comes off.
+
+type archiveBarOptions struct {
+	workspaceSlug string
+	workspaceName string
+	pageURL       string
+	subscribeURL  string
+	public        bool
+}
+
+func subscribeTarget(workspace *domain.Workspace, settings *domain.ArchiveSettings) string {
+	if settings.SubscribeURL != "" {
+		return settings.SubscribeURL
+	}
+	// Falling back to the workspace's own site beats hiding the control: an archive
+	// with no way to subscribe is the one thing Mailchimp's never is.
+	return workspace.Settings.WebsiteURL
+}
+
+func absoluteURL(r *http.Request, path string) string {
+	scheme := "https"
+	if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") == "" {
+		scheme = "http"
+	}
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		scheme = proto
+	}
+	return scheme + "://" + r.Host + path
+}
+
+func toolbarHTML(o archiveBarOptions) string {
+	var b strings.Builder
+	b.WriteString(`<div class="mca-bar"><div class="mca-bar-inner">`)
+	b.WriteString(`<a class="mca-name" href="/archive/` + html.EscapeString(o.workspaceSlug) + `/">` +
+		html.EscapeString(o.workspaceName) + `</a>`)
+	b.WriteString(`<nav>`)
+	if o.subscribeURL != "" {
+		b.WriteString(`<a class="mca-cta" href="` + html.EscapeString(o.subscribeURL) + `" rel="noopener">Subscribe</a>`)
+	}
+	b.WriteString(`<a href="/archive/` + html.EscapeString(o.workspaceSlug) + `/">Past Issues</a>`)
+	b.WriteString(`<a href="/archive/` + html.EscapeString(o.workspaceSlug) + `/feed.xml">RSS</a>`)
+	if o.public {
+		translate := "https://translate.google.com/translate?sl=auto&tl=en&u=" + url.QueryEscape(o.pageURL)
+		b.WriteString(`<a href="` + html.EscapeString(translate) + `" rel="noopener nofollow" target="_blank">Translate</a>`)
+	}
+	b.WriteString(`</nav></div></div>`)
+	return b.String()
+}
+
+// withToolbar puts the bar at the top of the compiled campaign, which is a whole
+// HTML document: insert after the opening <body> tag rather than parse it, and
+// fall back to prepending if the document has no body (a fragment template).
+func withToolbar(page, bar string) string {
+	lower := strings.ToLower(page)
+	if idx := strings.Index(lower, "<body"); idx != -1 {
+		if end := strings.Index(lower[idx:], ">"); end != -1 {
+			cut := idx + end + 1
+			return page[:cut] + bar + archiveBarCSS + page[cut:]
+		}
+	}
+	return bar + page
+}
+
+// renderFeed serves the archive as RSS 2.0, which is how Mailchimp-style archives
+// are followed without an account.
+func (h *ArchiveHandler) renderFeed(w http.ResponseWriter, r *http.Request, workspace *domain.Workspace, settings *domain.ArchiveSettings) {
+	entries, err := h.archiveRepo.List(r.Context(), workspace.ID)
+	if err != nil {
+		http.Error(w, "archive unavailable", http.StatusInternalServerError)
+		return
+	}
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].SentAt.After(entries[j].SentAt) })
+
+	slug := slugify(workspace.Name)
+	home := absoluteURL(r, "/archive/"+slug+"/")
+	title := settings.Title
+	if title == "" {
+		title = workspace.Name + " · Newsletter archive"
+	}
+
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
+	b.WriteString(`<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel>`)
+	// Readers like a self link: it is how a copied feed URL is re-discovered.
+	b.WriteString(`<atom:link href="` + xmlEscape(absoluteURL(r, "/archive/"+slug+"/feed.xml")) +
+		`" rel="self" type="application/rss+xml"/>`)
+	b.WriteString("<title>" + xmlEscape(title) + "</title>")
+	b.WriteString("<link>" + xmlEscape(home) + "</link>")
+	b.WriteString("<description>" + xmlEscape("Every campaign sent by "+workspace.Name) + "</description>")
+	b.WriteString("<language>el</language>")
+	if len(entries) > 0 {
+		b.WriteString("<lastBuildDate>" + entries[0].SentAt.Format(time.RFC1123Z) + "</lastBuildDate>")
+	}
+	for _, e := range entries {
+		link := absoluteURL(r, "/archive/"+slug+"/"+e.Slug)
+		b.WriteString("<item>")
+		b.WriteString("<title>" + xmlEscape(e.Title) + "</title>")
+		b.WriteString("<link>" + xmlEscape(link) + "</link>")
+		b.WriteString("<guid isPermaLink=\"true\">" + xmlEscape(link) + "</guid>")
+		b.WriteString("<pubDate>" + e.SentAt.Format(time.RFC1123Z) + "</pubDate>")
+		b.WriteString("<description>" + xmlEscape(e.Subject) + "</description>")
+		b.WriteString("</item>")
+	}
+	b.WriteString(`</channel></rss>`)
+
+	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	w.Header().Set("X-Robots-Tag", "noindex")
+	_, _ = w.Write([]byte(b.String()))
+}
+
+func xmlEscape(s string) string {
+	var b strings.Builder
+	_ = xml.EscapeText(&b, []byte(s))
+	return b.String()
+}
+
+// archiveBarCSS is inline so the bar survives in the campaign document, which has
+// its own stylesheet and its own width assumptions.
+const archiveBarCSS = `<style>
+.mca-bar{position:relative;z-index:2147483647;background:#12132e;color:#eef0f6;font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.mca-bar-inner{max-width:760px;margin:0 auto;padding:10px 20px;display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.mca-name{color:#fff;text-decoration:none;font-weight:600;letter-spacing:.01em}
+.mca-bar nav{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.mca-bar nav a{color:#b9c0da;text-decoration:none}
+.mca-bar nav a:hover{color:#fff;text-decoration:underline}
+.mca-cta{background:#ff7a1a;color:#12132e !important;padding:5px 12px;border-radius:999px;font-weight:600}
+.mca-cta:hover{background:#ffb347;text-decoration:none !important}
+@media(max-width:520px){.mca-bar-inner{gap:10px}.mca-bar nav{gap:12px;font-size:12px}}
 </style>`
