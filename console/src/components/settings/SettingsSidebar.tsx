@@ -6,7 +6,8 @@ import {
   ExclamationCircleOutlined,
   LineChartOutlined,
   MailOutlined,
-  SafetyCertificateOutlined
+  SafetyCertificateOutlined,
+  ReadOutlined
 } from '@ant-design/icons'
 import { useLingui } from '@lingui/react/macro'
 
@@ -22,6 +23,7 @@ export const SETTINGS_SECTIONS = [
   'general',
   'security',
   'blog',
+  'archive',
   'web-analytics',
   // Deployment-wide rather than workspace-wide, and rendered only for a root user — but listed
   // here unconditionally, because this array is what makes a URL valid and a root user must be
@@ -129,6 +131,11 @@ export function SettingsSidebar({
         </svg>
       ),
       label: t`Blog`
+    },
+    {
+      key: 'archive',
+      icon: <ReadOutlined />,
+      label: t`Campaign archive`
     },
     {
       key: 'web-analytics',

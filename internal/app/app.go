@@ -1366,10 +1366,18 @@ func (a *App) InitHandlers() error {
 	// from the templates we already hold. Read-only and unauthenticated by design
 	// (it is a page for readers, not operators); the workspace turns it on and
 	// gates it with basic auth in settings.archive.
+	archiveRepo := repository.NewCampaignArchiveRepository(a.workspaceRepo)
+	archiveAdminHandler := httpHandler.NewArchiveAdminHandler(
+		a.workspaceRepo,
+		archiveRepo,
+		a.templateRepo,
+		getJWTSecret,
+		a.logger,
+	)
 	archiveHandler := httpHandler.NewArchiveHandler(
 		a.workspaceRepo,
 		a.templateRepo,
-		repository.NewCampaignArchiveRepository(a.workspaceRepo),
+		archiveRepo,
 		a.listService,
 		a.logger,
 	)
@@ -1477,6 +1485,7 @@ func (a *App) InitHandlers() error {
 	broadcastHandler.RegisterRoutes(a.mux)
 	blogHandler.RegisterRoutes(a.mux)
 	archiveHandler.RegisterRoutes(a.mux)
+	archiveAdminHandler.RegisterRoutes(a.mux)
 	blogThemeHandler.RegisterRoutes(a.mux)
 	taskHandler.RegisterRoutes(a.mux)
 	transactionalHandler.RegisterRoutes(a.mux)

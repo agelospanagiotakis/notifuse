@@ -60,4 +60,5 @@ type CampaignArchiveRepository interface {
 	List(ctx context.Context, workspaceID string) ([]*ArchiveEntry, error)
 	Get(ctx context.Context, workspaceID, slug string) (*ArchiveEntry, error)
 	Upsert(ctx context.Context, workspaceID string, entry *ArchiveEntry) error
+	Remove(ctx context.Context, workspaceID, slug string) error
 }

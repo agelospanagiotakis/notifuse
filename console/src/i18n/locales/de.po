@@ -1373,7 +1373,7 @@ msgstr "Sind Sie sicher, dass Sie diesen Header löschen möchten?"
 msgid "Are you sure you want to delete this node?"
 msgstr "Sind Sie sicher, dass Sie diesen Knoten löschen möchten?"
 
-#: src/pages/TemplatesPage.tsx:372
+#: src/pages/TemplatesPage.tsx:375
 msgid "Are you sure you want to delete this template?"
 msgstr "Sind Sie sicher, dass Sie diese Vorlage löschen möchten?"
 
@@ -1851,7 +1851,7 @@ msgstr "Blöcke"
 #: src/components/settings/BlogSettings.tsx:226
 #: src/components/settings/BlogSettings.tsx:259
 #: src/components/settings/PermissionsMatrix.tsx:128
-#: src/components/settings/SettingsSidebar.tsx:131
+#: src/components/settings/SettingsSidebar.tsx:133
 #: src/layouts/WorkspaceLayout.tsx:262
 #: src/services/api/errors.ts:67
 msgid "Blog"
@@ -2236,6 +2236,10 @@ msgstr "Rufen Sie identify() auf, sobald Sie wissen, wer der Besucher ist. Die S
 msgid "Campaign"
 msgstr "Kampagne"
 
+#: src/components/settings/SettingsSidebar.tsx:138
+msgid "Campaign archive"
+msgstr ""
+
 #: src/components/web_analytics/goals/GoalDashboardDrawer.tsx:196
 #: src/components/web_analytics/tabs/DashboardTab.tsx:190
 #: src/pages/WebAnalyticsLivePage.tsx:193
@@ -2325,7 +2329,7 @@ msgstr "Kampagnen"
 #: src/pages/BroadcastsPage.tsx:1054
 #: src/pages/BroadcastsPage.tsx:1789
 #: src/pages/ListsPage.tsx:318
-#: src/pages/TemplatesPage.tsx:380
+#: src/pages/TemplatesPage.tsx:383
 #: src/pages/TransactionalNotificationsPage.tsx:149
 msgid "Cancel"
 msgstr "Abbrechen"
@@ -2687,7 +2691,7 @@ msgid "Clone email template"
 msgstr "E-Mail-Vorlage klonen"
 
 #: src/components/templates/CreateTemplateDrawer.tsx:605
-#: src/pages/TemplatesPage.tsx:336
+#: src/pages/TemplatesPage.tsx:339
 msgid "Clone Template"
 msgstr "Vorlage klonen"
 
@@ -3554,7 +3558,7 @@ msgstr "Erstellen Sie Ihre erste Benachrichtigung, um loszulegen"
 msgid "Create Your First Post"
 msgstr "Ersten Beitrag erstellen"
 
-#: src/pages/TemplatesPage.tsx:492
+#: src/pages/TemplatesPage.tsx:495
 msgid "Create your first template to get started"
 msgstr "Erstellen Sie Ihre erste Vorlage, um loszulegen"
 
@@ -3729,7 +3733,7 @@ msgstr "Benutzerdefiniertes Feldlabel erfolgreich gespeichert"
 
 #: src/components/contacts/ContactsCsvUploadDrawer.tsx:1136
 #: src/components/settings/CustomFieldsConfiguration.tsx:156
-#: src/components/settings/SettingsSidebar.tsx:141
+#: src/components/settings/SettingsSidebar.tsx:148
 msgid "Custom Fields"
 msgstr "Benutzerdefinierte Felder"
 
@@ -3866,7 +3870,7 @@ msgstr "Täglich"
 
 #: src/components/settings/BlogSettings.tsx:477
 #: src/components/settings/DeleteWorkspace.tsx:45
-#: src/components/settings/SettingsSidebar.tsx:170
+#: src/components/settings/SettingsSidebar.tsx:177
 msgid "Danger Zone"
 msgstr "Gefahrenzone"
 
@@ -4171,11 +4175,11 @@ msgstr "Beitrag löschen"
 msgid "Delete segment"
 msgstr "Segment löschen"
 
-#: src/pages/TemplatesPage.tsx:359
+#: src/pages/TemplatesPage.tsx:362
 msgid "Delete Template"
 msgstr "Vorlage löschen"
 
-#: src/pages/TemplatesPage.tsx:369
+#: src/pages/TemplatesPage.tsx:372
 msgid "Delete template?"
 msgstr "Vorlage löschen?"
 
@@ -4795,7 +4799,7 @@ msgid "Edit Sender"
 msgstr "Absender bearbeiten"
 
 #: src/components/templates/CreateTemplateDrawer.tsx:605
-#: src/pages/TemplatesPage.tsx:314
+#: src/pages/TemplatesPage.tsx:317
 msgid "Edit Template"
 msgstr "Vorlage bearbeiten"
 
@@ -5820,7 +5824,7 @@ msgstr "Abrufen der Objekte fehlgeschlagen: "
 msgid "Failed to fetch setup status"
 msgstr "Abrufen des Einrichtungsstatus fehlgeschlagen"
 
-#: src/pages/WorkspaceSettingsPage.tsx:99
+#: src/pages/WorkspaceSettingsPage.tsx:100
 msgid "Failed to fetch workspace members"
 msgstr "Abrufen der Arbeitsbereich-Mitglieder fehlgeschlagen"
 
@@ -6504,7 +6508,7 @@ msgstr "gemini-3.1-pro-preview oder eine benutzerdefinierte Modell-ID"
 #~ msgid "gemini-3.5-flash, gemini-3.1-pro-preview, or a custom model ID"
 #~ msgstr ""
 
-#: src/components/settings/SettingsSidebar.tsx:151
+#: src/components/settings/SettingsSidebar.tsx:158
 #: src/components/settings/SystemSettingsDrawer.tsx:251
 msgid "General"
 msgstr "Allgemein"
@@ -7240,7 +7244,7 @@ msgid "Integration updated successfully"
 msgstr "Integration erfolgreich aktualisiert"
 
 #: src/components/settings/Integrations.tsx:2709
-#: src/components/settings/SettingsSidebar.tsx:88
+#: src/components/settings/SettingsSidebar.tsx:90
 msgid "Integrations"
 msgstr "Integrationen"
 
@@ -7626,7 +7630,7 @@ msgid "Letter Spacing"
 msgstr "Buchstabenabstand"
 
 #: src/components/settings/LicenseSettings.tsx:58
-#: src/components/settings/SettingsSidebar.tsx:161
+#: src/components/settings/SettingsSidebar.tsx:168
 msgid "Licence"
 msgstr "Lizenz"
 
@@ -8947,7 +8951,7 @@ msgid "No specific details provided."
 msgstr "Keine spezifischen Details angegeben."
 
 #: src/components/templates/TemplateSelectorInput.tsx:258
-#: src/pages/TemplatesPage.tsx:490
+#: src/pages/TemplatesPage.tsx:493
 msgid "No templates found"
 msgstr "Keine Vorlagen gefunden"
 
@@ -8956,11 +8960,11 @@ msgstr "Keine Vorlagen gefunden"
 msgid "No templates found for {0} category"
 msgstr "Keine Vorlagen für Kategorie {0} gefunden"
 
-#: src/pages/TemplatesPage.tsx:518
+#: src/pages/TemplatesPage.tsx:521
 msgid "No templates found for category \"{selectedCategory}\""
 msgstr "Keine Vorlagen für Kategorie \\\"{selectedCategory}\\\" gefunden"
 
-#: src/pages/TemplatesPage.tsx:469
+#: src/pages/TemplatesPage.tsx:472
 msgid "No templates match your search"
 msgstr "Keine Vorlagen entsprechen Ihrer Suche"
 
@@ -9108,7 +9112,7 @@ msgstr "Nicht zugeordnete Kanäle"
 msgid "Note: mj-raw components can only be placed directly in mj-body or mj-head, not inside mj-wrapper. Consider moving the mj-raw content outside the wrapper or converting it to appropriate MJML components."
 msgstr "Hinweis: mj-raw-Komponenten können nur direkt in mj-body oder mj-head platziert werden, nicht innerhalb von mj-wrapper. Erwägen Sie, den mj-raw-Inhalt außerhalb des Wrappers zu verschieben oder in geeignete MJML-Komponenten umzuwandeln."
 
-#: src/pages/TemplatesPage.tsx:374
+#: src/pages/TemplatesPage.tsx:377
 msgid "Note: The template will be hidden from your workspace but preserved to maintain the ability to preview previously sent broadcasts and messages that used this template."
 msgstr "Hinweis: Die Vorlage wird aus Ihrem Arbeitsbereich ausgeblendet, aber beibehalten, um die Vorschau von zuvor gesendeten Kampagnen und Nachrichten, die diese Vorlage verwendet haben, zu ermöglichen."
 
@@ -10153,7 +10157,7 @@ msgid "Preview template"
 msgstr "Vorlage vorschauen"
 
 #: src/pages/BroadcastsPage.tsx:1018
-#: src/pages/TemplatesPage.tsx:400
+#: src/pages/TemplatesPage.tsx:403
 msgid "Preview Template"
 msgstr "Vorlage vorschauen"
 
@@ -11007,7 +11011,7 @@ msgstr "Eine Integrations-Synchronisierungsaufgabe zurücksetzen, damit sie von 
 msgid "Reset formatting"
 msgstr "Formatierung zurücksetzen"
 
-#: src/pages/TemplatesPage.tsx:523
+#: src/pages/TemplatesPage.tsx:526
 msgid "reset the filter"
 msgstr "Filter zurücksetzen"
 
@@ -11433,7 +11437,7 @@ msgid "Search"
 msgstr "Suchen"
 
 #: src/pages/BroadcastsPage.tsx:1646
-#: src/pages/TemplatesPage.tsx:449
+#: src/pages/TemplatesPage.tsx:452
 msgid "Search by name"
 msgstr "Nach Name suchen"
 
@@ -11490,7 +11494,7 @@ msgstr "Abschnitt — {0}"
 msgid "Section Attributes"
 msgstr "Abschnitts-Attribute"
 
-#: src/components/settings/SettingsSidebar.tsx:67
+#: src/components/settings/SettingsSidebar.tsx:69
 #: src/components/transactional/ApiCommandModal.tsx:534
 msgid "Security"
 msgstr "Sicherheit"
@@ -11976,7 +11980,7 @@ msgstr "Test senden"
 #: src/components/templates/SendTemplateModal.tsx:263
 #: src/components/templates/SendTemplateModal.tsx:277
 #: src/pages/BroadcastsPage.tsx:1002
-#: src/pages/TemplatesPage.tsx:390
+#: src/pages/TemplatesPage.tsx:393
 msgid "Send Test Email"
 msgstr "Test-E-Mail senden"
 
@@ -12273,7 +12277,7 @@ msgstr "Legt die Bildschirmbreite fest, unter der die E-Mail zum mobilen Layout 
 msgid "Setting up..."
 msgstr "Wird eingerichtet..."
 
-#: src/components/settings/SettingsSidebar.tsx:176
+#: src/components/settings/SettingsSidebar.tsx:183
 #: src/layouts/WorkspaceLayout.tsx:481
 msgid "Settings"
 msgstr "Einstellungen"
@@ -12430,7 +12434,7 @@ msgstr "Slug darf nur Kleinbuchstaben, Zahlen und Bindestriche enthalten"
 msgid "SMS"
 msgstr "SMS"
 
-#: src/components/settings/SettingsSidebar.tsx:146
+#: src/components/settings/SettingsSidebar.tsx:153
 #: src/components/settings/SMTPBridgeSettings.tsx:20
 #: src/components/settings/SystemSettingsDrawer.tsx:456
 msgid "SMTP Bridge"
@@ -12978,7 +12982,7 @@ msgstr "Aufgabenstatus"
 msgid "Task type:"
 msgstr "Aufgabentyp:"
 
-#: src/components/settings/SettingsSidebar.tsx:56
+#: src/components/settings/SettingsSidebar.tsx:58
 #: src/components/settings/WorkspaceMembers.tsx:441
 msgid "Team"
 msgstr "Team"
@@ -13109,7 +13113,7 @@ msgstr "Vorlage:"
 
 #: src/components/settings/PermissionsMatrix.tsx:123
 #: src/layouts/WorkspaceLayout.tsx:251
-#: src/pages/TemplatesPage.tsx:418
+#: src/pages/TemplatesPage.tsx:421
 #: src/services/api/errors.ts:62
 msgid "Templates"
 msgstr "Vorlagen"
@@ -13738,7 +13742,7 @@ msgstr "Dieses Segment verwendet relative Datumsfilter und wird täglich um 5:00
 msgid "This template is already used in another variation"
 msgstr "Diese Vorlage wird bereits in einer anderen Variation verwendet"
 
-#: src/pages/TemplatesPage.tsx:356
+#: src/pages/TemplatesPage.tsx:359
 msgid "This template is managed by an integration and cannot be deleted"
 msgstr "Diese Vorlage wird von einer Integration verwaltet und kann nicht gelöscht werden"
 
@@ -14214,7 +14218,7 @@ msgstr "Bei bestimmten Feldänderungen auslösen"
 msgid "Try adjusting your search or status filter"
 msgstr "Versuchen Sie, Ihre Suche oder den Statusfilter anzupassen"
 
-#: src/pages/TemplatesPage.tsx:521
+#: src/pages/TemplatesPage.tsx:524
 msgid "Try selecting a different category or"
 msgstr "Versuchen Sie, eine andere Kategorie auszuwählen oder"
 
@@ -14919,7 +14923,7 @@ msgid "We'll automatically detect and use your website's favicon"
 msgstr "Wir erkennen automatisch das Favicon Ihrer Website und verwenden es"
 
 #: src/components/settings/PermissionsMatrix.tsx:131
-#: src/components/settings/SettingsSidebar.tsx:136
+#: src/components/settings/SettingsSidebar.tsx:143
 #: src/components/settings/WebAnalyticsSettings.tsx:232
 #: src/components/settings/WebAnalyticsSettings.tsx:242
 #: src/components/settings/WebAnalyticsSettings.tsx:291
@@ -15029,7 +15033,7 @@ msgstr "Webhook-URL"
 #: src/components/settings/Integrations.tsx:251
 #: src/components/settings/Integrations.tsx:259
 #: src/components/settings/Integrations.tsx:291
-#: src/components/settings/SettingsSidebar.tsx:110
+#: src/components/settings/SettingsSidebar.tsx:112
 #: src/components/settings/WebhooksSettings.tsx:207
 msgid "Webhooks"
 msgstr "Webhooks"
@@ -15392,7 +15396,7 @@ msgstr "Ja, löschen"
 msgid "Yes, delete"
 msgstr "Ja, löschen"
 
-#: src/pages/TemplatesPage.tsx:378
+#: src/pages/TemplatesPage.tsx:381
 #: src/pages/TransactionalNotificationsPage.tsx:148
 msgid "Yes, Delete"
 msgstr "Ja, löschen"
@@ -15475,10 +15479,10 @@ msgstr "Sie haben keine Schreibberechtigung für Kontakte"
 msgid "You don't have write permission for lists"
 msgstr "Sie haben keine Schreibberechtigung für Listen"
 
-#: src/pages/TemplatesPage.tsx:313
-#: src/pages/TemplatesPage.tsx:335
-#: src/pages/TemplatesPage.tsx:358
-#: src/pages/TemplatesPage.tsx:423
+#: src/pages/TemplatesPage.tsx:316
+#: src/pages/TemplatesPage.tsx:338
+#: src/pages/TemplatesPage.tsx:361
+#: src/pages/TemplatesPage.tsx:426
 msgid "You don't have write permission for templates"
 msgstr "Sie haben keine Schreibberechtigung für Vorlagen"
 
@@ -15510,7 +15514,7 @@ msgid "You must configure a Custom Endpoint URL in General Settings above before
 msgstr "Sie müssen eine benutzerdefinierte Endpunkt-URL in den allgemeinen Einstellungen oben konfigurieren, bevor Sie den Blog aktivieren."
 
 #: src/pages/BroadcastsPage.tsx:1001
-#: src/pages/TemplatesPage.tsx:389
+#: src/pages/TemplatesPage.tsx:392
 msgid "You need read template and write contact permissions to send test emails"
 msgstr "Sie benötigen Lese-Vorlagen- und Schreib-Kontakt-Berechtigungen, um Test-E-Mails zu senden"
 

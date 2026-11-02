@@ -1371,7 +1371,7 @@ msgstr "Είστε βέβαιοι ότι θέλετε να διαγράψετε 
 msgid "Are you sure you want to delete this node?"
 msgstr "Είστε βέβαιοι ότι θέλετε να διαγράψετε αυτόν τον κόμβο;"
 
-#: src/pages/TemplatesPage.tsx:372
+#: src/pages/TemplatesPage.tsx:375
 msgid "Are you sure you want to delete this template?"
 msgstr "Είστε βέβαιοι ότι θέλετε να διαγράψετε αυτό το πρότυπο;"
 
@@ -1849,7 +1849,7 @@ msgstr "Μπλοκ"
 #: src/components/settings/BlogSettings.tsx:226
 #: src/components/settings/BlogSettings.tsx:259
 #: src/components/settings/PermissionsMatrix.tsx:128
-#: src/components/settings/SettingsSidebar.tsx:131
+#: src/components/settings/SettingsSidebar.tsx:133
 #: src/layouts/WorkspaceLayout.tsx:262
 #: src/services/api/errors.ts:67
 msgid "Blog"
@@ -2234,6 +2234,10 @@ msgstr ""
 msgid "Campaign"
 msgstr "καμπάνια"
 
+#: src/components/settings/SettingsSidebar.tsx:138
+msgid "Campaign archive"
+msgstr "Αρχείο καμπανιών"
+
 #: src/components/web_analytics/goals/GoalDashboardDrawer.tsx:196
 #: src/components/web_analytics/tabs/DashboardTab.tsx:190
 #: src/pages/WebAnalyticsLivePage.tsx:193
@@ -2323,7 +2327,7 @@ msgstr "καμπάνιες"
 #: src/pages/BroadcastsPage.tsx:1054
 #: src/pages/BroadcastsPage.tsx:1789
 #: src/pages/ListsPage.tsx:318
-#: src/pages/TemplatesPage.tsx:380
+#: src/pages/TemplatesPage.tsx:383
 #: src/pages/TransactionalNotificationsPage.tsx:149
 msgid "Cancel"
 msgstr "Ακύρωση"
@@ -2685,7 +2689,7 @@ msgid "Clone email template"
 msgstr "Κλωνοποίηση προτύπου email"
 
 #: src/components/templates/CreateTemplateDrawer.tsx:605
-#: src/pages/TemplatesPage.tsx:336
+#: src/pages/TemplatesPage.tsx:339
 msgid "Clone Template"
 msgstr "Πρότυπο κλώνου"
 
@@ -3552,7 +3556,7 @@ msgstr "Δημιουργήστε την πρώτη σας ειδοποίηση �
 msgid "Create Your First Post"
 msgstr "Δημιουργήστε την πρώτη σας ανάρτηση"
 
-#: src/pages/TemplatesPage.tsx:492
+#: src/pages/TemplatesPage.tsx:495
 msgid "Create your first template to get started"
 msgstr "Δημιουργήστε το πρώτο σας πρότυπο για να ξεκινήσετε"
 
@@ -3727,7 +3731,7 @@ msgstr "Η προσαρμοσμένη ετικέτα πεδίου αποθηκε
 
 #: src/components/contacts/ContactsCsvUploadDrawer.tsx:1136
 #: src/components/settings/CustomFieldsConfiguration.tsx:156
-#: src/components/settings/SettingsSidebar.tsx:141
+#: src/components/settings/SettingsSidebar.tsx:148
 msgid "Custom Fields"
 msgstr "Προσαρμοσμένα πεδία"
 
@@ -3864,7 +3868,7 @@ msgstr "Καθημερινά"
 
 #: src/components/settings/BlogSettings.tsx:477
 #: src/components/settings/DeleteWorkspace.tsx:45
-#: src/components/settings/SettingsSidebar.tsx:170
+#: src/components/settings/SettingsSidebar.tsx:177
 msgid "Danger Zone"
 msgstr "Επικίνδυνη Ζώνη"
 
@@ -4169,11 +4173,11 @@ msgstr "Διαγραφή ανάρτησης"
 msgid "Delete segment"
 msgstr "Διαγραφή τμήματος"
 
-#: src/pages/TemplatesPage.tsx:359
+#: src/pages/TemplatesPage.tsx:362
 msgid "Delete Template"
 msgstr "Διαγραφή προτύπου"
 
-#: src/pages/TemplatesPage.tsx:369
+#: src/pages/TemplatesPage.tsx:372
 msgid "Delete template?"
 msgstr "Διαγραφή προτύπου;"
 
@@ -4793,7 +4797,7 @@ msgid "Edit Sender"
 msgstr "Επεξεργασία αποστολέα"
 
 #: src/components/templates/CreateTemplateDrawer.tsx:605
-#: src/pages/TemplatesPage.tsx:314
+#: src/pages/TemplatesPage.tsx:317
 msgid "Edit Template"
 msgstr "Επεξεργασία προτύπου"
 
@@ -5818,7 +5822,7 @@ msgstr "Αποτυχία λήψης αντικειμένων: "
 msgid "Failed to fetch setup status"
 msgstr "Η ανάκτηση της κατάστασης ρύθμισης απέτυχε"
 
-#: src/pages/WorkspaceSettingsPage.tsx:99
+#: src/pages/WorkspaceSettingsPage.tsx:100
 msgid "Failed to fetch workspace members"
 msgstr "Αποτυχία λήψης μελών χώρου εργασίας"
 
@@ -6502,7 +6506,7 @@ msgstr "gemini-3.1-pro-preview ή προσαρμοσμένο αναγνωρισ�
 #~ msgid "gemini-3.5-flash, gemini-3.1-pro-preview, or a custom model ID"
 #~ msgstr "gemini-3.5-flash, gemini-3.1-pro-preview, or a custom model ID"
 
-#: src/components/settings/SettingsSidebar.tsx:151
+#: src/components/settings/SettingsSidebar.tsx:158
 #: src/components/settings/SystemSettingsDrawer.tsx:251
 msgid "General"
 msgstr "Στρατηγός"
@@ -7238,7 +7242,7 @@ msgid "Integration updated successfully"
 msgstr "Η ενσωμάτωση ενημερώθηκε με επιτυχία"
 
 #: src/components/settings/Integrations.tsx:2709
-#: src/components/settings/SettingsSidebar.tsx:88
+#: src/components/settings/SettingsSidebar.tsx:90
 msgid "Integrations"
 msgstr "Ενσωματώσεις"
 
@@ -7624,7 +7628,7 @@ msgid "Letter Spacing"
 msgstr "Διάστιχο γραμμάτων"
 
 #: src/components/settings/LicenseSettings.tsx:58
-#: src/components/settings/SettingsSidebar.tsx:161
+#: src/components/settings/SettingsSidebar.tsx:168
 msgid "Licence"
 msgstr "Άδεια"
 
@@ -8945,7 +8949,7 @@ msgid "No specific details provided."
 msgstr "Δεν παρέχονται συγκεκριμένες λεπτομέρειες."
 
 #: src/components/templates/TemplateSelectorInput.tsx:258
-#: src/pages/TemplatesPage.tsx:490
+#: src/pages/TemplatesPage.tsx:493
 msgid "No templates found"
 msgstr "Δεν βρέθηκαν πρότυπα"
 
@@ -8954,11 +8958,11 @@ msgstr "Δεν βρέθηκαν πρότυπα"
 msgid "No templates found for {0} category"
 msgstr "Δεν βρέθηκαν πρότυπα για την κατηγορία {0}"
 
-#: src/pages/TemplatesPage.tsx:518
+#: src/pages/TemplatesPage.tsx:521
 msgid "No templates found for category \"{selectedCategory}\""
 msgstr "Δεν βρέθηκαν πρότυπα για την κατηγορία \"{selectedCategory}\""
 
-#: src/pages/TemplatesPage.tsx:469
+#: src/pages/TemplatesPage.tsx:472
 msgid "No templates match your search"
 msgstr "Δεν υπάρχουν πρότυπα που να ταιριάζουν με την αναζήτησή σας"
 
@@ -9106,7 +9110,7 @@ msgstr "Μη χαρτογραφημένα κανάλια"
 msgid "Note: mj-raw components can only be placed directly in mj-body or mj-head, not inside mj-wrapper. Consider moving the mj-raw content outside the wrapper or converting it to appropriate MJML components."
 msgstr ""
 
-#: src/pages/TemplatesPage.tsx:374
+#: src/pages/TemplatesPage.tsx:377
 msgid "Note: The template will be hidden from your workspace but preserved to maintain the ability to preview previously sent broadcasts and messages that used this template."
 msgstr "Σημείωση: Το πρότυπο θα είναι κρυφό από τον χώρο εργασίας σας, αλλά θα διατηρηθεί για να διατηρείται η δυνατότητα προεπισκόπησης των εκπομπών και των μηνυμάτων που είχαν σταλεί προηγουμένως που χρησιμοποιούσαν αυτό το πρότυπο."
 
@@ -10151,7 +10155,7 @@ msgid "Preview template"
 msgstr "Πρότυπο προεπισκόπησης"
 
 #: src/pages/BroadcastsPage.tsx:1018
-#: src/pages/TemplatesPage.tsx:400
+#: src/pages/TemplatesPage.tsx:403
 msgid "Preview Template"
 msgstr "Πρότυπο προεπισκόπησης"
 
@@ -11005,7 +11009,7 @@ msgstr "Επαναφέρετε μια εργασία συγχρονισμού ε
 msgid "Reset formatting"
 msgstr "Επαναφορά μορφοποίησης"
 
-#: src/pages/TemplatesPage.tsx:523
+#: src/pages/TemplatesPage.tsx:526
 msgid "reset the filter"
 msgstr "επαναφέρετε το φίλτρο"
 
@@ -11431,7 +11435,7 @@ msgid "Search"
 msgstr "Αναζήτηση"
 
 #: src/pages/BroadcastsPage.tsx:1646
-#: src/pages/TemplatesPage.tsx:449
+#: src/pages/TemplatesPage.tsx:452
 msgid "Search by name"
 msgstr "Αναζήτηση με όνομα"
 
@@ -11488,7 +11492,7 @@ msgstr "Ενότητα — {0}"
 msgid "Section Attributes"
 msgstr "Ενότητα Χαρακτηριστικά"
 
-#: src/components/settings/SettingsSidebar.tsx:67
+#: src/components/settings/SettingsSidebar.tsx:69
 #: src/components/transactional/ApiCommandModal.tsx:534
 msgid "Security"
 msgstr "Ασφάλεια"
@@ -11974,7 +11978,7 @@ msgstr "Αποστολή δοκιμής"
 #: src/components/templates/SendTemplateModal.tsx:263
 #: src/components/templates/SendTemplateModal.tsx:277
 #: src/pages/BroadcastsPage.tsx:1002
-#: src/pages/TemplatesPage.tsx:390
+#: src/pages/TemplatesPage.tsx:393
 msgid "Send Test Email"
 msgstr "Αποστολή δοκιμαστικού email"
 
@@ -12271,7 +12275,7 @@ msgstr ""
 msgid "Setting up..."
 msgstr "Ρύθμιση..."
 
-#: src/components/settings/SettingsSidebar.tsx:176
+#: src/components/settings/SettingsSidebar.tsx:183
 #: src/layouts/WorkspaceLayout.tsx:481
 msgid "Settings"
 msgstr "Ρυθμίσεις"
@@ -12428,7 +12432,7 @@ msgstr "Το Slug πρέπει να περιέχει μόνο πεζά γράμ�
 msgid "SMS"
 msgstr "SMS"
 
-#: src/components/settings/SettingsSidebar.tsx:146
+#: src/components/settings/SettingsSidebar.tsx:153
 #: src/components/settings/SMTPBridgeSettings.tsx:20
 #: src/components/settings/SystemSettingsDrawer.tsx:456
 msgid "SMTP Bridge"
@@ -12976,7 +12980,7 @@ msgstr "Κατάσταση εργασίας"
 msgid "Task type:"
 msgstr "Τύπος εργασίας:"
 
-#: src/components/settings/SettingsSidebar.tsx:56
+#: src/components/settings/SettingsSidebar.tsx:58
 #: src/components/settings/WorkspaceMembers.tsx:441
 msgid "Team"
 msgstr "Ομάδα"
@@ -13107,7 +13111,7 @@ msgstr "Πρότυπο:"
 
 #: src/components/settings/PermissionsMatrix.tsx:123
 #: src/layouts/WorkspaceLayout.tsx:251
-#: src/pages/TemplatesPage.tsx:418
+#: src/pages/TemplatesPage.tsx:421
 #: src/services/api/errors.ts:62
 msgid "Templates"
 msgstr "Πρότυπα"
@@ -13736,7 +13740,7 @@ msgstr "Αυτό το τμήμα χρησιμοποιεί φίλτρα σχετ�
 msgid "This template is already used in another variation"
 msgstr "Αυτό το πρότυπο χρησιμοποιείται ήδη σε άλλη παραλλαγή"
 
-#: src/pages/TemplatesPage.tsx:356
+#: src/pages/TemplatesPage.tsx:359
 msgid "This template is managed by an integration and cannot be deleted"
 msgstr "Αυτό το πρότυπο διαχειρίζεται μια ενοποίηση και δεν μπορεί να διαγραφεί"
 
@@ -14212,7 +14216,7 @@ msgstr "Ενεργοποίηση σε συγκεκριμένες αλλαγές 
 msgid "Try adjusting your search or status filter"
 msgstr "Δοκιμάστε να προσαρμόσετε το φίλτρο αναζήτησης ή κατάστασης"
 
-#: src/pages/TemplatesPage.tsx:521
+#: src/pages/TemplatesPage.tsx:524
 msgid "Try selecting a different category or"
 msgstr "Δοκιμάστε να επιλέξετε διαφορετική κατηγορία ή"
 
@@ -14917,7 +14921,7 @@ msgid "We'll automatically detect and use your website's favicon"
 msgstr "Θα εντοπίσουμε και θα χρησιμοποιήσουμε αυτόματα το favicon του ιστότοπού σας"
 
 #: src/components/settings/PermissionsMatrix.tsx:131
-#: src/components/settings/SettingsSidebar.tsx:136
+#: src/components/settings/SettingsSidebar.tsx:143
 #: src/components/settings/WebAnalyticsSettings.tsx:232
 #: src/components/settings/WebAnalyticsSettings.tsx:242
 #: src/components/settings/WebAnalyticsSettings.tsx:291
@@ -15027,7 +15031,7 @@ msgstr "URL webhook"
 #: src/components/settings/Integrations.tsx:251
 #: src/components/settings/Integrations.tsx:259
 #: src/components/settings/Integrations.tsx:291
-#: src/components/settings/SettingsSidebar.tsx:110
+#: src/components/settings/SettingsSidebar.tsx:112
 #: src/components/settings/WebhooksSettings.tsx:207
 msgid "Webhooks"
 msgstr "Webhooks"
@@ -15390,7 +15394,7 @@ msgstr "Ναι, καθαρίστε το"
 msgid "Yes, delete"
 msgstr "Ναι, διαγραφή"
 
-#: src/pages/TemplatesPage.tsx:378
+#: src/pages/TemplatesPage.tsx:381
 #: src/pages/TransactionalNotificationsPage.tsx:148
 msgid "Yes, Delete"
 msgstr "Ναι, Διαγραφή"
@@ -15473,10 +15477,10 @@ msgstr "Δεν έχετε άδεια εγγραφής για επαφές"
 msgid "You don't have write permission for lists"
 msgstr "Δεν έχετε άδεια εγγραφής για λίστες"
 
-#: src/pages/TemplatesPage.tsx:313
-#: src/pages/TemplatesPage.tsx:335
-#: src/pages/TemplatesPage.tsx:358
-#: src/pages/TemplatesPage.tsx:423
+#: src/pages/TemplatesPage.tsx:316
+#: src/pages/TemplatesPage.tsx:338
+#: src/pages/TemplatesPage.tsx:361
+#: src/pages/TemplatesPage.tsx:426
 msgid "You don't have write permission for templates"
 msgstr "Δεν έχετε άδεια εγγραφής για πρότυπα"
 
@@ -15508,7 +15512,7 @@ msgid "You must configure a Custom Endpoint URL in General Settings above before
 msgstr "Πρέπει να διαμορφώσετε μια προσαρμοσμένη διεύθυνση URL τελικού σημείου στις Γενικές ρυθμίσεις παραπάνω πριν ενεργοποιήσετε το ιστολόγιο."
 
 #: src/pages/BroadcastsPage.tsx:1001
-#: src/pages/TemplatesPage.tsx:389
+#: src/pages/TemplatesPage.tsx:392
 msgid "You need read template and write contact permissions to send test emails"
 msgstr "Χρειάζεστε δικαιώματα ανάγνωσης προτύπου και εγγραφής επαφών για να στείλετε δοκιμαστικά μηνύματα ηλεκτρονικού ταχυδρομείου"
 
