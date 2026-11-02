@@ -33,6 +33,7 @@ type ArchiveHandler struct {
 	workspaceRepo domain.WorkspaceRepository
 	templateRepo  domain.TemplateRepository
 	archiveRepo   domain.CampaignArchiveRepository
+	listService   domain.ListService
 	logger        logger.Logger
 }
 
@@ -40,12 +41,14 @@ func NewArchiveHandler(
 	workspaceRepo domain.WorkspaceRepository,
 	templateRepo domain.TemplateRepository,
 	archiveRepo domain.CampaignArchiveRepository,
+	listService domain.ListService,
 	logger logger.Logger,
 ) *ArchiveHandler {
 	return &ArchiveHandler{
 		workspaceRepo: workspaceRepo,
 		templateRepo:  templateRepo,
 		archiveRepo:   archiveRepo,
+		listService:   listService,
 		logger:        logger,
 	}
 }
@@ -56,8 +59,8 @@ func (h *ArchiveHandler) RegisterRoutes(mux *http.ServeMux) {
 }
 
 func (h *ArchiveHandler) handle(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodPost {
+		w.Header().Set("Allow", "GET, HEAD, POST")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -95,6 +98,9 @@ func (h *ArchiveHandler) handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
+	case len(parts) == 2 && parts[1] == "subscribe":
+		h.handleSubscribePage(w, r, workspace, settings)
+		return
 	case len(parts) == 2 && (parts[1] == "feed.xml" || parts[1] == "feed"):
 		h.renderFeed(w, r, workspace, settings)
 	case len(parts) == 1:
@@ -381,12 +387,31 @@ func barName(workspace *domain.Workspace, settings *domain.ArchiveSettings) stri
 }
 
 func subscribeTarget(workspace *domain.Workspace, settings *domain.ArchiveSettings) string {
+	// One of our own public lists is the closest thing to Mailchimp: the reader
+	// signs up without leaving the archive.
+	if len(settings.SubscribeListIDs) > 0 {
+		return "/archive/" + slugify(workspace.Name) + "/subscribe"
+	}
 	if settings.SubscribeURL != "" {
-		return settings.SubscribeURL
+		return absoluteExternalURL(settings.SubscribeURL)
 	}
 	// Falling back to the workspace's own site beats hiding the control: an archive
 	// with no way to subscribe is the one thing Mailchimp's never is.
-	return workspace.Settings.WebsiteURL
+	return absoluteExternalURL(workspace.Settings.WebsiteURL)
+}
+
+// absoluteExternalURL turns "www.example.gr" into "https://www.example.gr". A setting
+// saved without a scheme otherwise resolves against the archive's own path and lands
+// on a 404 like /archive/kois-optics/www.example.gr.
+func absoluteExternalURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") || strings.HasPrefix(raw, "/") {
+		return raw
+	}
+	return "https://" + raw
 }
 
 func absoluteURL(r *http.Request, path string) string {
@@ -407,7 +432,7 @@ func toolbarHTML(o archiveBarOptions) string {
 		html.EscapeString(o.workspaceName) + `</a>`)
 	b.WriteString(`<nav>`)
 	if o.subscribeURL != "" {
-		b.WriteString(`<a class="mca-cta" href="` + html.EscapeString(o.subscribeURL) + `" rel="noopener">Subscribe</a>`)
+		b.WriteString(`<a class="mca-cta" href="` + html.EscapeString(o.subscribeURL) + `">Subscribe</a>`)
 	}
 	b.WriteString(`<a href="/archive/` + html.EscapeString(o.workspaceSlug) + `/">Past Issues</a>`)
 	b.WriteString(`<a href="/archive/` + html.EscapeString(o.workspaceSlug) + `/feed.xml">RSS</a>`)
@@ -498,4 +523,109 @@ const archiveBarCSS = `<style>
 .mca-cta{background:#ff7a1a;color:#12132e !important;padding:5px 12px;border-radius:999px;font-weight:600}
 .mca-cta:hover{background:#ffb347;text-decoration:none !important}
 @media(max-width:520px){.mca-bar-inner{gap:10px}.mca-bar nav{gap:12px;font-size:12px}}
+</style>`
+
+// handleSubscribePage is the archive's own signup: GET renders a form, POST adds the
+// contact to the workspace's public list through the same service the notification
+// centre and blog use, so double opt-in, rate limiting and consent behave exactly as
+// they do everywhere else.
+func (h *ArchiveHandler) handleSubscribePage(w http.ResponseWriter, r *http.Request, workspace *domain.Workspace, settings *domain.ArchiveSettings) {
+	if len(settings.SubscribeListIDs) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method == http.MethodPost {
+		h.submitSubscribe(w, r, workspace, settings)
+		return
+	}
+	// A successful POST redirects here with ?ok=1 (POST/redirect/GET), so a refresh
+	// cannot resubmit and silently double-add.
+	h.renderSubscribeForm(w, workspace, settings, r.URL.Query().Get("ok") == "1", r.URL.Query().Get("error"))
+}
+
+func (h *ArchiveHandler) submitSubscribe(w http.ResponseWriter, r *http.Request, workspace *domain.Workspace, settings *domain.ArchiveSettings) {
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/archive/"+slugify(workspace.Name)+"/subscribe?error=invalid", http.StatusSeeOther)
+		return
+	}
+	email := strings.TrimSpace(r.PostFormValue("email"))
+	if email == "" {
+		http.Redirect(w, r, "/archive/"+slugify(workspace.Name)+"/subscribe?error=email", http.StatusSeeOther)
+		return
+	}
+
+	contact := domain.Contact{Email: email}
+	if name := strings.TrimSpace(r.PostFormValue("first_name")); name != "" {
+		contact.FirstName = &domain.NullableString{String: name}
+	}
+	req := &domain.SubscribeToListsRequest{
+		WorkspaceID: workspace.ID,
+		Contact:     contact,
+		ListIDs:     settings.SubscribeListIDs,
+	}
+	if h.listService != nil {
+		if err := h.listService.SubscribeToLists(r.Context(), req, false); err != nil {
+			h.logger.WithField("workspace_id", workspace.ID).WithField("error", err.Error()).Warn("Archive subscribe failed")
+			http.Redirect(w, r, "/archive/"+slugify(workspace.Name)+"/subscribe?error=subscribe", http.StatusSeeOther)
+			return
+		}
+	}
+	http.Redirect(w, r, "/archive/"+slugify(workspace.Name)+"/subscribe?ok=1", http.StatusSeeOther)
+}
+
+func (h *ArchiveHandler) renderSubscribeForm(w http.ResponseWriter, workspace *domain.Workspace, settings *domain.ArchiveSettings, ok bool, errCode string) {
+	var b strings.Builder
+	b.WriteString("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">")
+	b.WriteString("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">")
+	b.WriteString("<meta name=\"robots\" content=\"noindex\">")
+	b.WriteString("<title>Subscribe · " + html.EscapeString(barName(workspace, settings)) + "</title>")
+	b.WriteString(archiveCSS)
+	b.WriteString(archiveBarCSS)
+	b.WriteString(signupCSS)
+	b.WriteString("</head><body>")
+	b.WriteString(toolbarHTML(archiveBarOptions{
+		workspaceSlug: slugify(workspace.Name),
+		workspaceName: barName(workspace, settings),
+		subscribeURL:  "/archive/" + slugify(workspace.Name) + "/subscribe",
+	}))
+	b.WriteString("<main><header><h1>Subscribe to " + html.EscapeString(barName(workspace, settings)) + "</h1>")
+	b.WriteString("<p class=\"count\">One email when there is something worth showing you.</p></header>")
+
+	if ok {
+		b.WriteString(`<p class="note ok">You are on the list. Check your inbox for a confirmation.</p>`)
+	}
+	switch errCode {
+	case "email":
+		b.WriteString(`<p class="note bad">That email address does not look right.</p>`)
+	case "subscribe":
+		b.WriteString(`<p class="note bad">That address could not be added just now. Try again in a minute.</p>`)
+	case "invalid":
+		b.WriteString(`<p class="note bad">The form could not be read. Please try again.</p>`)
+	}
+
+	b.WriteString(`<form method="post" action="/archive/` + html.EscapeString(slugify(workspace.Name)) + `/subscribe">`)
+	b.WriteString(`<label>First name<input name="first_name" type="text" autocomplete="given-name" placeholder="optional"></label>`)
+	b.WriteString(`<label>Email<input name="email" type="email" required autocomplete="email" placeholder="you@example.com"></label>`)
+	b.WriteString(`<button type="submit">Subscribe</button>`)
+	b.WriteString(`</form>`)
+	b.WriteString(`<p class="small"><a href="/archive/` + html.EscapeString(slugify(workspace.Name)) +
+		`/">Read past issues instead →</a></p>`)
+	b.WriteString(`</main></body></html>`)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("X-Robots-Tag", "noindex")
+	_, _ = w.Write([]byte(b.String()))
+}
+
+const signupCSS = `<style>
+.note{padding:12px 14px;border-radius:10px;margin:18px 0;font-size:14px}
+.note.ok{background:#e8f5ec;color:#1c6b34;border:1px solid #bfe3c9}
+.note.bad{background:#fdecec;color:#8c1f1f;border:1px solid #f3c9c9}
+form{display:flex;flex-direction:column;gap:14px;max-width:420px;margin:26px 0}
+label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--muted);letter-spacing:.02em}
+input{padding:12px 14px;border:1px solid #d3d8e6;border-radius:10px;font-size:15px;background:#fff}
+input:focus{outline:2px solid var(--brand);outline-offset:1px}
+button{background:var(--brand);color:#fff;border:0;border-radius:999px;padding:12px 22px;font-size:15px;font-weight:600;cursor:pointer;align-self:flex-start}
+button:hover{background:#35449c}
+.small{font-size:13px;color:var(--muted)}
 </style>`
