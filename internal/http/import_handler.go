@@ -95,6 +95,8 @@ func (h *ImportHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	contacts, memberships := h.subscriberCounts(r.Context(), ws.ID)
+
 	archived := 0
 	if err := h.archiveRepo.EnsureSchema(r.Context(), ws.ID); err == nil {
 		if list, err := h.archiveRepo.List(r.Context(), ws.ID); err == nil {
@@ -126,10 +128,11 @@ func (h *ImportHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 		},
 		{
 			ID: "subscribers", Title: "Subscribers",
-			Why:  "The audience itself. Not started: it needs a consent decision before a single contact is written.",
-			Done: false, DoneCount: 0, Total: 0, Unit: "contacts",
-			Command: "Mailchimp → Audience → Export as CSV, then Contacts → Import in this console",
-			Note:    "Importing an unsubscribed contact as subscribed cannot be undone — decide the mapping first.",
+			Why:  "The audience itself, one list per Mailchimp audience.",
+			Done: contacts > 0, DoneCount: contacts, Total: 0, Unit: "people",
+			Command: "ssh root@64.226.122.222 'python3 -u /tmp/mc_subscribers.py --workspace koisoptics --apply'",
+			Note: fmt.Sprintf("%d memberships across the lists; only Mailchimp's `subscribed` members are imported, "+
+				"so unsubscribed, cleaned and pending addresses never arrive.", memberships),
 		},
 		{
 			ID: "broadcasts", Title: "Broadcast history (optional)",
@@ -256,6 +259,20 @@ func (h *ImportHandler) handleInventory(w http.ResponseWriter, r *http.Request) 
 		"audiences":   audiences,
 		"subscribers": subscribers,
 	})
+}
+
+// subscriberCounts reads the two numbers the screen needs: distinct people, and
+// memberships (a person in two audiences holds two, which is the whole point of
+// importing per audience rather than into one list).
+func (h *ImportHandler) subscriberCounts(ctx context.Context, workspaceID string) (int, int) {
+	db, err := h.workspaceRepo.GetConnection(ctx, workspaceID)
+	if err != nil {
+		return 0, 0
+	}
+	var contacts, memberships int
+	_ = db.QueryRowContext(ctx, `SELECT count(*) FROM contacts`).Scan(&contacts)
+	_ = db.QueryRowContext(ctx, `SELECT count(*) FROM contact_lists`).Scan(&memberships)
+	return contacts, memberships
 }
 
 func (h *ImportHandler) checkMailchimpKey(ctx context.Context, key string) error {
