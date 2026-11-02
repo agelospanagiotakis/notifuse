@@ -1851,7 +1851,7 @@ msgstr "Blocs"
 #: src/components/settings/BlogSettings.tsx:226
 #: src/components/settings/BlogSettings.tsx:259
 #: src/components/settings/PermissionsMatrix.tsx:128
-#: src/components/settings/SettingsSidebar.tsx:133
+#: src/components/settings/SettingsSidebar.tsx:135
 #: src/layouts/WorkspaceLayout.tsx:262
 #: src/services/api/errors.ts:67
 msgid "Blog"
@@ -2236,7 +2236,7 @@ msgstr "Crideu identify() un cop sapigueu qui és el visitant. La signatura s'ha
 msgid "Campaign"
 msgstr "Campanya"
 
-#: src/components/settings/SettingsSidebar.tsx:138
+#: src/components/settings/SettingsSidebar.tsx:145
 msgid "Campaign archive"
 msgstr ""
 
@@ -3733,7 +3733,7 @@ msgstr "Etiqueta de camp personalitzat desada correctament"
 
 #: src/components/contacts/ContactsCsvUploadDrawer.tsx:1136
 #: src/components/settings/CustomFieldsConfiguration.tsx:156
-#: src/components/settings/SettingsSidebar.tsx:148
+#: src/components/settings/SettingsSidebar.tsx:155
 msgid "Custom Fields"
 msgstr "Camps personalitzats"
 
@@ -3870,7 +3870,7 @@ msgstr "Diari"
 
 #: src/components/settings/BlogSettings.tsx:477
 #: src/components/settings/DeleteWorkspace.tsx:45
-#: src/components/settings/SettingsSidebar.tsx:177
+#: src/components/settings/SettingsSidebar.tsx:184
 msgid "Danger Zone"
 msgstr "Zona de perill"
 
@@ -5824,7 +5824,7 @@ msgstr "No s'han pogut obtenir els objectes: "
 msgid "Failed to fetch setup status"
 msgstr "No s'ha pogut obtenir l'estat de configuració"
 
-#: src/pages/WorkspaceSettingsPage.tsx:100
+#: src/pages/WorkspaceSettingsPage.tsx:101
 msgid "Failed to fetch workspace members"
 msgstr "No s'han pogut obtenir els membres de l'espai de treball"
 
@@ -6508,7 +6508,7 @@ msgstr "gemini-3.1-pro-preview o un ID de model personalitzat"
 #~ msgid "gemini-3.5-flash, gemini-3.1-pro-preview, or a custom model ID"
 #~ msgstr ""
 
-#: src/components/settings/SettingsSidebar.tsx:158
+#: src/components/settings/SettingsSidebar.tsx:165
 #: src/components/settings/SystemSettingsDrawer.tsx:251
 msgid "General"
 msgstr "General"
@@ -7057,6 +7057,10 @@ msgstr "Importeu fonts des de fitxers CSS allotjats (com Google Fonts) per utili
 msgid "Import from CSV"
 msgstr "Importar des de CSV"
 
+#: src/components/settings/SettingsSidebar.tsx:140
+msgid "Import from Mailchimp"
+msgstr ""
+
 #: src/components/email_builder/MjmlCodeEditor.tsx:635
 msgid "Import MJML"
 msgstr "Importar MJML"
@@ -7244,7 +7248,7 @@ msgid "Integration updated successfully"
 msgstr "Integració actualitzada correctament"
 
 #: src/components/settings/Integrations.tsx:2709
-#: src/components/settings/SettingsSidebar.tsx:90
+#: src/components/settings/SettingsSidebar.tsx:92
 msgid "Integrations"
 msgstr "Integracions"
 
@@ -7630,7 +7634,7 @@ msgid "Letter Spacing"
 msgstr "Espaiat de lletres"
 
 #: src/components/settings/LicenseSettings.tsx:58
-#: src/components/settings/SettingsSidebar.tsx:168
+#: src/components/settings/SettingsSidebar.tsx:175
 msgid "Licence"
 msgstr "Llicència"
 
@@ -11494,7 +11498,7 @@ msgstr "Secció — {0}"
 msgid "Section Attributes"
 msgstr "Atributs de secció"
 
-#: src/components/settings/SettingsSidebar.tsx:69
+#: src/components/settings/SettingsSidebar.tsx:71
 #: src/components/transactional/ApiCommandModal.tsx:534
 msgid "Security"
 msgstr "Seguretat"
@@ -12277,7 +12281,7 @@ msgstr "Estableix l'amplada de pantalla per sota de la qual el correu canviarà 
 msgid "Setting up..."
 msgstr "Configurant..."
 
-#: src/components/settings/SettingsSidebar.tsx:183
+#: src/components/settings/SettingsSidebar.tsx:190
 #: src/layouts/WorkspaceLayout.tsx:481
 msgid "Settings"
 msgstr "Configuració"
@@ -12434,7 +12438,7 @@ msgstr "L'slug només pot contenir lletres minúscules, números i guions"
 msgid "SMS"
 msgstr "SMS"
 
-#: src/components/settings/SettingsSidebar.tsx:153
+#: src/components/settings/SettingsSidebar.tsx:160
 #: src/components/settings/SMTPBridgeSettings.tsx:20
 #: src/components/settings/SystemSettingsDrawer.tsx:456
 msgid "SMTP Bridge"
@@ -12982,7 +12986,7 @@ msgstr "Estat de la tasca"
 msgid "Task type:"
 msgstr "Tipus de tasca:"
 
-#: src/components/settings/SettingsSidebar.tsx:58
+#: src/components/settings/SettingsSidebar.tsx:60
 #: src/components/settings/WorkspaceMembers.tsx:441
 msgid "Team"
 msgstr "Equip"
@@ -14923,7 +14927,7 @@ msgid "We'll automatically detect and use your website's favicon"
 msgstr "Detectarem i utilitzarem automàticament el favicon del vostre lloc web"
 
 #: src/components/settings/PermissionsMatrix.tsx:131
-#: src/components/settings/SettingsSidebar.tsx:143
+#: src/components/settings/SettingsSidebar.tsx:150
 #: src/components/settings/WebAnalyticsSettings.tsx:232
 #: src/components/settings/WebAnalyticsSettings.tsx:242
 #: src/components/settings/WebAnalyticsSettings.tsx:291
@@ -15033,7 +15037,7 @@ msgstr "URL del webhook"
 #: src/components/settings/Integrations.tsx:251
 #: src/components/settings/Integrations.tsx:259
 #: src/components/settings/Integrations.tsx:291
-#: src/components/settings/SettingsSidebar.tsx:112
+#: src/components/settings/SettingsSidebar.tsx:114
 #: src/components/settings/WebhooksSettings.tsx:207
 msgid "Webhooks"
 msgstr "Webhooks"

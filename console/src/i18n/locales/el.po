@@ -1849,7 +1849,7 @@ msgstr "Μπλοκ"
 #: src/components/settings/BlogSettings.tsx:226
 #: src/components/settings/BlogSettings.tsx:259
 #: src/components/settings/PermissionsMatrix.tsx:128
-#: src/components/settings/SettingsSidebar.tsx:133
+#: src/components/settings/SettingsSidebar.tsx:135
 #: src/layouts/WorkspaceLayout.tsx:262
 #: src/services/api/errors.ts:67
 msgid "Blog"
@@ -2234,7 +2234,7 @@ msgstr ""
 msgid "Campaign"
 msgstr "καμπάνια"
 
-#: src/components/settings/SettingsSidebar.tsx:138
+#: src/components/settings/SettingsSidebar.tsx:145
 msgid "Campaign archive"
 msgstr "Αρχείο καμπανιών"
 
@@ -3731,7 +3731,7 @@ msgstr "Η προσαρμοσμένη ετικέτα πεδίου αποθηκε
 
 #: src/components/contacts/ContactsCsvUploadDrawer.tsx:1136
 #: src/components/settings/CustomFieldsConfiguration.tsx:156
-#: src/components/settings/SettingsSidebar.tsx:148
+#: src/components/settings/SettingsSidebar.tsx:155
 msgid "Custom Fields"
 msgstr "Προσαρμοσμένα πεδία"
 
@@ -3868,7 +3868,7 @@ msgstr "Καθημερινά"
 
 #: src/components/settings/BlogSettings.tsx:477
 #: src/components/settings/DeleteWorkspace.tsx:45
-#: src/components/settings/SettingsSidebar.tsx:177
+#: src/components/settings/SettingsSidebar.tsx:184
 msgid "Danger Zone"
 msgstr "Επικίνδυνη Ζώνη"
 
@@ -5822,7 +5822,7 @@ msgstr "Αποτυχία λήψης αντικειμένων: "
 msgid "Failed to fetch setup status"
 msgstr "Η ανάκτηση της κατάστασης ρύθμισης απέτυχε"
 
-#: src/pages/WorkspaceSettingsPage.tsx:100
+#: src/pages/WorkspaceSettingsPage.tsx:101
 msgid "Failed to fetch workspace members"
 msgstr "Αποτυχία λήψης μελών χώρου εργασίας"
 
@@ -6506,7 +6506,7 @@ msgstr "gemini-3.1-pro-preview ή προσαρμοσμένο αναγνωρισ�
 #~ msgid "gemini-3.5-flash, gemini-3.1-pro-preview, or a custom model ID"
 #~ msgstr "gemini-3.5-flash, gemini-3.1-pro-preview, or a custom model ID"
 
-#: src/components/settings/SettingsSidebar.tsx:158
+#: src/components/settings/SettingsSidebar.tsx:165
 #: src/components/settings/SystemSettingsDrawer.tsx:251
 msgid "General"
 msgstr "Στρατηγός"
@@ -7055,6 +7055,10 @@ msgstr ""
 msgid "Import from CSV"
 msgstr "Εισαγωγή από CSV"
 
+#: src/components/settings/SettingsSidebar.tsx:140
+msgid "Import from Mailchimp"
+msgstr "Εισαγωγή από Mailchimp"
+
 #: src/components/email_builder/MjmlCodeEditor.tsx:635
 msgid "Import MJML"
 msgstr "Εισαγωγή MJML"
@@ -7242,7 +7246,7 @@ msgid "Integration updated successfully"
 msgstr "Η ενσωμάτωση ενημερώθηκε με επιτυχία"
 
 #: src/components/settings/Integrations.tsx:2709
-#: src/components/settings/SettingsSidebar.tsx:90
+#: src/components/settings/SettingsSidebar.tsx:92
 msgid "Integrations"
 msgstr "Ενσωματώσεις"
 
@@ -7628,7 +7632,7 @@ msgid "Letter Spacing"
 msgstr "Διάστιχο γραμμάτων"
 
 #: src/components/settings/LicenseSettings.tsx:58
-#: src/components/settings/SettingsSidebar.tsx:168
+#: src/components/settings/SettingsSidebar.tsx:175
 msgid "Licence"
 msgstr "Άδεια"
 
@@ -11492,7 +11496,7 @@ msgstr "Ενότητα — {0}"
 msgid "Section Attributes"
 msgstr "Ενότητα Χαρακτηριστικά"
 
-#: src/components/settings/SettingsSidebar.tsx:69
+#: src/components/settings/SettingsSidebar.tsx:71
 #: src/components/transactional/ApiCommandModal.tsx:534
 msgid "Security"
 msgstr "Ασφάλεια"
@@ -12275,7 +12279,7 @@ msgstr ""
 msgid "Setting up..."
 msgstr "Ρύθμιση..."
 
-#: src/components/settings/SettingsSidebar.tsx:183
+#: src/components/settings/SettingsSidebar.tsx:190
 #: src/layouts/WorkspaceLayout.tsx:481
 msgid "Settings"
 msgstr "Ρυθμίσεις"
@@ -12432,7 +12436,7 @@ msgstr "Το Slug πρέπει να περιέχει μόνο πεζά γράμ�
 msgid "SMS"
 msgstr "SMS"
 
-#: src/components/settings/SettingsSidebar.tsx:153
+#: src/components/settings/SettingsSidebar.tsx:160
 #: src/components/settings/SMTPBridgeSettings.tsx:20
 #: src/components/settings/SystemSettingsDrawer.tsx:456
 msgid "SMTP Bridge"
@@ -12980,7 +12984,7 @@ msgstr "Κατάσταση εργασίας"
 msgid "Task type:"
 msgstr "Τύπος εργασίας:"
 
-#: src/components/settings/SettingsSidebar.tsx:58
+#: src/components/settings/SettingsSidebar.tsx:60
 #: src/components/settings/WorkspaceMembers.tsx:441
 msgid "Team"
 msgstr "Ομάδα"
@@ -14921,7 +14925,7 @@ msgid "We'll automatically detect and use your website's favicon"
 msgstr "Θα εντοπίσουμε και θα χρησιμοποιήσουμε αυτόματα το favicon του ιστότοπού σας"
 
 #: src/components/settings/PermissionsMatrix.tsx:131
-#: src/components/settings/SettingsSidebar.tsx:143
+#: src/components/settings/SettingsSidebar.tsx:150
 #: src/components/settings/WebAnalyticsSettings.tsx:232
 #: src/components/settings/WebAnalyticsSettings.tsx:242
 #: src/components/settings/WebAnalyticsSettings.tsx:291
@@ -15031,7 +15035,7 @@ msgstr "URL webhook"
 #: src/components/settings/Integrations.tsx:251
 #: src/components/settings/Integrations.tsx:259
 #: src/components/settings/Integrations.tsx:291
-#: src/components/settings/SettingsSidebar.tsx:112
+#: src/components/settings/SettingsSidebar.tsx:114
 #: src/components/settings/WebhooksSettings.tsx:207
 msgid "Webhooks"
 msgstr "Webhooks"
