@@ -96,6 +96,7 @@ func (h *ImportHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	contacts, memberships := h.subscriberCounts(r.Context(), ws.ID)
+	broadcasts := h.broadcastCount(r.Context(), ws.ID)
 
 	archived := 0
 	if err := h.archiveRepo.EnsureSchema(r.Context(), ws.ID); err == nil {
@@ -135,10 +136,11 @@ func (h *ImportHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 				"so unsubscribed, cleaned and pending addresses never arrive.", memberships),
 		},
 		{
-			ID: "broadcasts", Title: "Broadcast history (optional)",
-			Why:  "Drafts carrying the original send dates, so the console shows what was sent and when.",
-			Done: false, DoneCount: 0, Total: 0, Unit: "drafts",
-			Command: "not built — deliberately postponed; the archive already carries the dates",
+			ID: "broadcasts", Title: "Broadcast history",
+			Why:  "One draft per imported campaign, carrying the original send date, so the console shows what was sent and when.",
+			Done: broadcasts > 0, DoneCount: broadcasts, Total: 0, Unit: "drafts",
+			Command: "ssh root@64.226.122.222 'python3 -u /tmp/mc_broadcasts.py --workspace kois-optics --apply'",
+			Note:    "Drafts only: nothing can be sent without a person opening one and pressing send.",
 		},
 	}
 
@@ -273,6 +275,17 @@ func (h *ImportHandler) subscriberCounts(ctx context.Context, workspaceID string
 	_ = db.QueryRowContext(ctx, `SELECT count(*) FROM contacts`).Scan(&contacts)
 	_ = db.QueryRowContext(ctx, `SELECT count(*) FROM contact_lists`).Scan(&memberships)
 	return contacts, memberships
+}
+
+// broadcastCount is the number of imported broadcast drafts.
+func (h *ImportHandler) broadcastCount(ctx context.Context, workspaceID string) int {
+	db, err := h.workspaceRepo.GetConnection(ctx, workspaceID)
+	if err != nil {
+		return 0
+	}
+	var n int
+	_ = db.QueryRowContext(ctx, `SELECT count(*) FROM broadcasts WHERE status = 'draft'`).Scan(&n)
+	return n
 }
 
 func (h *ImportHandler) checkMailchimpKey(ctx context.Context, key string) error {
