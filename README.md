@@ -1,21 +1,33 @@
 > **This is a fork.** It is the **e-Pragma fork of Notifuse**, based on upstream **v40.0**, and it
-> runs `newsletters.e-pragma.gr` and `blog.e-pragma.gr`.
+> runs `newsletters.e-pragma.gr`, `blog.e-pragma.gr` and the campaign archive on the same host.
 >
-> **What it adds** — Greek notification centre (upstream has 11 languages, no Greek), e-Pragma
-> branding for the notification centre and blog, and **password sign-in** alongside the magic
-> codes (`users.password_hash`, bcrypt; `POST /api/user.signin` accepts an optional `password`).
-> Everything else is upstream, untouched.
->
-> **Branch and image:** work lives on `epragma`; images are built by CI for `linux/amd64` and
-> published as `ghcr.io/agelospanagiotakis/notifuse-epragma:v40.0-el.N`, where `N` counts our
-> builds on that upstream base.
+> **Branch and image:** work lives on `epragma`; CI builds `linux/amd64` and publishes
+> `ghcr.io/agelospanagiotakis/notifuse-epragma:v40.0-el.N`, where `N` counts our builds on that
+> upstream base. The deployment repo `epragma-mailer` only points its `Dockerfile` `FROM` at it.
 >
 > **Licence:** Business Source License 1.1 — production use is permitted within the Additional Use
-> Grant, but each *Licensed Feature* needs a paid key. v39.x and earlier remain AGPL-3.0. Note that
-> upstream **v42.1 adds a sixth Licensed Feature** (administrative audit logs), which is one reason
-> this fork is pinned to v40.0.
+> Grant, but each *Licensed Feature* needs a paid key. v39.x and earlier remain AGPL-3.0. Upstream
+> **v42.1 adds a sixth Licensed Feature** (administrative audit logs), which is one reason this fork
+> is pinned to v40.0.
 >
-> Full detail, including how to rebase onto a new upstream release: **[FORK.md](FORK.md)**.
+> Full detail — decisions, the build log, and how to rebase onto a new upstream release:
+> **[FORK.md](FORK.md)**. What we plan to build next: **[FORK_TODO.md](FORK_TODO.md)**.
+
+## What this fork adds
+
+Everything below is ours, on top of upstream v40.0. Nothing upstream was removed.
+
+| Area | What it does | Where |
+|---|---|---|
+| **Campaign archive** | A public, permanent page per sent campaign, plus a list of every campaign ever sent — the Mailchimp *campaign archive* surface. Optional basic-auth gate while content is reviewed; RSS feed; toolbar (Subscribe / Past Issues / RSS / Translate). | `internal/http/archive_handler.go`, `internal/repository/campaign_archive_postgres.go`, `internal/domain/campaign_archive.go` |
+| **Resend as a provider** | `kind: resend` integration, plus webhook registration through Resend's own API and Svix signature verification, so bounces and complaints feed back into contact status. | `internal/domain/email_provider_resend.go`, `internal/service/resend_webhook*.go` |
+| **Password sign-in** | Upstream only offers magic codes. `users.password_hash` (bcrypt); `POST /api/user.signin` accepts an optional password. | `internal/service/auth_service.go` |
+| **Greek console + notification centre** | Upstream ships 11 languages and no Greek. | `console/src/i18n/locales/el.po`, notification centre |
+| **Templates preview sidebar** | Clicking a template row opens a resizable right-hand preview instead of a masked modal that had to be closed between templates. | `console/src/components/templates/TemplatePreviewDrawer.tsx`, `console/src/pages/TemplatesPage.tsx` |
+| **Blog theme** | e-Pragma branding for the built-in blog, from the real design tokens of www.e-pragma.gr. Lives in the site repo (`blog-theme/`), uploaded as a theme, not shipped in the image. | — |
+| **Larger template cap** | Liquid template ceiling raised 100 KB → 2 MB; imported campaigns are 1–2 MB. | `pkg/notifuse_mjml/liquid_secure.go` |
+| **MJML entity fix** | `&quot;` and `&lt;` are rewritten to their numeric forms before parsing: gomjml decodes an entity before it lexes an attribute, so a font stack escaped as `&quot;Helvetica Neue&quot;` made every pre-2021 newsletter fail to compile. | `pkg/notifuse_mjml/template_compilation.go` |
+| **Static asset handling** | A missing asset answers 404 instead of the SPA shell (which left the console spinning), and cache headers distinguish the shell from immutable assets. | `internal/http/root_handler.go` |
 
 ---
 
