@@ -1374,6 +1374,14 @@ func (a *App) InitHandlers() error {
 		getJWTSecret,
 		a.logger,
 	)
+	importHandler := httpHandler.NewImportHandler(
+		a.workspaceRepo,
+		a.templateRepo,
+		archiveRepo,
+		getJWTSecret,
+		a.config.Security.SecretKey,
+		a.logger,
+	)
 	archiveHandler := httpHandler.NewArchiveHandler(
 		a.workspaceRepo,
 		a.templateRepo,
@@ -1486,6 +1494,7 @@ func (a *App) InitHandlers() error {
 	blogHandler.RegisterRoutes(a.mux)
 	archiveHandler.RegisterRoutes(a.mux)
 	archiveAdminHandler.RegisterRoutes(a.mux)
+	importHandler.RegisterRoutes(a.mux)
 	blogThemeHandler.RegisterRoutes(a.mux)
 	taskHandler.RegisterRoutes(a.mux)
 	transactionalHandler.RegisterRoutes(a.mux)

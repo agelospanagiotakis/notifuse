@@ -9,6 +9,7 @@ import { GeneralSettings } from '../components/settings/GeneralSettings'
 import { SMTPBridgeSettings } from '../components/settings/SMTPBridgeSettings'
 import { Integrations } from '../components/settings/Integrations'
 import { CustomFieldsConfiguration } from '../components/settings/CustomFieldsConfiguration'
+import { MailchimpImport } from '../components/settings/MailchimpImport'
 import { ArchiveSettings } from '../components/settings/ArchiveSettings'
 import { BlogSettings } from '../components/settings/BlogSettings'
 import { WebAnalyticsSettings } from '../components/settings/WebAnalyticsSettings'
@@ -172,6 +173,8 @@ export function WorkspaceSettingsPage() {
             canManage={canManageBlog}
           />
         )
+      case 'import':
+        return workspace ? <MailchimpImport workspace={workspace} /> : null
       case 'archive':
         return workspace ? <ArchiveSettings workspace={workspace} /> : null
       case 'web-analytics':

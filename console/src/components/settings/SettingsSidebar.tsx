@@ -7,7 +7,8 @@ import {
   LineChartOutlined,
   MailOutlined,
   SafetyCertificateOutlined,
-  ReadOutlined
+  ReadOutlined,
+  CloudDownloadOutlined
 } from '@ant-design/icons'
 import { useLingui } from '@lingui/react/macro'
 
@@ -24,6 +25,7 @@ export const SETTINGS_SECTIONS = [
   'security',
   'blog',
   'archive',
+  'import',
   'web-analytics',
   // Deployment-wide rather than workspace-wide, and rendered only for a root user — but listed
   // here unconditionally, because this array is what makes a URL valid and a root user must be
@@ -131,6 +133,11 @@ export function SettingsSidebar({
         </svg>
       ),
       label: t`Blog`
+    },
+    {
+      key: 'import',
+      icon: <CloudDownloadOutlined />,
+      label: t`Import from Mailchimp`
     },
     {
       key: 'archive',

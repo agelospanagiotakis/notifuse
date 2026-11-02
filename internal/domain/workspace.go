@@ -443,18 +443,22 @@ type WorkspaceSettings struct {
 	// webhook_deliveries, and there are no block rows to trigger on. Adding them
 	// would mean inserting deliveries from the service layer — a second, parallel
 	// mechanism — so it is a deliberate initiative, not an oversight to patch.
-	TemplateBlocks    []TemplateBlock       `json:"template_blocks,omitempty"`
-	CustomEndpointURL *string               `json:"custom_endpoint_url,omitempty"`
-	CustomFieldLabels map[string]string     `json:"custom_field_labels,omitempty"`
-	BlogEnabled       bool                  `json:"blog_enabled"`            // Enable blog feature at workspace level
-	BlogSettings      *BlogSettings         `json:"blog_settings,omitempty"` // Blog styling and SEO settings
+	TemplateBlocks    []TemplateBlock   `json:"template_blocks,omitempty"`
+	CustomEndpointURL *string           `json:"custom_endpoint_url,omitempty"`
+	CustomFieldLabels map[string]string `json:"custom_field_labels,omitempty"`
+	BlogEnabled       bool              `json:"blog_enabled"`            // Enable blog feature at workspace level
+	BlogSettings      *BlogSettings     `json:"blog_settings,omitempty"` // Blog styling and SEO settings
 	// Archive is the public campaign archive (see ArchiveSettings). A typed field
 	// rather than an untyped bag because Update() rewrites the whole settings row:
 	// anything this struct does not name is dropped on the next save.
 	Archive *ArchiveSettings `json:"archive,omitempty"`
-	WebAnalytics      *WebAnalyticsSettings `json:"web_analytics,omitempty"` // Web analytics configuration
-	DefaultLanguage   string                `json:"default_language"`
-	Languages         []string              `json:"languages"`
+	// MailchimpAPIKeyEnc holds the Mailchimp API key encrypted with the deployment
+	// secret. The import screen needs it to count what is there; embedding it in a
+	// shell command each time is how keys end up in shell history.
+	MailchimpAPIKeyEnc string                `json:"mailchimp_api_key_enc,omitempty"`
+	WebAnalytics       *WebAnalyticsSettings `json:"web_analytics,omitempty"` // Web analytics configuration
+	DefaultLanguage    string                `json:"default_language"`
+	Languages          []string              `json:"languages"`
 	// EmailTeamName overrides the signature ("The … Team") used in this
 	// workspace's system emails (invitation, circuit-breaker alert). Empty falls
 	// back to the mailer's global TeamName and then the built-in translation.
