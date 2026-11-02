@@ -1370,6 +1370,7 @@ func (a *App) InitHandlers() error {
 		a.workspaceRepo,
 		a.templateRepo,
 		repository.NewCampaignArchiveRepository(a.workspaceRepo),
+		a.listService,
 		a.logger,
 	)
 	taskHandler := httpHandler.NewTaskHandler(

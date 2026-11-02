@@ -56,7 +56,7 @@ func archiveHandler(t *testing.T, ws *domain.Workspace, repo domain.CampaignArch
 	workspaceRepo.EXPECT().GetByID(gomock.Any(), gomock.Any()).Return(ws, nil).AnyTimes()
 
 	templateRepo := mocks.NewMockTemplateRepository(ctrl)
-	return NewArchiveHandler(workspaceRepo, templateRepo, repo, logger.NewLogger())
+	return NewArchiveHandler(workspaceRepo, templateRepo, repo, nil, logger.NewLogger())
 }
 
 func get(h *ArchiveHandler, path string, auth func(*http.Request)) *httptest.ResponseRecorder {
@@ -126,7 +126,7 @@ func TestArchive_UnknownWorkspaceIsNotFound(t *testing.T) {
 	workspaceRepo.EXPECT().GetByID(gomock.Any(), gomock.Any()).Return(nil, assert.AnError)
 	workspaceRepo.EXPECT().List(gomock.Any()).Return([]*domain.Workspace{}, nil)
 
-	h := NewArchiveHandler(workspaceRepo, nil, &fakeArchiveRepo{}, logger.NewLogger())
+	h := NewArchiveHandler(workspaceRepo, nil, &fakeArchiveRepo{}, nil, logger.NewLogger())
 	rec := get(h, "/archive/nope/", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
@@ -201,4 +201,46 @@ func TestArchive_ListPageStylesItsToolbar(t *testing.T) {
 	assert.Contains(t, body, ".mca-bar{")
 	// The bar carries the brand, not the workspace's slug-like name.
 	assert.Contains(t, body, `class="mca-name" href="/archive/kois-optics/">Kois Optics<`)
+}
+
+func TestArchive_SubscribePointsAtOurFormWhenAListIsConfigured(t *testing.T) {
+	ws := archiveWorkspace(&domain.ArchiveSettings{
+		Enabled: true, SubscribeListIDs: []string{"newsletter"},
+		// An explicit external URL must lose to the list: a form we host is the
+		// Mailchimp behaviour, an outbound link is the fallback.
+		SubscribeURL: "www.example.gr",
+	})
+
+	body := get(archiveHandler(t, ws, &fakeArchiveRepo{}), "/archive/koisoptics/", nil).Body.String()
+	assert.Contains(t, body, `href="/archive/kois-optics/subscribe"`)
+}
+
+func TestArchive_ExternalSubscribeGetsAScheme(t *testing.T) {
+	ws := archiveWorkspace(&domain.ArchiveSettings{Enabled: true, SubscribeURL: "www.kois-optics.gr"})
+	ws.Settings.WebsiteURL = "kois-optics.gr"
+
+	body := get(archiveHandler(t, ws, &fakeArchiveRepo{}), "/archive/koisoptics/", nil).Body.String()
+
+	// A scheme-less setting used to resolve against the archive path and land on
+	// /archive/kois-optics/www.kois-optics.gr.
+	assert.Contains(t, body, `href="https://www.kois-optics.gr"`)
+	assert.NotContains(t, body, "/archive/kois-optics/www.")
+}
+
+func TestArchive_SubscribeFormIsServed(t *testing.T) {
+	ws := archiveWorkspace(&domain.ArchiveSettings{Enabled: true, SubscribeListIDs: []string{"newsletter"}})
+
+	rec := get(archiveHandler(t, ws, &fakeArchiveRepo{}), "/archive/koisoptics/subscribe", nil)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, `<form method="post" action="/archive/kois-optics/subscribe">`)
+	assert.Contains(t, body, `name="email"`)
+	assert.Contains(t, body, "Subscribe to Kois Optics")
+}
+
+func TestArchive_SubscribeFormIsAbsentWithoutAList(t *testing.T) {
+	ws := archiveWorkspace(&domain.ArchiveSettings{Enabled: true})
+	rec := get(archiveHandler(t, ws, &fakeArchiveRepo{}), "/archive/koisoptics/subscribe", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code, "no list configured means no form to post to")
 }

@@ -44,6 +44,11 @@ type ArchiveSettings struct {
 	// product; here the signup form lives in the workspace's own site, so this is a
 	// setting rather than something the page can invent.
 	SubscribeURL string `json:"subscribe_url,omitempty"`
+	// SubscribeListIDs are the public lists the archive's own signup form joins.
+	// When set, the toolbar's Subscribe goes to a form we render and serve; the
+	// external SubscribeURL is the fallback for a workspace that would rather keep
+	// signup on its own site.
+	SubscribeListIDs []string `json:"subscribe_list_ids,omitempty"`
 }
 
 // ErrArchiveEntryNotFound is returned when a slug is not in the archive.
