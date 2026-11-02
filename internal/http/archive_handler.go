@@ -563,6 +563,9 @@ func (h *ArchiveHandler) submitSubscribe(w http.ResponseWriter, r *http.Request,
 	if name := strings.TrimSpace(r.PostFormValue("first_name")); name != "" {
 		contact.FirstName = &domain.NullableString{String: name}
 	}
+	if name := strings.TrimSpace(r.PostFormValue("last_name")); name != "" {
+		contact.LastName = &domain.NullableString{String: name}
+	}
 	req := &domain.SubscribeToListsRequest{
 		WorkspaceID: workspace.ID,
 		Contact:     contact,
@@ -613,7 +616,10 @@ func (h *ArchiveHandler) renderSubscribeForm(w http.ResponseWriter, workspace *d
 	}
 
 	b.WriteString(`<form method="post" action="/archive/` + html.EscapeString(slugify(workspace.Name)) + `/subscribe">`)
+	b.WriteString(`<div class="names">`)
 	b.WriteString(`<label>First name<input name="first_name" type="text" autocomplete="given-name" placeholder="optional"></label>`)
+	b.WriteString(`<label>Last name<input name="last_name" type="text" autocomplete="family-name" placeholder="optional"></label>`)
+	b.WriteString(`</div>`)
 	b.WriteString(`<label>Email<input name="email" type="email" required autocomplete="email" placeholder="you@example.com"></label>`)
 	b.WriteString(`<button type="submit">Subscribe</button>`)
 	b.WriteString(`</form>`)

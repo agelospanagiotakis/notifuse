@@ -270,3 +270,12 @@ func TestArchive_HomeHasNoSignupWithoutAList(t *testing.T) {
 	body := get(archiveHandler(t, ws, &fakeArchiveRepo{}), "/archive/koisoptics/", nil).Body.String()
 	assert.NotContains(t, body, `class="inline-signup"`)
 }
+
+func TestArchive_SubscribeFormTakesBothNames(t *testing.T) {
+	ws := archiveWorkspace(&domain.ArchiveSettings{Enabled: true, SubscribeListIDs: []string{"newsletter"}})
+	body := get(archiveHandler(t, ws, &fakeArchiveRepo{}), "/archive/koisoptics/subscribe", nil).Body.String()
+
+	// Mailchimp collects first and last; one field was a simplification, not a choice.
+	assert.Contains(t, body, `name="first_name"`)
+	assert.Contains(t, body, `name="last_name"`)
+}
