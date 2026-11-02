@@ -1362,6 +1362,16 @@ func (a *App) InitHandlers() error {
 	broadcastHandler := httpHandler.NewBroadcastHandler(a.broadcastService, a.templateService, getJWTSecret, a.logger, a.config.IsDemo())
 	blogHandler := httpHandler.NewBlogHandler(a.blogService, getJWTSecret, a.logger, a.config.IsDemo())
 	blogThemeHandler := httpHandler.NewBlogThemeHandler(a.blogService, getJWTSecret, a.logger)
+	// The public campaign archive: the Mailchimp campaign-archive surface, served
+	// from the templates we already hold. Read-only and unauthenticated by design
+	// (it is a page for readers, not operators); the workspace turns it on and
+	// gates it with basic auth in settings.archive.
+	archiveHandler := httpHandler.NewArchiveHandler(
+		a.workspaceRepo,
+		a.templateRepo,
+		repository.NewCampaignArchiveRepository(a.workspaceRepo),
+		a.logger,
+	)
 	taskHandler := httpHandler.NewTaskHandler(
 		a.taskService,
 		a.authService,
@@ -1465,6 +1475,7 @@ func (a *App) InitHandlers() error {
 	emailHandler.RegisterRoutes(a.mux)
 	broadcastHandler.RegisterRoutes(a.mux)
 	blogHandler.RegisterRoutes(a.mux)
+	archiveHandler.RegisterRoutes(a.mux)
 	blogThemeHandler.RegisterRoutes(a.mux)
 	taskHandler.RegisterRoutes(a.mux)
 	transactionalHandler.RegisterRoutes(a.mux)
