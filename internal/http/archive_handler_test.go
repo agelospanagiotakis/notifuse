@@ -244,3 +244,13 @@ func TestArchive_SubscribeFormIsAbsentWithoutAList(t *testing.T) {
 	rec := get(archiveHandler(t, ws, &fakeArchiveRepo{}), "/archive/koisoptics/subscribe", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code, "no list configured means no form to post to")
 }
+
+func TestArchive_SubscribeSuccessDoesNotPromiseAnEmail(t *testing.T) {
+	ws := archiveWorkspace(&domain.ArchiveSettings{Enabled: true, SubscribeListIDs: []string{"newsletter"}})
+	body := get(archiveHandler(t, ws, &fakeArchiveRepo{}), "/archive/koisoptics/subscribe?ok=1", nil).Body.String()
+
+	assert.Contains(t, body, "You are on the list.")
+	// Whether a confirmation is sent depends on the list's double opt-in setting,
+	// which this page does not read, so it must not claim one is coming.
+	assert.NotContains(t, body, "Check your inbox")
+}
