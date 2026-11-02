@@ -195,10 +195,11 @@ func (h *ArchiveHandler) renderList(w http.ResponseWriter, r *http.Request, work
 	b.WriteString("<meta name=\"robots\" content=\"noindex\">")
 	b.WriteString("<title>" + html.EscapeString(title) + "</title>")
 	b.WriteString(archiveCSS)
+	b.WriteString(archiveBarCSS)
 	b.WriteString("</head><body>")
 	b.WriteString(toolbarHTML(archiveBarOptions{
 		workspaceSlug: slugify(workspace.Name),
-		workspaceName: workspace.Name,
+		workspaceName: barName(workspace, settings),
 		pageURL:       absoluteURL(r, r.URL.Path),
 		subscribeURL:  subscribeTarget(workspace, settings),
 		public:        settings.BasicAuthUser == "",
@@ -259,7 +260,7 @@ func (h *ArchiveHandler) renderCampaign(w http.ResponseWriter, r *http.Request, 
 
 	page := withToolbar(htmlOut, toolbarHTML(archiveBarOptions{
 		workspaceSlug: slugify(workspace.Name),
-		workspaceName: workspace.Name,
+		workspaceName: barName(workspace, settings),
 		pageURL:       absoluteURL(r, r.URL.Path),
 		subscribeURL:  subscribeTarget(workspace, settings),
 		public:        settings.BasicAuthUser == "",
@@ -364,6 +365,19 @@ type archiveBarOptions struct {
 	pageURL       string
 	subscribeURL  string
 	public        bool
+}
+
+// barName is the brand shown in the toolbar. A title like
+// "Kois Optics · Newsletter archive" carries a suffix that belongs on the list page
+// heading, not in a 40px bar; the workspace name is often a slug ("kois-optics").
+func barName(workspace *domain.Workspace, settings *domain.ArchiveSettings) string {
+	if settings != nil && settings.Title != "" {
+		if idx := strings.Index(settings.Title, "·"); idx > 0 {
+			return strings.TrimSpace(settings.Title[:idx])
+		}
+		return settings.Title
+	}
+	return workspace.Name
 }
 
 func subscribeTarget(workspace *domain.Workspace, settings *domain.ArchiveSettings) string {

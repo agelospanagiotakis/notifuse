@@ -191,3 +191,14 @@ func TestArchive_FeedIsGatedToo(t *testing.T) {
 	rec := get(archiveHandler(t, ws, &fakeArchiveRepo{}), "/archive/koisoptics/feed.xml", nil)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }
+
+func TestArchive_ListPageStylesItsToolbar(t *testing.T) {
+	ws := archiveWorkspace(&domain.ArchiveSettings{Enabled: true, Title: "Kois Optics · Newsletter archive"})
+	body := get(archiveHandler(t, ws, &fakeArchiveRepo{}), "/archive/koisoptics/", nil).Body.String()
+
+	// The bar is HTML in both pages but its CSS lived only in the campaign wrapper,
+	// which made the list page render four unstyled links in a row.
+	assert.Contains(t, body, ".mca-bar{")
+	// The bar carries the brand, not the workspace's slug-like name.
+	assert.Contains(t, body, `class="mca-name" href="/archive/kois-optics/">Kois Optics<`)
+}
