@@ -91,7 +91,7 @@ export function MailchimpImport({ workspace }: { workspace: { id: string; name: 
     {
       title: '',
       dataIndex: 'done',
-      width: 44,
+      width: 70,
       render: (done: boolean) => (done ? <Tag color="green">done</Tag> : <Tag>to do</Tag>)
     },
     {
@@ -112,7 +112,7 @@ export function MailchimpImport({ workspace }: { workspace: { id: string; name: 
     },
     {
       title: 'Progress',
-      width: 130,
+      width: 150,
       render: (_: unknown, row: ImportTool) =>
         row.total > 0 ? (
           <Text>
@@ -193,6 +193,8 @@ export function MailchimpImport({ workspace }: { workspace: { id: string; name: 
             pagination={false}
             dataSource={status?.tools ?? []}
             columns={columns}
+            tableLayout="fixed"
+            scroll={{ x: 1080 }}
             expandable={{ defaultExpandAllRows: true, showExpandColumn: false }}
           />
         )}
