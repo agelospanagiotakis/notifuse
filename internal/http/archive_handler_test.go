@@ -30,6 +30,15 @@ func (f *fakeArchiveRepo) Upsert(context.Context, string, *domain.ArchiveEntry) 
 func (f *fakeArchiveRepo) List(context.Context, string) ([]*domain.ArchiveEntry, error) {
 	return f.entries, nil
 }
+func (f *fakeArchiveRepo) Remove(_ context.Context, _, slug string) error {
+	for i, e := range f.entries {
+		if e.Slug == slug {
+			f.entries = append(f.entries[:i], f.entries[i+1:]...)
+			return nil
+		}
+	}
+	return domain.ErrArchiveEntryNotFound
+}
 func (f *fakeArchiveRepo) Get(_ context.Context, _ string, slug string) (*domain.ArchiveEntry, error) {
 	for _, e := range f.entries {
 		if e.Slug == slug {
