@@ -202,6 +202,7 @@ func (h *ArchiveHandler) renderList(w http.ResponseWriter, r *http.Request, work
 	b.WriteString("<title>" + html.EscapeString(title) + "</title>")
 	b.WriteString(archiveCSS)
 	b.WriteString(archiveBarCSS)
+	b.WriteString(signupCSS)
 	b.WriteString("</head><body>")
 	b.WriteString(toolbarHTML(archiveBarOptions{
 		workspaceSlug: slugify(workspace.Name),
@@ -214,6 +215,10 @@ func (h *ArchiveHandler) renderList(w http.ResponseWriter, r *http.Request, work
 	b.WriteString("<header><h1>" + html.EscapeString(title) + "</h1>")
 	b.WriteString(fmt.Sprintf("<p class=\"count\">%d campaign%s</p></header>",
 		len(entries), plural(len(entries))))
+
+	if len(settings.SubscribeListIDs) > 0 {
+		b.WriteString(inlineSignupForm(slugify(workspace.Name)))
+	}
 
 	if len(entries) == 0 {
 		b.WriteString("<p class=\"empty\">No campaigns have been archived yet.</p>")
@@ -582,6 +587,7 @@ func (h *ArchiveHandler) renderSubscribeForm(w http.ResponseWriter, workspace *d
 	b.WriteString(archiveCSS)
 	b.WriteString(archiveBarCSS)
 	b.WriteString(signupCSS)
+	b.WriteString(signupCSS)
 	b.WriteString("</head><body>")
 	b.WriteString(toolbarHTML(archiveBarOptions{
 		workspaceSlug: slugify(workspace.Name),
@@ -620,7 +626,23 @@ func (h *ArchiveHandler) renderSubscribeForm(w http.ResponseWriter, workspace *d
 	_, _ = w.Write([]byte(b.String()))
 }
 
+// inlineSignupForm is the compact signup the archive home carries, the way
+// Mailchimp's archive home does: a reader who arrives here may have been forwarded
+// a single campaign and never subscribed, and that is the moment to offer it.
+func inlineSignupForm(workspaceSlug string) string {
+	return `<form class="inline-signup" method="post" action="/archive/` + html.EscapeString(workspaceSlug) + `/subscribe">` +
+		`<label class="sr">Email</label>` +
+		`<input name="email" type="email" required placeholder="Your email — get the next one" autocomplete="email">` +
+		`<button type="submit">Subscribe</button></form>`
+}
+
 const signupCSS = `<style>
+.inline-signup{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:22px 0 6px;max-width:560px}
+.inline-signup input{flex:1;min-width:220px;padding:11px 14px;border:1px solid #d3d8e6;border-radius:999px;font-size:14px;background:#fff}
+.inline-signup button{background:var(--brand);color:#fff;border:0;border-radius:999px;padding:11px 20px;font-size:14px;font-weight:600;cursor:pointer}
+.inline-signup button:hover{background:#35449c}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.small a{color:var(--brand)}
 .note{padding:12px 14px;border-radius:10px;margin:18px 0;font-size:14px}
 .note.ok{background:#e8f5ec;color:#1c6b34;border:1px solid #bfe3c9}
 .note.bad{background:#fdecec;color:#8c1f1f;border:1px solid #f3c9c9}
