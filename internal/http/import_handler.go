@@ -78,6 +78,10 @@ type importTool struct {
 }
 
 func (h *ImportHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		WriteJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	ws := h.workspace(w, r)
 	if ws == nil {
 		return
@@ -145,7 +149,7 @@ func (h *ImportHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 func (h *ImportHandler) workspace(w http.ResponseWriter, r *http.Request) *domain.Workspace {
 	id := r.URL.Query().Get("workspace_id")
-	if id == "" {
+	if id == "" && r.Method == http.MethodPost {
 		var body struct {
 			WorkspaceID string `json:"workspace_id"`
 		}
@@ -217,6 +221,10 @@ func (h *ImportHandler) handleKey(w http.ResponseWriter, r *http.Request) {
 
 // handleInventory asks Mailchimp what is there, so nobody imports blind.
 func (h *ImportHandler) handleInventory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		WriteJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	ws := h.workspace(w, r)
 	if ws == nil {
 		return
