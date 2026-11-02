@@ -1,0 +1,282 @@
+package http
+
+import (
+	"encoding/json"
+	"net/http"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/Notifuse/notifuse/internal/domain"
+	"github.com/Notifuse/notifuse/internal/http/middleware"
+	"github.com/Notifuse/notifuse/pkg/logger"
+)
+
+// ArchiveAdminHandler is the console side of the campaign archive: the settings that
+// were previously SQL, and the list of archived campaigns with the ability to
+// unpublish one. The public reader is ArchiveHandler; this is the operator.
+type ArchiveAdminHandler struct {
+	workspaceRepo domain.WorkspaceRepository
+	archiveRepo   domain.CampaignArchiveRepository
+	templateRepo  domain.TemplateRepository
+	logger        logger.Logger
+	getJWTSecret  func() ([]byte, error)
+}
+
+func NewArchiveAdminHandler(
+	workspaceRepo domain.WorkspaceRepository,
+	archiveRepo domain.CampaignArchiveRepository,
+	templateRepo domain.TemplateRepository,
+	getJWTSecret func() ([]byte, error),
+	logger logger.Logger,
+) *ArchiveAdminHandler {
+	return &ArchiveAdminHandler{
+		workspaceRepo: workspaceRepo,
+		archiveRepo:   archiveRepo,
+		templateRepo:  templateRepo,
+		logger:        logger,
+		getJWTSecret:  getJWTSecret,
+	}
+}
+
+type archiveEntryRow struct {
+	Slug      string `json:"slug"`
+	Title     string `json:"title"`
+	Subject   string `json:"subject"`
+	SentAt    string `json:"sent_at"`
+	Template  string `json:"template_id"`
+	PreviewAt string `json:"preview_url"`
+}
+
+func (h *ArchiveAdminHandler) RegisterRoutes(mux *http.ServeMux) {
+	requireAuth := middleware.NewAuthMiddleware(h.getJWTSecret).RequireAuth()
+	mux.Handle("/api/archive.get", requireAuth(http.HandlerFunc(h.handleGet)))
+	mux.Handle("/api/archive.update", requireAuth(http.HandlerFunc(h.handleUpdate)))
+	mux.Handle("/api/archive.remove", requireAuth(http.HandlerFunc(h.handleRemove)))
+	mux.Handle("/api/archive.publish", requireAuth(http.HandlerFunc(h.handlePublish)))
+}
+
+func (h *ArchiveAdminHandler) workspace(w http.ResponseWriter, r *http.Request) *domain.Workspace {
+	id := r.URL.Query().Get("workspace_id")
+	if id == "" && r.Method == http.MethodPost {
+		var body struct {
+			WorkspaceID string `json:"workspace_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		id = body.WorkspaceID
+	}
+	if id == "" {
+		WriteJSONError(w, "workspace_id is required", http.StatusBadRequest)
+		return nil
+	}
+	ws, err := h.workspaceRepo.GetByID(r.Context(), id)
+	if err != nil || ws == nil {
+		WriteJSONError(w, "workspace not found", http.StatusNotFound)
+		return nil
+	}
+	return ws
+}
+
+// handleGet returns the current settings and the archived campaigns in one call: the
+// screen needs both, and two round trips would let them disagree.
+func (h *ArchiveAdminHandler) handleGet(w http.ResponseWriter, r *http.Request) {
+	ws := h.workspace(w, r)
+	if ws == nil {
+		return
+	}
+
+	settings := domain.ArchiveSettings{}
+	if ws.Settings.Archive != nil {
+		settings = *ws.Settings.Archive
+	}
+	// Never send the password to the browser. The screen shows whether a gate is
+	// set, and writes a new password only when the operator types one.
+	gateSet := settings.BasicAuthUser != ""
+	settings.BasicAuthPassword = ""
+
+	entries := []archiveEntryRow{}
+	if err := h.archiveRepo.EnsureSchema(r.Context(), ws.ID); err == nil {
+		list, err := h.archiveRepo.List(r.Context(), ws.ID)
+		if err == nil {
+			sort.SliceStable(list, func(i, j int) bool { return list[i].SentAt.After(list[j].SentAt) })
+			for _, e := range list {
+				entries = append(entries, archiveEntryRow{
+					Slug:      e.Slug,
+					Title:     e.Title,
+					Subject:   e.Subject,
+					SentAt:    e.SentAt.UTC().Format("2006-01-02"),
+					Template:  e.TemplateID,
+					PreviewAt: "/archive/" + slugify(ws.Name) + "/" + e.Slug,
+				})
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"settings":   settings,
+		"gate_set":   gateSet,
+		"entries":    entries,
+		"public_url": "/archive/" + slugify(ws.Name) + "/",
+	})
+}
+
+// handleUpdate writes the settings. The password is only replaced when a non-empty
+// value arrives, so saving the screen does not silently unlock the archive.
+func (h *ArchiveAdminHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		WriteJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		WorkspaceID string `json:"workspace_id"`
+		Settings    struct {
+			Enabled           bool     `json:"enabled"`
+			Title             string   `json:"title"`
+			SubscribeURL      string   `json:"subscribe_url"`
+			SubscribeListIDs  []string `json:"subscribe_list_ids"`
+			BasicAuthUser     string   `json:"basic_auth_user"`
+			BasicAuthPassword string   `json:"basic_auth_password"`
+			ClearGate         bool     `json:"clear_gate"`
+		} `json:"settings"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		WriteJSONError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	ws, err := h.workspaceRepo.GetByID(r.Context(), body.WorkspaceID)
+	if err != nil || ws == nil {
+		WriteJSONError(w, "workspace not found", http.StatusNotFound)
+		return
+	}
+
+	next := domain.ArchiveSettings{
+		Enabled:          body.Settings.Enabled,
+		Title:            strings.TrimSpace(body.Settings.Title),
+		SubscribeURL:     strings.TrimSpace(body.Settings.SubscribeURL),
+		SubscribeListIDs: body.Settings.SubscribeListIDs,
+		BasicAuthUser:    strings.TrimSpace(body.Settings.BasicAuthUser),
+	}
+	if body.Settings.ClearGate {
+		next.BasicAuthUser = ""
+	} else if ws.Settings.Archive != nil {
+		// Preserve the stored password unless a new one was typed.
+		next.BasicAuthPassword = ws.Settings.Archive.BasicAuthPassword
+	}
+	if body.Settings.BasicAuthPassword != "" {
+		next.BasicAuthPassword = body.Settings.BasicAuthPassword
+	}
+
+	ws.Settings.Archive = &next
+	if err := h.workspaceRepo.Update(r.Context(), ws); err != nil {
+		h.logger.WithField("error", err.Error()).Error("Failed to save archive settings")
+		WriteJSONError(w, "could not save settings", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+// handleRemove unpublishes one campaign. It deletes the archive row only: the
+// template stays, so nothing that was sent is lost — the campaign just stops being
+// offered publicly, which is exactly what an operator asking to remove it means.
+func (h *ArchiveAdminHandler) handleRemove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		WriteJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		WorkspaceID string `json:"workspace_id"`
+		Slug        string `json:"slug"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Slug == "" {
+		WriteJSONError(w, "slug is required", http.StatusBadRequest)
+		return
+	}
+	if err := h.archiveRepo.Remove(r.Context(), body.WorkspaceID, body.Slug); err != nil {
+		WriteJSONError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+// handlePublish adds a template to the archive, or updates the entry it already has.
+func (h *ArchiveAdminHandler) handlePublish(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		WriteJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		WorkspaceID string `json:"workspace_id"`
+		TemplateID  string `json:"template_id"`
+		Title       string `json:"title"`
+		SentAt      string `json:"sent_at"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.TemplateID == "" {
+		WriteJSONError(w, "template_id is required", http.StatusBadRequest)
+		return
+	}
+
+	tpl, err := h.templateRepo.GetTemplateByID(r.Context(), body.WorkspaceID, body.TemplateID, 0)
+	if err != nil || tpl == nil {
+		WriteJSONError(w, "template not found", http.StatusNotFound)
+		return
+	}
+
+	title := strings.TrimSpace(body.Title)
+	if title == "" {
+		title = tpl.Name
+	}
+	sentAt := strings.TrimSpace(body.SentAt)
+	if sentAt == "" {
+		sentAt = tpl.CreatedAt.UTC().Format("2006-01-02")
+	}
+	parsed, err := parseArchiveDate(sentAt)
+	if err != nil {
+		WriteJSONError(w, "sent_at must be YYYY-MM-DD", http.StatusBadRequest)
+		return
+	}
+
+	entry := &domain.ArchiveEntry{
+		Slug:            archiveSlug(parsed, title, tpl.ID),
+		TemplateID:      tpl.ID,
+		TemplateVersion: tpl.Version,
+		Title:           title,
+		SentAt:          parsed,
+	}
+	if err := h.archiveRepo.Upsert(r.Context(), body.WorkspaceID, entry); err != nil {
+		WriteJSONError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "slug": entry.Slug})
+}
+
+func parseArchiveDate(value string) (time.Time, error) {
+	return time.Parse("2006-01-02", value)
+}
+
+// archiveSlug mirrors the importer's scheme: date, then what the title transliterates
+// to, then the id when the title carries no latin characters at all (Greek, mostly).
+func archiveSlug(sentAt time.Time, title, templateID string) string {
+	date := sentAt.UTC().Format("2006-01-02")
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(title) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			dash = false
+			continue
+		}
+		if b.Len() > 0 && !dash {
+			b.WriteByte('-')
+			dash = true
+		}
+	}
+	slug := strings.Trim(b.String(), "-")
+	if len(slug) > 60 {
+		slug = strings.Trim(slug[:60], "-")
+	}
+	if slug == "" {
+		return date + "-" + strings.TrimPrefix(templateID, "mc_")[:6]
+	}
+	return date + "-" + slug
+}

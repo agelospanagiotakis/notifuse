@@ -139,3 +139,15 @@ func (r *campaignArchiveRepository) Upsert(ctx context.Context, workspaceID stri
 	}
 	return nil
 }
+
+// Remove deletes one archive row.
+func (r *campaignArchiveRepository) Remove(ctx context.Context, workspaceID, slug string) error {
+	db, err := r.connection(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM campaign_archive WHERE slug = $1`, slug); err != nil {
+		return err
+	}
+	return nil
+}

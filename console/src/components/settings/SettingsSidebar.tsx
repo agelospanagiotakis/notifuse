@@ -3,6 +3,7 @@ import type { MessageDescriptor } from '@lingui/core'
 import { msg } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
 import {
+  Archive,
   BadgeCheck,
   Blocks,
   BookOpen,
@@ -26,7 +27,7 @@ import { RailItem, RailSection } from '../layout'
 export const SETTINGS_GROUPS = [
   { title: msg`Workspace`, sections: ['general', 'team'] },
   { title: msg({ message: 'Sending', context: 'section' }), sections: ['integrations', 'webhooks', 'smtp-bridge'] },
-  { title: msg`Content`, sections: ['custom-fields', 'blog', 'web-analytics'] },
+  { title: msg`Content`, sections: ['custom-fields', 'blog', 'archive', 'web-analytics'] },
   // Licence is deployment-wide rather than workspace-wide, and rendered only for a root user —
   // but listed here unconditionally, because this list is what makes a URL valid and a root user
   // must be able to reach /settings/licence from the banner whatever workspace they are in.
@@ -52,6 +53,7 @@ const ICONS: Record<SettingsSection, ReactNode> = {
   'smtp-bridge': <Mail size={ICON_SIZE} />,
   'custom-fields': <Braces size={ICON_SIZE} />,
   blog: <BookOpen size={ICON_SIZE} />,
+  archive: <Archive size={ICON_SIZE} />,
   'web-analytics': <ChartLine size={ICON_SIZE} />,
   security: <KeyRound size={ICON_SIZE} />,
   'audit-logs': <ScrollText size={ICON_SIZE} />,
@@ -67,6 +69,7 @@ const LABELS: Record<SettingsSection, MessageDescriptor> = {
   'smtp-bridge': msg`SMTP bridge`,
   'custom-fields': msg`Custom fields`,
   blog: msg`Blog`,
+  archive: msg`Archive`,
   'web-analytics': msg`Web analytics`,
   security: msg`Password sign-in`,
   'audit-logs': msg`Audit log`,
