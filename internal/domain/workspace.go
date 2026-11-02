@@ -483,6 +483,10 @@ type WorkspaceSettings struct {
 	CustomFieldLabels map[string]string     `json:"custom_field_labels,omitempty"`
 	BlogEnabled       bool                  `json:"blog_enabled"`            // Enable blog feature at workspace level
 	BlogSettings      *BlogSettings         `json:"blog_settings,omitempty"` // Blog styling and SEO settings
+	// Archive is the public campaign archive (see ArchiveSettings). A typed field
+	// rather than an untyped bag because Update() rewrites the whole settings row:
+	// anything this struct does not name is dropped on the next save.
+	Archive *ArchiveSettings `json:"archive,omitempty"`
 	WebAnalytics      *WebAnalyticsSettings `json:"web_analytics,omitempty"` // Web analytics configuration
 	// AuditLogs is the per-workspace audit retention; nil means the deployment
 	// default. Written only through workspaces.setAuditLogSettings and preserved
