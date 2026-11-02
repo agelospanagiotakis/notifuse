@@ -592,7 +592,10 @@ func (h *ArchiveHandler) renderSubscribeForm(w http.ResponseWriter, workspace *d
 	b.WriteString("<p class=\"count\">One email when there is something worth showing you.</p></header>")
 
 	if ok {
-		b.WriteString(`<p class="note ok">You are on the list. Check your inbox for a confirmation.</p>`)
+		// No promise of a confirmation email: whether one is sent depends on the
+		// list's double opt-in setting, which this page does not read. Saying "check
+		// your inbox" when nothing is sent is worse than saying nothing.
+		b.WriteString(`<p class="note ok">You are on the list.</p>`)
 	}
 	switch errCode {
 	case "email":
