@@ -136,3 +136,58 @@ func TestArchive_UnknownCampaignIsNotFound(t *testing.T) {
 	rec := get(archiveHandler(t, ws, &fakeArchiveRepo{}), "/archive/koisoptics/missing", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+func TestArchive_ToolbarHasTheMailchimpControls(t *testing.T) {
+	// Gated, because that is how it runs today: three controls, and Translate
+	// withheld until Google's proxy could actually fetch the page.
+	ws := archiveWorkspace(&domain.ArchiveSettings{
+		Enabled: true, BasicAuthUser: "reader", BasicAuthPassword: "s3cret",
+	})
+	ws.Settings.WebsiteURL = "https://www.kois-optics.gr/"
+	repo := &fakeArchiveRepo{entries: []*domain.ArchiveEntry{{Slug: "x", Title: "X", SentAt: time.Now()}}}
+	auth := func(r *http.Request) { r.SetBasicAuth("reader", "s3cret") }
+
+	body := get(archiveHandler(t, ws, repo), "/archive/koisoptics/", auth).Body.String()
+
+	for _, want := range []string{"Subscribe", "Past Issues", "RSS", "/archive/kois-optics/feed.xml"} {
+		assert.Contains(t, body, want)
+	}
+	// Subscribe points at the workspace's own site when no explicit URL is set.
+	assert.Contains(t, body, "https://www.kois-optics.gr/")
+	assert.NotContains(t, body, "translate.google",
+		"a translate proxy with no access to the page is a control that cannot work")
+}
+
+func TestArchive_ToolbarShowsTranslateWhenPublic(t *testing.T) {
+	ws := archiveWorkspace(&domain.ArchiveSettings{Enabled: true, SubscribeURL: "https://example.test/join"})
+	repo := &fakeArchiveRepo{}
+
+	body := get(archiveHandler(t, ws, repo), "/archive/koisoptics/", nil).Body.String()
+
+	assert.Contains(t, body, "translate.google.com")
+	assert.Contains(t, body, "https://example.test/join")
+}
+
+func TestArchive_ServesRSS(t *testing.T) {
+	ws := archiveWorkspace(&domain.ArchiveSettings{Enabled: true, Title: "Kois archive"})
+	repo := &fakeArchiveRepo{entries: []*domain.ArchiveEntry{
+		{Slug: "newer", Title: "Newer & better", Subject: "Subject", SentAt: time.Date(2024, 7, 9, 0, 0, 0, 0, time.UTC)},
+		{Slug: "older", Title: "Older", SentAt: time.Date(2021, 3, 4, 0, 0, 0, 0, time.UTC)},
+	}}
+
+	rec := get(archiveHandler(t, ws, repo), "/archive/koisoptics/feed.xml", nil)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Header().Get("Content-Type"), "application/rss+xml")
+	body := rec.Body.String()
+	assert.Contains(t, body, `<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">`)
+	assert.Contains(t, body, "Newer &amp; better", "escaping matters: & is not valid XML")
+	assert.Contains(t, body, "/archive/kois-optics/feed.xml")
+	assert.Less(t, strings.Index(body, "newer"), strings.Index(body, "older"))
+}
+
+func TestArchive_FeedIsGatedToo(t *testing.T) {
+	ws := archiveWorkspace(&domain.ArchiveSettings{Enabled: true, BasicAuthUser: "u", BasicAuthPassword: "p"})
+	rec := get(archiveHandler(t, ws, &fakeArchiveRepo{}), "/archive/koisoptics/feed.xml", nil)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}

@@ -39,6 +39,11 @@ type ArchiveSettings struct {
 	Title             string `json:"title,omitempty"`
 	BasicAuthUser     string `json:"basic_auth_user,omitempty"`
 	BasicAuthPassword string `json:"basic_auth_password,omitempty"`
+	// SubscribeURL is where the toolbar's "Subscribe" points. Mailchimp's archive
+	// offers signup in the page itself because the archive and the audience are one
+	// product; here the signup form lives in the workspace's own site, so this is a
+	// setting rather than something the page can invent.
+	SubscribeURL string `json:"subscribe_url,omitempty"`
 }
 
 // ErrArchiveEntryNotFound is returned when a slug is not in the archive.
