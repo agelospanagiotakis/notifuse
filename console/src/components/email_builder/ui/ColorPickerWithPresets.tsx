@@ -2,6 +2,7 @@ import React, { useCallback } from 'react'
 import { ColorPicker, Row, Col, Divider } from 'antd'
 import type { ColorPickerProps } from 'antd'
 import { useLingui } from '@lingui/react/macro'
+import { BRAND_PALETTES } from './brandPalettes'
 
 interface ColorPickerWithPresetsProps {
   value?: string
@@ -106,6 +107,12 @@ const ColorPickerWithPresets: React.FC<ColorPickerWithPresetsProps> = ({
             : false
         }
         presets={[
+          // The house colours first. A palette is a decision already made; putting it at the
+          // bottom of a list of 200 swatches is the same as not having one.
+          ...BRAND_PALETTES.map((palette) => ({
+            label: palette.label,
+            colors: palette.colors
+          })),
           {
             label: '',
             colors: [

@@ -301,7 +301,7 @@ msgstr "{hours}h {remainingMinutes}m"
 msgid "{label} copied to clipboard"
 msgstr "{label} αντιγράφηκε στο πρόχειρο"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:732
+#: src/components/templates/CreateTemplateDrawer.tsx:777
 msgid "{langName} translation is missing required fields (subject and preview)"
 msgstr "Λείπουν υποχρεωτικά πεδία από τη μετάφραση {langName} (θέμα και προεπισκόπηση)"
 
@@ -486,7 +486,7 @@ msgstr "1 σελίδα"
 msgid "1. Audience"
 msgstr "1. Κοινό"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:806
+#: src/components/templates/CreateTemplateDrawer.tsx:851
 msgid "1. Settings"
 msgstr "1. Ρυθμίσεις"
 
@@ -494,12 +494,12 @@ msgstr "1. Ρυθμίσεις"
 msgid "100 - Thin"
 msgstr "100 - Λεπτό"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:812
+#: src/components/templates/CreateTemplateDrawer.tsx:857
 msgid "2. Template"
 msgstr "2. Πρότυπο"
 
 #. placeholder {0}: workspace.settings.default_language
-#: src/components/templates/CreateTemplateDrawer.tsx:811
+#: src/components/templates/CreateTemplateDrawer.tsx:856
 msgid "2. Template ({0})"
 msgstr "2. Πρότυπο ({0})"
 
@@ -519,7 +519,7 @@ msgstr "Η 2587 χρησιμοποιεί STARTTLS. Η 465 είναι implicit TL
 msgid "3. Data Feeds"
 msgstr "3. Τροφοδοσίες δεδομένων"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:818
+#: src/components/templates/CreateTemplateDrawer.tsx:863
 msgid "3. Translations"
 msgstr "3. Μεταφράσεις"
 
@@ -1843,7 +1843,7 @@ msgstr "Όνομα μπλοκ"
 msgid "Block saved as \"{0}\""
 msgstr "Ο αποκλεισμός αποθηκεύτηκε ως \"{0}\""
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1277
+#: src/components/templates/CreateTemplateDrawer.tsx:1322
 msgid "Block Settings Panel"
 msgstr "Πίνακας ρυθμίσεων αποκλεισμού"
 
@@ -2323,7 +2323,7 @@ msgstr "καμπάνιες"
 #: src/components/settings/WorkspaceMembers.tsx:532
 #: src/components/settings/WorkspaceMembers.tsx:585
 #: src/components/settings/WorkspaceMembers.tsx:662
-#: src/components/templates/CreateTemplateDrawer.tsx:658
+#: src/components/templates/CreateTemplateDrawer.tsx:703
 #: src/components/templates/SendTemplateModal.tsx:268
 #: src/components/templates/TemplateTranslationsTab.tsx:276
 #: src/components/transactional/UpsertTransactionalNotificationDrawer.tsx:178
@@ -2414,7 +2414,7 @@ msgstr "Κατηγορίες"
 #: src/components/blog/PostsTable.tsx:236
 #: src/components/blog/ThemeEditorDrawer.tsx:428
 #: src/components/blog/ThemePresetPreviewDrawer.tsx:75
-#: src/components/templates/CreateTemplateDrawer.tsx:885
+#: src/components/templates/CreateTemplateDrawer.tsx:930
 #: src/pages/TemplatesPage.tsx:245
 msgid "Category"
 msgstr "Κατηγορία"
@@ -2703,11 +2703,11 @@ msgstr "Κλώνος"
 msgid "Clone Block"
 msgstr "Μπλοκ κλώνου"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:643
+#: src/components/templates/CreateTemplateDrawer.tsx:688
 msgid "Clone email template"
 msgstr "Κλωνοποίηση προτύπου email"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:634
+#: src/components/templates/CreateTemplateDrawer.tsx:679
 #: src/pages/TemplatesPage.tsx:339
 msgid "Clone Template"
 msgstr "Πρότυπο κλώνου"
@@ -2737,7 +2737,7 @@ msgstr "Υπότιτλοι (CC)"
 msgid "Code"
 msgstr "Κωδικός"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:933
+#: src/components/templates/CreateTemplateDrawer.tsx:978
 msgid "Code (MJML)"
 msgstr "Κωδικός (MJML)"
 
@@ -3195,7 +3195,7 @@ msgstr "περιεχόμενο"
 msgid "Content quality by traffic source"
 msgstr "Ποιότητα περιεχομένου ανά πηγή επισκεψιμότητας"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1263
+#: src/components/templates/CreateTemplateDrawer.tsx:1308
 msgid "Content Structure Tree"
 msgstr "Δέντρο Δομής Περιεχομένου"
 
@@ -3290,7 +3290,7 @@ msgid "Could not load the goals"
 msgstr "Δεν ήταν δυνατή η φόρτωση των στόχων"
 
 #: src/components/blog/PostDrawer.tsx:376
-#: src/components/templates/CreateTemplateDrawer.tsx:450
+#: src/components/templates/CreateTemplateDrawer.tsx:481
 msgid "Could not load the latest version. Please try again."
 msgstr ""
 
@@ -3435,7 +3435,7 @@ msgstr "Δημιουργήστε μια ειδοποίηση συναλλαγή�
 msgid "Create an automation, including webhook, email and list nodes"
 msgstr "Δημιουργήστε έναν αυτοματισμό, συμπεριλαμβανομένων των κόμβων webhook, email και λίστας"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:644
+#: src/components/templates/CreateTemplateDrawer.tsx:689
 msgid "Create an email template"
 msgstr "Δημιουργήστε ένα πρότυπο email"
 
@@ -3523,7 +3523,7 @@ msgstr "Δημιουργία ειδοποίησης"
 msgid "Create rule"
 msgstr "Δημιουργία κανόνα"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:634
+#: src/components/templates/CreateTemplateDrawer.tsx:679
 msgid "Create Template"
 msgstr "Δημιουργία προτύπου"
 
@@ -3845,11 +3845,11 @@ msgstr "Προσαρμοσμένο εύρος"
 msgid "Custom report"
 msgstr "Προσαρμοσμένη αναφορά"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:993
+#: src/components/templates/CreateTemplateDrawer.tsx:1038
 msgid "Custom sender (marketing email provider)"
 msgstr "Προσαρμοσμένος αποστολέας (παροχέας email μάρκετινγκ)"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:993
+#: src/components/templates/CreateTemplateDrawer.tsx:1038
 msgid "Custom sender (transactional email provider)"
 msgstr "Προσαρμοσμένος αποστολέας (παροχέας ηλεκτρονικού ταχυδρομείου συναλλαγών)"
 
@@ -4769,7 +4769,7 @@ msgstr "Επεξεργασία CSS"
 msgid "Edit Custom Field Label"
 msgstr "Επεξεργασία προσαρμοσμένης ετικέτας πεδίου"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:641
+#: src/components/templates/CreateTemplateDrawer.tsx:686
 msgid "Edit email template"
 msgstr "Επεξεργασία προτύπου email"
 
@@ -4824,7 +4824,7 @@ msgstr "Επεξεργασία τμήματος"
 msgid "Edit Sender"
 msgstr "Επεξεργασία αποστολέα"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:634
+#: src/components/templates/CreateTemplateDrawer.tsx:679
 #: src/pages/TemplatesPage.tsx:317
 msgid "Edit Template"
 msgstr "Επεξεργασία προτύπου"
@@ -4863,7 +4863,7 @@ msgstr "Επεξεργασία σύνδεσης Zapier"
 msgid "Editable markup"
 msgstr "Επεξεργάσιμη σήμανση"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:925
+#: src/components/templates/CreateTemplateDrawer.tsx:970
 msgid "Editor mode"
 msgstr "Λειτουργία επεξεργασίας"
 
@@ -4992,18 +4992,18 @@ msgstr "Απαιτείται διαμόρφωση παρόχου email"
 msgid "Email Provider Required"
 msgstr "Απαιτείται πάροχος email"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:945
+#: src/components/templates/CreateTemplateDrawer.tsx:990
 #: src/components/templates/TemplateTranslationsTab.tsx:231
 msgid "Email subject"
 msgstr "Θέμα email"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1011
+#: src/components/templates/CreateTemplateDrawer.tsx:1056
 #: src/components/templates/TemplateTranslationsTab.tsx:294
 msgid "Email Subject"
 msgstr "Θέμα email"
 
 #. placeholder {0}: workspace.settings.default_language
-#: src/components/templates/CreateTemplateDrawer.tsx:945
+#: src/components/templates/CreateTemplateDrawer.tsx:990
 msgid "Email subject ({0})"
 msgstr "Θέμα email ({0})"
 
@@ -5392,8 +5392,8 @@ msgstr "Σφάλμα κατά τη φόρτωση δεδομένων"
 msgid "Error loading preview"
 msgstr "Σφάλμα κατά τη φόρτωση της προεπισκόπησης"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:253
-#: src/components/templates/CreateTemplateDrawer.tsx:515
+#: src/components/templates/CreateTemplateDrawer.tsx:284
+#: src/components/templates/CreateTemplateDrawer.tsx:546
 msgid "Error loading template: Invalid template data"
 msgstr "Σφάλμα φόρτωσης προτύπου: Μη έγκυρα δεδομένα προτύπου"
 
@@ -5727,7 +5727,7 @@ msgid "Failed to create segment"
 msgstr "Αποτυχία δημιουργίας τμήματος"
 
 #. placeholder {0}: error.message
-#: src/components/templates/CreateTemplateDrawer.tsx:343
+#: src/components/templates/CreateTemplateDrawer.tsx:374
 msgid "Failed to create template: {0}"
 msgstr "Αποτυχία δημιουργίας προτύπου: {0}"
 
@@ -6005,7 +6005,7 @@ msgstr "Αποτυχία αποθήκευσης ρυθμίσεων"
 msgid "Failed to save Supabase integration"
 msgstr "Αποτυχία αποθήκευσης της ενοποίησης του Supabase"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:618
+#: src/components/templates/CreateTemplateDrawer.tsx:663
 msgid "Failed to save template block"
 msgstr "Αποτυχία αποθήκευσης μπλοκ προτύπου"
 
@@ -6135,7 +6135,7 @@ msgid "Failed to update status: {error}"
 msgstr "Αποτυχία ενημέρωσης κατάστασης: {error}"
 
 #. placeholder {0}: error.message
-#: src/components/templates/CreateTemplateDrawer.tsx:343
+#: src/components/templates/CreateTemplateDrawer.tsx:374
 msgid "Failed to update template: {0}"
 msgstr "Αποτυχία ενημέρωσης προτύπου: {0}"
 
@@ -6759,12 +6759,12 @@ msgid "Height"
 msgstr "Ύψος"
 
 #: src/components/email_builder/MjmlCodeEditor.tsx:718
-#: src/components/templates/CreateTemplateDrawer.tsx:150
+#: src/components/templates/CreateTemplateDrawer.tsx:181
 #: src/layouts/WorkspaceLayout.tsx:681
 msgid "Help"
 msgstr "Βοήθεια"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:145
+#: src/components/templates/CreateTemplateDrawer.tsx:176
 msgid "Help & Support"
 msgstr "Βοήθεια & Υποστήριξη"
 
@@ -6891,11 +6891,11 @@ msgstr ""
 msgid "i.e: Big spenders..."
 msgstr "Δηλαδή: Μεγάλοι ξοδευτές..."
 
-#: src/components/templates/CreateTemplateDrawer.tsx:837
+#: src/components/templates/CreateTemplateDrawer.tsx:882
 msgid "i.e: Welcome Email"
 msgstr "δηλ.: Email καλωσορίσματος"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:878
+#: src/components/templates/CreateTemplateDrawer.tsx:923
 msgid "i.e: welcome-email"
 msgstr "δηλαδή: καλωσόρισμα-email"
 
@@ -6956,7 +6956,7 @@ msgstr "Το αναγνωριστικό πρέπει να είναι αλφαρ�
 msgid "ID must be less than 32 characters"
 msgstr "Το αναγνωριστικό πρέπει να είναι μικρότερο από 32 χαρακτήρες"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:859
+#: src/components/templates/CreateTemplateDrawer.tsx:904
 msgid "ID must contain only lowercase letters, numbers, underscores, and hyphens"
 msgstr "Το αναγνωριστικό πρέπει να περιέχει μόνο πεζά γράμματα, αριθμούς, κάτω παύλες και παύλες"
 
@@ -7056,7 +7056,7 @@ msgstr "Εισαγωγή"
 msgid "Import / Export"
 msgstr "Εισαγωγή / Εξαγωγή"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1306
+#: src/components/templates/CreateTemplateDrawer.tsx:1351
 msgid "Import & Export Templates"
 msgstr "Πρότυπα εισαγωγής και εξαγωγής"
 
@@ -7659,7 +7659,7 @@ msgstr "Από αριστερά προς τα δεξιά"
 msgid "Let users sign in with an external identity provider (Google Workspace, Keycloak, Okta, …) alongside magic codes."
 msgstr "Επιτρέψτε στους χρήστες να συνδεθούν με έναν εξωτερικό πάροχο ταυτότητας (Google Workspace, Keycloak, Okta,…) μαζί με μαγικούς κωδικούς."
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1259
+#: src/components/templates/CreateTemplateDrawer.tsx:1304
 msgid "Let's take a quick tour to help you get started with building beautiful emails using MJML."
 msgstr "Ας κάνουμε μια γρήγορη περιήγηση για να σας βοηθήσουμε να ξεκινήσετε να δημιουργείτε όμορφα μηνύματα ηλεκτρονικού ταχυδρομείου χρησιμοποιώντας το MJML."
 
@@ -7964,7 +7964,7 @@ msgid "Load the workspace record, which read or write both admit"
 msgstr "Φορτώστε την εγγραφή του χώρου εργασίας, την οποία και τα δύο παραδέχονται ανάγνωση ή εγγραφή"
 
 #. placeholder {0}: latest.version
-#: src/components/templates/CreateTemplateDrawer.tsx:442
+#: src/components/templates/CreateTemplateDrawer.tsx:473
 msgid "Loaded the latest version of this template (v{0})."
 msgstr "Φόρτωσε την πιο πρόσφατη έκδοση αυτού του προτύπου (v{0})."
 
@@ -8427,7 +8427,7 @@ msgstr "Το πρότυπο MJML εισήχθη και μετατράπηκε μ
 msgid "MJML Validation Failed"
 msgstr "Η επικύρωση MJML απέτυχε"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1291
+#: src/components/templates/CreateTemplateDrawer.tsx:1336
 msgid "Mobile & Desktop Preview"
 msgstr "Προεπισκόπηση κινητού και επιτραπέζιου υπολογιστή"
 
@@ -8621,8 +8621,8 @@ msgstr "Νέος χώρος εργασίας"
 #: src/components/broadcasts/UpsertBroadcastDrawer.tsx:321
 #: src/components/broadcasts/UpsertBroadcastDrawer.tsx:331
 #: src/components/broadcasts/UpsertBroadcastDrawer.tsx:342
-#: src/components/templates/CreateTemplateDrawer.tsx:663
-#: src/components/templates/CreateTemplateDrawer.tsx:684
+#: src/components/templates/CreateTemplateDrawer.tsx:708
+#: src/components/templates/CreateTemplateDrawer.tsx:729
 msgid "Next"
 msgstr "Επόμενο"
 
@@ -9061,7 +9061,7 @@ msgstr "Μη ενεργό"
 #: src/components/email_builder/blocks/MjSocialElementBlock.tsx:327
 #: src/components/email_builder/blocks/MjTextBlock.tsx:61
 #: src/components/email_builder/ui/BorderInput.tsx:55
-#: src/components/email_builder/ui/ColorPickerWithPresets.tsx:31
+#: src/components/email_builder/ui/ColorPickerWithPresets.tsx:32
 #: src/components/email_builder/ui/FontStyleInput.tsx:129
 #: src/components/email_builder/ui/FontStyleInput.tsx:136
 #: src/components/integrations/LLMIntegration.tsx:265
@@ -9192,7 +9192,7 @@ msgstr ""
 msgid "notifuse-…"
 msgstr "ειδοποίηση-…"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1013
+#: src/components/templates/CreateTemplateDrawer.tsx:1058
 #: src/components/templates/TemplateTranslationsTab.tsx:296
 msgid "Now"
 msgstr "Τώρα"
@@ -10214,7 +10214,7 @@ msgstr "Προεπισκόπηση κειμένου"
 msgid "Preview Text Settings"
 msgstr "Προεπισκόπηση ρυθμίσεων κειμένου"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1012
+#: src/components/templates/CreateTemplateDrawer.tsx:1057
 #: src/components/templates/TemplateTranslationsTab.tsx:295
 msgid "Preview text will appear here..."
 msgstr "Το κείμενο προεπισκόπησης θα εμφανιστεί εδώ..."
@@ -10227,15 +10227,15 @@ msgstr "Κάντε προεπισκόπηση αυτού του θέματος �
 msgid "Preview will appear here after compilation"
 msgstr "Η προεπισκόπηση θα εμφανιστεί εδώ μετά τη μεταγλώττιση"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1284
+#: src/components/templates/CreateTemplateDrawer.tsx:1329
 msgid "Preview Your Email"
 msgstr "Προεπισκόπηση του email σας"
 
 #: src/components/broadcasts/UpsertBroadcastDrawer.tsx:328
 #: src/components/broadcasts/UpsertBroadcastDrawer.tsx:339
 #: src/components/broadcasts/UpsertBroadcastDrawer.tsx:350
-#: src/components/templates/CreateTemplateDrawer.tsx:668
-#: src/components/templates/CreateTemplateDrawer.tsx:689
+#: src/components/templates/CreateTemplateDrawer.tsx:713
+#: src/components/templates/CreateTemplateDrawer.tsx:734
 msgid "Previous"
 msgstr "Προηγούμενο"
 
@@ -10953,7 +10953,7 @@ msgstr ""
 #~ msgid "Reply forwarding route is set up. Inbound replies also require your domain's MX records to point at Mailgun."
 #~ msgstr "Reply forwarding route is set up. Inbound replies also require your domain's MX records to point at Mailgun."
 
-#: src/components/templates/CreateTemplateDrawer.tsx:984
+#: src/components/templates/CreateTemplateDrawer.tsx:1029
 #: src/components/templates/TemplatePreviewDrawer.tsx:324
 msgid "Reply to"
 msgstr "Απάντηση σε"
@@ -11372,8 +11372,8 @@ msgstr "Λειτουργία Sandbox"
 #: src/components/settings/Integrations.tsx:2992
 #: src/components/settings/SystemSettingsDrawer.tsx:240
 #: src/components/settings/WebhooksSettings.tsx:253
-#: src/components/templates/CreateTemplateDrawer.tsx:679
-#: src/components/templates/CreateTemplateDrawer.tsx:700
+#: src/components/templates/CreateTemplateDrawer.tsx:724
+#: src/components/templates/CreateTemplateDrawer.tsx:745
 #: src/components/transactional/UpsertTransactionalNotificationDrawer.tsx:187
 #: src/components/web_analytics/annotations/AnnotationFormModal.tsx:136
 #: src/components/web_analytics/filters/FilterFormDrawer.tsx:109
@@ -11748,7 +11748,7 @@ msgstr "Επιλέξτε Περιοχή AWS"
 msgid "Select Block to Update"
 msgstr "Επιλέξτε Αποκλεισμός για ενημέρωση"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:889
+#: src/components/templates/CreateTemplateDrawer.tsx:934
 msgid "Select category"
 msgstr "Επιλέξτε κατηγορία"
 
@@ -12043,13 +12043,13 @@ msgstr "Αποστολή δοκιμαστικού email"
 msgid "Send transactional notifications using SMTP bridge. Perfect for integrating with existing email systems or applications that support SMTP."
 msgstr ""
 
-#: src/components/templates/CreateTemplateDrawer.tsx:940
+#: src/components/templates/CreateTemplateDrawer.tsx:985
 #: src/components/templates/SendTemplateModal.tsx:303
 #: src/pages/TemplatesPage.tsx:251
 msgid "Sender"
 msgstr "Αποστολέας"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1010
+#: src/components/templates/CreateTemplateDrawer.tsx:1055
 #: src/components/templates/TemplateTranslationsTab.tsx:293
 msgid "Sender Name"
 msgstr "Όνομα αποστολέα"
@@ -12845,14 +12845,14 @@ msgid "Subject"
 msgstr "Θέμα"
 
 #: src/components/email_builder/blocks/MjPreviewBlock.tsx:33
-#: src/components/templates/CreateTemplateDrawer.tsx:963
+#: src/components/templates/CreateTemplateDrawer.tsx:1008
 #: src/components/templates/TemplatePreviewDrawer.tsx:345
 #: src/components/templates/TemplateTranslationsTab.tsx:235
 msgid "Subject preview"
 msgstr "Προεπισκόπηση θέματος"
 
 #. placeholder {0}: workspace.settings.default_language
-#: src/components/templates/CreateTemplateDrawer.tsx:963
+#: src/components/templates/CreateTemplateDrawer.tsx:1008
 msgid "Subject preview ({0})"
 msgstr "Προεπισκόπηση θέματος ({0})"
 
@@ -12996,7 +12996,7 @@ msgstr "Υποστηριζόμενες γλώσσες"
 msgid "Supports reply_to, cc, bcc, and attachments"
 msgstr "Υποστηρίζει reply_to, cc, bcc και συνημμένα"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1286
+#: src/components/templates/CreateTemplateDrawer.tsx:1331
 msgid "Switch to Preview mode to see how your email will look to recipients. This shows the final rendered version with all styling applied."
 msgstr ""
 
@@ -13030,7 +13030,7 @@ msgstr "Ετικέτες"
 msgid "Take a published post off the live blog"
 msgstr "Βγάλτε μια δημοσιευμένη ανάρτηση από το ζωντανό ιστολόγιο"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:135
+#: src/components/templates/CreateTemplateDrawer.tsx:166
 msgid "Take a Tour"
 msgstr "Κάντε μια περιήγηση"
 
@@ -13087,20 +13087,20 @@ msgid "Template {0}"
 msgstr "Πρότυπο {0}"
 
 #. placeholder {0}: existingBlock?.name || nameOrId
-#: src/components/templates/CreateTemplateDrawer.tsx:604
+#: src/components/templates/CreateTemplateDrawer.tsx:649
 msgid "Template block \"{0}\" deleted successfully"
 msgstr "Το μπλοκ προτύπου \"{0}\" διαγράφηκε με επιτυχία"
 
 #. placeholder {0}: existingBlock.name
-#: src/components/templates/CreateTemplateDrawer.tsx:596
+#: src/components/templates/CreateTemplateDrawer.tsx:641
 msgid "Template block \"{0}\" updated successfully"
 msgstr "Το μπλοκ προτύπου \"{0}\" ενημερώθηκε με επιτυχία"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:582
+#: src/components/templates/CreateTemplateDrawer.tsx:627
 msgid "Template block \"{nameOrId}\" saved successfully"
 msgstr "Το μπλοκ προτύπου \"{nameOrId}\" αποθηκεύτηκε με επιτυχία"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:587
+#: src/components/templates/CreateTemplateDrawer.tsx:632
 msgid "Template block not found"
 msgstr "Το μπλοκ προτύπου δεν βρέθηκε"
 
@@ -13108,7 +13108,7 @@ msgstr "Το μπλοκ προτύπου δεν βρέθηκε"
 msgid "Template changed by someone else"
 msgstr "Το πρότυπο άλλαξε από κάποιον άλλο"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:311
+#: src/components/templates/CreateTemplateDrawer.tsx:342
 msgid "Template created successfully"
 msgstr "Το πρότυπο δημιουργήθηκε με επιτυχία"
 
@@ -13117,7 +13117,7 @@ msgstr "Το πρότυπο δημιουργήθηκε με επιτυχία"
 msgid "Template Data"
 msgstr "Δεδομένα προτύπου"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1298
+#: src/components/templates/CreateTemplateDrawer.tsx:1343
 msgid "Template Data & Liquid Templating"
 msgstr "Template Data & Liquid Templating"
 
@@ -13133,11 +13133,11 @@ msgstr "Σφάλμα προτύπου"
 msgid "Template ID"
 msgstr "Αναγνωριστικό προτύπου"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:851
+#: src/components/templates/CreateTemplateDrawer.tsx:896
 msgid "Template ID (utm_content)"
 msgstr "Αναγνωριστικό προτύπου (utm_content)"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:866
+#: src/components/templates/CreateTemplateDrawer.tsx:911
 msgid "Template ID already exists"
 msgstr "Το αναγνωριστικό προτύπου υπάρχει ήδη"
 
@@ -13145,7 +13145,7 @@ msgstr "Το αναγνωριστικό προτύπου υπάρχει ήδη"
 msgid "Template imported successfully"
 msgstr "Το πρότυπο εισήχθη με επιτυχία"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:835
+#: src/components/templates/CreateTemplateDrawer.tsx:880
 msgid "Template name"
 msgstr "Όνομα προτύπου"
 
@@ -13166,7 +13166,7 @@ msgstr "Μεταφράσεις προτύπων"
 msgid "Template translations require a Notifuse {tier} licence."
 msgstr "Οι μεταφράσεις προτύπων απαιτούν άδεια Notifuse {tier}."
 
-#: src/components/templates/CreateTemplateDrawer.tsx:311
+#: src/components/templates/CreateTemplateDrawer.tsx:342
 msgid "Template updated successfully"
 msgstr "Το πρότυπο ενημερώθηκε με επιτυχία"
 
@@ -13190,8 +13190,8 @@ msgstr "Πρότυπα"
 msgid "Templates using this sender will need to be updated to use a different sender."
 msgstr "Τα πρότυπα που χρησιμοποιούν αυτόν τον αποστολέα θα πρέπει να ενημερωθούν για να χρησιμοποιούν διαφορετικό αποστολέα."
 
-#: src/components/templates/CreateTemplateDrawer.tsx:959
-#: src/components/templates/CreateTemplateDrawer.tsx:977
+#: src/components/templates/CreateTemplateDrawer.tsx:1004
+#: src/components/templates/CreateTemplateDrawer.tsx:1022
 msgid "Templating markup allowed"
 msgstr "Επιτρέπεται η σήμανση προτύπου"
 
@@ -13734,7 +13734,7 @@ msgstr "Αυτό το αναγνωριστικό θα χρησιμοποιηθε
 msgid "This invitation link is invalid or has expired."
 msgstr "Αυτός ο σύνδεσμος πρόσκλησης δεν είναι έγκυρος ή έχει λήξει."
 
-#: src/components/templates/CreateTemplateDrawer.tsx:852
+#: src/components/templates/CreateTemplateDrawer.tsx:897
 msgid "This is the ID that will be used as the utm_content parameter in the links URL to track the template"
 msgstr "Αυτό είναι το αναγνωριστικό που θα χρησιμοποιηθεί ως παράμετρος utm_content στη διεύθυνση URL των συνδέσμων για την παρακολούθηση του προτύπου"
 
@@ -13742,11 +13742,11 @@ msgstr "Αυτό είναι το αναγνωριστικό που θα χρησ
 msgid "This is where delivery statistics live, not under Broadcasts: a key that may create and send a broadcast still cannot read its open, click or bounce numbers without Message History read. The log carries recipient addresses and the rendered message data, so it is contact data by another name."
 msgstr ""
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1265
+#: src/components/templates/CreateTemplateDrawer.tsx:1310
 msgid "This is your content structure tree. You can drag and drop blocks to reorganize your email layout. Click the + buttons to add new blocks, or drag blocks from one section to another."
 msgstr ""
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1272
+#: src/components/templates/CreateTemplateDrawer.tsx:1317
 msgid "This is your visual email editor. Click on any element in your email to select it. Selected elements will be highlighted with a blue border and show editing options."
 msgstr ""
 
@@ -14102,7 +14102,7 @@ msgstr "Σήμερα"
 msgid "TODO"
 msgstr "TODO"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1293
+#: src/components/templates/CreateTemplateDrawer.tsx:1338
 msgid "Toggle between mobile and desktop views to see how your email appears on different devices. Mobile view shows a 400px width while desktop shows the full width."
 msgstr ""
 
@@ -14698,11 +14698,11 @@ msgstr "Χρησιμοποιήστε το όνομα της γραμματοσε
 msgid "Use the save button in the block toolbar to save blocks"
 msgstr "Χρησιμοποιήστε το κουμπί αποθήκευσης στη γραμμή εργαλείων μπλοκ για να αποθηκεύσετε μπλοκ"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1300
+#: src/components/templates/CreateTemplateDrawer.tsx:1345
 msgid "Use the Template Data tab to define dynamic content for your emails. Add variables like {{ name }} or {{ company }} in your email content, then define their values here. The Liquid templating engine supports conditionals, loops, and filters for powerful personalization."
 msgstr ""
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1308
+#: src/components/templates/CreateTemplateDrawer.tsx:1353
 msgid "Use this button to import saved email templates or export your finished emails. You can import JSON/MJML templates or export as HTML, MJML, or JSON for future use."
 msgstr ""
 
@@ -14971,11 +14971,11 @@ msgstr "Τοποθεσίες επισκεπτών"
 msgid "Visitors are being tracked by more than one SDK version ({0} alongside {newest}). A cached copy of the tracking snippet is probably still being served."
 msgstr ""
 
-#: src/components/templates/CreateTemplateDrawer.tsx:932
+#: src/components/templates/CreateTemplateDrawer.tsx:977
 msgid "Visual"
 msgstr "Οπτικό"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1270
+#: src/components/templates/CreateTemplateDrawer.tsx:1315
 msgid "Visual Email Editor"
 msgstr "Visual Email Editor"
 
@@ -15174,7 +15174,7 @@ msgstr "Βάρος"
 msgid "Welcome"
 msgstr "Καλώς ήρθατε"
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1257
+#: src/components/templates/CreateTemplateDrawer.tsx:1302
 msgid "Welcome to Email Builder!"
 msgstr "Καλώς ήρθατε στο Email Builder!"
 
@@ -15239,7 +15239,7 @@ msgstr "Όταν ταιριάζουν, εκτελέστε αυτές τις λε
 msgid "When off (recommended), only already-invited users can sign in via SSO. When on, a verified email in an allowed domain creates an account automatically."
 msgstr ""
 
-#: src/components/templates/CreateTemplateDrawer.tsx:1279
+#: src/components/templates/CreateTemplateDrawer.tsx:1324
 msgid "When you select a block, its settings appear here. Modify colors, text, spacing, alignment, and other properties to customize your email design."
 msgstr ""
 

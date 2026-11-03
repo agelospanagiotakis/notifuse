@@ -29,7 +29,38 @@ import { kebabCase } from 'lodash'
 import IphoneEmailPreview from './PhonePreview'
 import defaultTemplateData from './email-template.json'
 import { StartFromPicker } from './StartFromPicker'
-import type { TemplateStarter } from './starters'
+import { TEMPLATE_STARTERS, type TemplateStarter } from './starters'
+
+/**
+ * The starter this workspace used last, remembered in the browser.
+ *
+ * The product decision was that a shop sending two kinds of campaign should not click past four
+ * designs every time. A server-side workspace setting would be the durable form; this is the
+ * cheap one that needs no migration, and it degrades to "no selection" rather than to an error.
+ */
+const starterMemoryKey = (workspaceId: string) => `notifuse.templateStarter.${workspaceId}`
+
+/**
+ * Reads the remembered starter for a workspace, or undefined when there is none — or when the
+ * starter has since been removed from the gallery.
+ */
+function rememberedStarter(workspaceId: string): TemplateStarter | undefined {
+  try {
+    const id = localStorage.getItem(starterMemoryKey(workspaceId))
+    return TEMPLATE_STARTERS.find((s) => s.id === id)
+  } catch {
+    return undefined
+  }
+}
+
+function rememberStarter(workspaceId: string, starterId: string) {
+  try {
+    if (starterId) localStorage.setItem(starterMemoryKey(workspaceId), starterId)
+    else localStorage.removeItem(starterMemoryKey(workspaceId))
+  } catch {
+    // A browser with storage disabled simply has no memory; it must not break the drawer.
+  }
+}
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faQuestion } from '@fortawesome/free-solid-svg-icons'
 import { Tour } from 'antd'
@@ -517,7 +548,20 @@ export function CreateTemplateDrawer({
         }
       }
     }
-    setStarterId('')
+    // A new template opens on the workspace's remembered design, so the common case is one
+    // click. Only when creating: reopening an existing template must show what it holds.
+    let appliedRememberedId = ''
+    if (!template && !fromTemplate) {
+      const remembered = rememberedStarter(workspace.id)
+      if (remembered) {
+        setVisualEditorTree(JSON.parse(JSON.stringify(remembered.tree)) as EmailBlock)
+        appliedRememberedId = remembered.id
+        if (!forceCategory) {
+          form.setFieldsValue({ category: remembered.category })
+        }
+      }
+    }
+    setStarterId(appliedRememberedId)
     setIsOpen(true)
 
     // Calculate EmailBuilder height after drawer opens
@@ -556,6 +600,7 @@ export function CreateTemplateDrawer({
   const handlePickStarter = (starter: TemplateStarter | null) => {
     dirtyRef.current = true
     setStarterId(starter ? starter.id : '')
+    rememberStarter(workspace.id, starter ? starter.id : '')
     if (!starter) {
       setVisualEditorTree(createDefaultBlocks())
       return

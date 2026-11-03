@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192" role="img" aria-label="e-Pragma newsletters">
+  <!--
+    The square e-Pragma mark as a vector: the same rounded tile and notification dot as the
+    192 px app icon (branding/android-chrome-192x192.png), redrawn so it scales to any size and
+    can follow dark mode. Colours are the brand's own, taken from the wordmark SVG:
+    ink #42495B, notification dot #E91E63.
+  -->
+  <style>
+    .tile { fill: #42495B; }
+    .dot { fill: #E91E63; }
+    @media (prefers-color-scheme: dark) {
+      .tile { fill: #5A637A; }
+    }
+  </style>
+  <rect class="tile" x="8" y="8" width="176" height="176" rx="44" ry="44" />
+  <circle class="dot" cx="160" cy="40" r="28" />
+</svg>

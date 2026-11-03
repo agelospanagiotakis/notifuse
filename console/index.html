@@ -1,18 +1,36 @@
 <!doctype html>
-<html lang="en">
+<!-- The console, localised: this deployment's UI and content are Greek. -->
+<html lang="el">
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="robots" content="noindex">
-  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
-  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
-  <link rel="manifest" href="/site.webmanifest" />
-  <link rel="mask-icon" href="/safari-pinned-tab.svg" color="#5bbad5" />
-  <meta name="msapplication-TileColor" content="#da532c" />
-  <meta name="theme-color" content="#ffffff" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Console | Notifuse</title>
+
+  <!--
+    noindex is deliberate, not an oversight. This is an authenticated console served to a
+    handful of people; indexing it would publish a login page as the site's search result and
+    offer a thin, duplicate-content URL for crawlers to pick up. The pages that should rank are
+    the public campaign archive (/archive/<workspace>/) and the client's own site.
+    Everything else in this head is here so that the page is still a complete, valid document
+    when it is shared, previewed or audited.
+  -->
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="description" content="Η πλατφόρμα newsletter της e-Pragma: δημιουργία, αποστολή και δημόσιο αρχείο καμπανιών, με έλεγχο παράδοσης και ελληνικά κείμενα." />
+
+  <!-- The console answers on /console; / redirects here with a 307. Canonical names the real one. -->
+  <link rel="canonical" href="https://newsletters.e-pragma.gr/console" />
+
+  <!-- Icons. Absolute /console/ paths: this shell is served from /console and the SPA can be
+       opened at any depth under it, so a root-relative or document-relative path would 404. -->
+  <link rel="icon" type="image/svg+xml" href="/console/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/console/favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/console/favicon-16x16.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/console/apple-touch-icon.png" />
+  <link rel="manifest" href="/console/site.webmanifest" />
+  <meta name="theme-color" content="#ffffff" />
+  <meta name="msapplication-TileColor" content="#da532c" />
+
+  <title>e-Pragma newsletters</title>
   <style>
     body {
       margin: 0;
@@ -68,9 +86,10 @@
   </script>
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="e-Pragma newsletters" />
+    <meta property="og:locale" content="el_GR" />
     <meta property="og:title" content="e-Pragma newsletters" />
-    <meta property="og:description" content="Newsletters built, sent and archived on our own platform." />
-    <meta property="og:url" content="https://newsletters.e-pragma.gr/" />
+    <meta property="og:description" content="Η πλατφόρμα newsletter της e-Pragma: δημιουργία, αποστολή και δημόσιο αρχείο καμπανιών, με έλεγχο παράδοσης και ελληνικά κείμενα." />
+    <meta property="og:url" content="https://newsletters.e-pragma.gr/console" />
     <!-- The console is served under /console, so the image is placed under it too. Pointing at
          /og-image.png looked tidier and was wrong: no root-level handler serves that path, so
          the request fell through to the /console redirect and answered a 3.7 KB HTML document
@@ -78,8 +97,35 @@
     <meta property="og:image" content="https://newsletters.e-pragma.gr/console/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="e-Pragma newsletters — λογότυπο και τίτλος" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="e-Pragma newsletters" />
+    <meta name="twitter:description" content="Η πλατφόρμα newsletter της e-Pragma: δημιουργία, αποστολή και δημόσιο αρχείο καμπανιών." />
     <meta name="twitter:image" content="https://newsletters.e-pragma.gr/console/og-image.png" />
+    <meta name="twitter:image:alt" content="e-Pragma newsletters — λογότυπο και τίτλος" />
+    <!-- No twitter:site: this account has no X handle, and pointing at a guessed one attributes
+         the card to a stranger. Add it here the day there is one. -->
+
+    <!-- Structured data: what the service is, who publishes it, in what language. Valid even on
+         a noindex page — link unfurlers and other machines read it — and it costs one request:
+         the application itself is client-rendered, so nothing here invents page content. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "e-Pragma newsletters",
+        "url": "https://newsletters.e-pragma.gr/console",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Web",
+        "inLanguage": "el",
+        "description": "Η πλατφόρμα newsletter της e-Pragma: δημιουργία, αποστολή και δημόσιο αρχείο καμπανιών, με έλεγχο παράδοσης και ελληνικά κείμενα.",
+        "publisher": {
+          "@type": "Organization",
+          "name": "e-Pragma",
+          "url": "https://www.e-pragma.gr"
+        }
+      }
+    </script>
   </head>
 
 <body>
