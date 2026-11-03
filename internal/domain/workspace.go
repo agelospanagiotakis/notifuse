@@ -740,6 +740,24 @@ func ValidateNewWorkspaceID(id string) error {
 	return nil
 }
 
+// NormalizeWorkspaceIDReplica reduces an arbitrary string to the shape a workspace id may
+// legally take: lowercase alphanumerics only.
+//
+// A provider webhook is a URL registered with the provider that cannot always be corrected
+// from here: the address carries a workspace_id, and a callback may carry the workspace NAME
+// ("kois-optics") where the id is "koisoptics". Accepting the replica as a fallback, only
+// after the exact id has failed to resolve, turns those events back on. It is a migration
+// shim, not a second identifier.
+func NormalizeWorkspaceIDReplica(raw string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(raw) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // Validate performs validation on the workspace fields
 func (w *Workspace) Validate(passphrase string) error {
 	if err := validateWorkspaceID(w.ID); err != nil {
