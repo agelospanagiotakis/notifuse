@@ -482,6 +482,20 @@ export interface SetUserPermissionsResponse {
   message: string
 }
 
+// A password reset carries no password in the request: the server generates one and returns it
+// once. `must_change_password` is what the SERVER already enforced, echoed back so the UI never
+// has to describe the gate from its own assumption.
+export interface SetUserPasswordRequest {
+  workspace_id: string
+  user_id: string
+}
+
+export interface SetUserPasswordResponse {
+  status: string
+  password: string
+  must_change_password: boolean
+}
+
 export interface SetCustomFieldLabelsRequest {
   workspace_id: string
   custom_field_labels: Record<string, string>
@@ -615,6 +629,9 @@ export const workspaceService = {
 
   setUserPermissions: (data: SetUserPermissionsRequest) =>
     api.post<SetUserPermissionsResponse>('/api/workspaces.setUserPermissions', data),
+
+  setUserPassword: (data: SetUserPasswordRequest) =>
+    api.post<SetUserPasswordResponse>('/api/workspaces.setUserPassword', data),
 
   setCustomFieldLabels: (data: SetCustomFieldLabelsRequest) =>
     api.post<SetCustomFieldLabelsResponse>('/api/workspaces.setCustomFieldLabels', data),

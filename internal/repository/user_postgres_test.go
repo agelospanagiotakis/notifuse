@@ -133,10 +133,10 @@ func TestGetUserByEmail(t *testing.T) {
 		UpdatedAt: time.Now().UTC().Truncate(time.Second),
 	}
 
-	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "type", "language", "created_at", "updated_at"}).
-		AddRow(expectedUser.ID, expectedUser.Email, expectedUser.Name, "", expectedUser.Type, expectedUser.Language, expectedUser.CreatedAt, expectedUser.UpdatedAt)
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "must_change_password", "type", "language", "created_at", "updated_at"}).
+		AddRow(expectedUser.ID, expectedUser.Email, expectedUser.Name, "", false, expectedUser.Type, expectedUser.Language, expectedUser.CreatedAt, expectedUser.UpdatedAt)
 
-	mock.ExpectQuery(`SELECT id, email, name, COALESCE\(password_hash, ''\), type, language, created_at, updated_at FROM users WHERE email = \$1`).
+	mock.ExpectQuery(`SELECT id, email, name, COALESCE\(password_hash, ''\), must_change_password, type, language, created_at, updated_at FROM users WHERE email = \$1`).
 		WithArgs(email).
 		WillReturnRows(rows)
 
@@ -149,7 +149,7 @@ func TestGetUserByEmail(t *testing.T) {
 	assert.Equal(t, expectedUser.Language, user.Language)
 
 	// Test case 2: User not found
-	mock.ExpectQuery(`SELECT id, email, name, COALESCE\(password_hash, ''\), type, language, created_at, updated_at FROM users WHERE email = \$1`).
+	mock.ExpectQuery(`SELECT id, email, name, COALESCE\(password_hash, ''\), must_change_password, type, language, created_at, updated_at FROM users WHERE email = \$1`).
 		WithArgs("nonexistent@example.com").
 		WillReturnError(sql.ErrNoRows)
 
@@ -187,10 +187,10 @@ func TestGetUserByID(t *testing.T) {
 		UpdatedAt: time.Now().UTC().Truncate(time.Second),
 	}
 
-	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "type", "language", "created_at", "updated_at"}).
-		AddRow(expectedUser.ID, expectedUser.Email, expectedUser.Name, "", expectedUser.Type, expectedUser.Language, expectedUser.CreatedAt, expectedUser.UpdatedAt)
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "must_change_password", "type", "language", "created_at", "updated_at"}).
+		AddRow(expectedUser.ID, expectedUser.Email, expectedUser.Name, "", false, expectedUser.Type, expectedUser.Language, expectedUser.CreatedAt, expectedUser.UpdatedAt)
 
-	mock.ExpectQuery(`SELECT id, email, name, COALESCE\(password_hash, ''\), type, language, created_at, updated_at FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, email, name, COALESCE\(password_hash, ''\), must_change_password, type, language, created_at, updated_at FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(rows)
 
@@ -203,7 +203,7 @@ func TestGetUserByID(t *testing.T) {
 	assert.Equal(t, expectedUser.Language, user.Language)
 
 	// Test case 2: User not found
-	mock.ExpectQuery(`SELECT id, email, name, COALESCE\(password_hash, ''\), type, language, created_at, updated_at FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, email, name, COALESCE\(password_hash, ''\), must_change_password, type, language, created_at, updated_at FROM users WHERE id = \$1`).
 		WithArgs("nonexistent-id").
 		WillReturnError(sql.ErrNoRows)
 

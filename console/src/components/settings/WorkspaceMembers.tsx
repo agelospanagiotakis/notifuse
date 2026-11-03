@@ -13,11 +13,12 @@ import {
   Space,
   Popconfirm,
   Tooltip,
-  Popover
+  Popover,
+  Modal
 } from 'antd'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faTrashCan } from '@fortawesome/free-regular-svg-icons'
-import { faRefresh, faUserCog } from '@fortawesome/free-solid-svg-icons'
+import { faKey, faRefresh, faUserCog } from '@fortawesome/free-solid-svg-icons'
 import { useLingui } from '@lingui/react/macro'
 import { WorkspaceMember, UserPermissions, StoredPermissions } from '../../services/api/types'
 import { workspaceService } from '../../services/api/workspace'
@@ -98,6 +99,12 @@ export function WorkspaceMembers({
   // Permissions drawer states
   const [permissionsDrawerOpen, setPermissionsDrawerOpen] = useState(false)
   const [editingMember, setEditingMember] = useState<WorkspaceMember | null>(null)
+
+  // Password reset states. The generated password is held here only long enough to show it:
+  // closing the modal drops it, and the server has no way to hand it over again.
+  const [resetTarget, setResetTarget] = useState<WorkspaceMember | null>(null)
+  const [generatedPassword, setGeneratedPassword] = useState('')
+  const [resettingPassword, setResettingPassword] = useState(false)
 
   const columns = [
     {
@@ -210,6 +217,18 @@ export function WorkspaceMembers({
                         size="small"
                         type="text"
                         onClick={() => handleEditPermissions(record)}
+                      />
+                    </Tooltip>
+                  )}
+                  {/* An API key authenticates with a token and has no password to reset; the
+                      server refuses it too, so offering the button would be a dead end. */}
+                  {!isInvitation && record.type !== 'api_key' && (
+                    <Tooltip title={t`Reset password`} placement="left">
+                      <Button
+                        icon={<FontAwesomeIcon icon={faKey} />}
+                        size="small"
+                        type="text"
+                        onClick={() => setResetTarget(record)}
                       />
                     </Tooltip>
                   )}
@@ -422,6 +441,36 @@ export function WorkspaceMembers({
     }
   }
 
+  const closePasswordReset = () => {
+    setResetTarget(null)
+    // Dropping the password here is the only cleanup that matters: it is not stored anywhere,
+    // so once this state is gone the value exists only wherever it was pasted.
+    setGeneratedPassword('')
+  }
+
+  const handleResetPassword = async () => {
+    if (!resetTarget) return
+
+    setResettingPassword(true)
+    try {
+      const response = await workspaceService.setUserPassword({
+        workspace_id: workspaceId,
+        user_id: resetTarget.user_id
+      })
+      setGeneratedPassword(response.password)
+    } catch (error) {
+      // The server's own sentence where there is one: "that user is not a member of this
+      // workspace" and "cannot reset the password of a platform administrator" are both
+      // actionable and neither is guessable from a generic failure message.
+      const msg =
+        error instanceof Error && error.message ? error.message : t`Failed to reset password`
+      message.error(msg)
+      setResetTarget(null)
+    } finally {
+      setResettingPassword(false)
+    }
+  }
+
   const handleEditPermissions = (member: WorkspaceMember) => {
     setEditingMember(member)
     setPermissionsDrawerOpen(true)
@@ -595,6 +644,66 @@ export function WorkspaceMembers({
           </>
         )}
       </Drawer>
+
+      {/* A modal, not a drawer: this is one decision and one value, and it must be dismissible
+          in a single gesture so the password does not linger on a shared screen. */}
+      <Modal
+        title={generatedPassword ? t`New password` : t`Reset password`}
+        open={resetTarget !== null}
+        onCancel={closePasswordReset}
+        destroyOnHidden
+        footer={
+          generatedPassword ? (
+            <Button type="primary" onClick={closePasswordReset}>
+              {t`Close`}
+            </Button>
+          ) : (
+            <Space>
+              <Button onClick={closePasswordReset}>{t`Cancel`}</Button>
+              <Button
+                type="primary"
+                danger
+                loading={resettingPassword}
+                onClick={handleResetPassword}
+              >
+                {t`Reset password`}
+              </Button>
+            </Space>
+          )
+        }
+      >
+        {generatedPassword ? (
+          <>
+            <Alert
+              title={t`The password was changed`}
+              description={t`This password is shown once and cannot be retrieved again. Tell ${resetTarget?.email ?? ''} out of band; they are signed out everywhere and must choose a new password before they can use the console.`}
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+            <Form layout="vertical">
+              <Form.Item label={t`Generated password`}>
+                <Input.Password
+                  value={generatedPassword}
+                  readOnly
+                  visibilityToggle
+                  style={{ fontFamily: 'monospace' }}
+                />
+              </Form.Item>
+            </Form>
+          </>
+        ) : (
+          <>
+            <Alert
+              title={t`This signs them out immediately`}
+              description={t`A new password is generated for ${resetTarget?.email ?? ''}, every session they have open is closed, and they must replace the password before they can use the console again.`}
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+          </>
+        )}
+      </Modal>
 
       <EditPermissionsDrawer
         open={permissionsDrawerOpen}

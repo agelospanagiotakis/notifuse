@@ -16,6 +16,7 @@ import (
 	"github.com/Notifuse/notifuse/pkg/mailer"
 	"github.com/asaskevich/govalidator"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type WorkspaceService struct {
@@ -981,6 +982,134 @@ func (s *WorkspaceService) SetUserPermissions(ctx context.Context, workspaceID, 
 	}
 
 	return nil
+}
+
+// passwordAlphabet omits the characters people transcribe wrongly: 0/O, 1/l/I, 5/S and 2/Z.
+// An administrator-issued password is copied off a screen by hand, often over a phone call,
+// and the only thing a rich alphabet buys is transcription errors.
+const passwordAlphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ346789"
+
+// generatePassword returns a crypto/rand password of the given length. 52 characters drawn
+// uniformly give ~5.7 bits per character, so 20 characters is ~114 bits — far beyond the
+// ~40 a bcrypt-12 hash can be attacked at, and comfortably inside the 8..128 the password
+// policy accepts.
+func generatePassword(length int) (string, error) {
+	out := make([]byte, length)
+	// Read one extra byte per character and reject the values that would bias the modulo:
+	// 256 % 52 != 0, so a plain modulo would favour the first 48 characters of the alphabet.
+	// Rejection sampling keeps the draw uniform.
+	alphabetLen := len(passwordAlphabet)
+	maxUnbiased := 256 - (256 % alphabetLen)
+	buf := make([]byte, length*2)
+	filled := 0
+	for filled < length {
+		if _, err := rand.Read(buf); err != nil {
+			return "", fmt.Errorf("failed to read random bytes: %w", err)
+		}
+		for _, b := range buf {
+			if int(b) >= maxUnbiased {
+				continue
+			}
+			out[filled] = passwordAlphabet[int(b)%alphabetLen]
+			filled++
+			if filled == length {
+				break
+			}
+		}
+	}
+	return string(out), nil
+}
+
+// SetUserPassword issues a new password for a member of a workspace and returns it once.
+//
+// The authorization is deliberately NOT "is the caller an owner somewhere". The caller must
+// be an owner of the workspace named in the request (AuthenticateUserForWorkspace synthesizes
+// that for a configured ROOT_EMAIL), and the target must be a member of that same workspace —
+// otherwise an owner of workspace A could reset the password of a member of workspace B,
+// which is an account takeover across a tenancy boundary. The target's own password, once
+// issued, is useless until they change it: must_change_password blocks every route but
+// /api/user.setPassword, and every session the target held is deleted here.
+//
+// Refusals: a platform administrator's password (reset it out of band, on the host), an API
+// key (it authenticates by token; a password would be a second, unused credential), and the
+// caller themselves (they have /api/user.setPassword, and an owner who forces the flag onto
+// their own account locks themselves out of the console that would clear it).
+func (s *WorkspaceService) SetUserPassword(ctx context.Context, req domain.SetUserPasswordRequest) (*domain.SetUserPasswordResponse, error) {
+	ctx, _, callerWorkspace, err := s.authService.AuthenticateUserForWorkspace(ctx, req.WorkspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to authenticate user: %w", err)
+	}
+	if callerWorkspace.Role != "owner" {
+		return nil, &domain.ErrUnauthorized{Message: "only workspace owners can reset a member's password"}
+	}
+
+	target, err := s.userRepo.GetUserByID(ctx, req.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := s.repo.GetUserWorkspace(ctx, req.UserID, req.WorkspaceID); err != nil {
+		s.logger.WithField("workspace_id", req.WorkspaceID).
+			WithField("actor_id", callerWorkspace.UserID).
+			WithField("target_id", req.UserID).
+			Warn("Refused password reset for a user outside the workspace")
+		return nil, &domain.ErrUnauthorized{Message: "that user is not a member of this workspace"}
+	}
+
+	// A root target is refused even for a root caller, and even when the membership check
+	// above passed: a platform administrator reaches every workspace, so any owner of any
+	// workspace would otherwise be able to reset one. The check is on the ADDRESS, which is
+	// what config knows — the same key the synthesized-owner path uses.
+	if s.config != nil && s.config.IsRootEmail(target.Email) {
+		s.logger.WithField("workspace_id", req.WorkspaceID).
+			WithField("actor_id", callerWorkspace.UserID).
+			WithField("target_id", target.ID).
+			Warn("Refused password reset for a platform administrator")
+		return nil, &domain.ErrUnauthorized{Message: "cannot reset the password of a platform administrator"}
+	}
+
+	if target.ID == callerWorkspace.UserID {
+		return nil, &domain.ErrUnauthorized{Message: "use your own account settings to change your own password"}
+	}
+
+	if target.Type == domain.UserTypeAPIKey {
+		return nil, &domain.ErrUnauthorized{Message: "API keys authenticate with a token and have no password"}
+	}
+
+	password, err := generatePassword(20)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate password: %w", err)
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hash password: %w", err)
+	}
+	if err := s.userRepo.UpdatePasswordHash(ctx, target.ID, string(hash)); err != nil {
+		return nil, fmt.Errorf("failed to store password: %w", err)
+	}
+	if err := s.userRepo.SetMustChangePassword(ctx, target.ID, true); err != nil {
+		// The hash is already stored, so this failure leaves the account with a password
+		// nobody knows and no flag forcing a change. Failing loudly is the only way to make
+		// that visible; the operator can issue a second reset, which overwrites the hash.
+		return nil, fmt.Errorf("failed to require a password change: %w", err)
+	}
+	// Every session the target holds is deleted. A stolen token is the whole reason an
+	// administrator resets a password, and a reset that leaves the attacker signed in has
+	// accomplished nothing but a password the victim will change.
+	if err := s.userRepo.DeleteAllSessionsByUserID(ctx, target.ID); err != nil {
+		s.logger.WithField("target_id", target.ID).WithField("error", err.Error()).
+			Warn("Failed to invalidate sessions after a password reset")
+	}
+
+	// The audit line. Fields rather than interpolated text so the three facts stay machine
+	// readable in the log pipeline: who did it, to whom, and when.
+	s.logger.WithField("workspace_id", req.WorkspaceID).
+		WithField("actor_id", callerWorkspace.UserID).
+		WithField("target_id", target.ID).
+		WithField("at", time.Now().UTC().Format(time.RFC3339)).
+		Info("Password reset issued by administrator")
+
+	return &domain.SetUserPasswordResponse{Password: password, MustChangePassword: true}, nil
 }
 
 // SetCustomFieldLabels updates the custom field display labels for a workspace.

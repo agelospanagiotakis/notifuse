@@ -113,6 +113,28 @@ func (m *mockUserRepository) UpdatePasswordHash(ctx context.Context, userID stri
 	return nil
 }
 
+// SetMustChangePassword and GetMustChangePassword back the forced-change gate the middleware
+// consults. The hand-written mock only needs them to satisfy the interface; storing the flag
+// on the same in-memory user keeps it consistent with UpdatePasswordHash above.
+func (m *mockUserRepository) SetMustChangePassword(ctx context.Context, userID string, required bool) error {
+	for _, u := range m.users {
+		if u.ID == userID {
+			u.MustChangePassword = required
+			return nil
+		}
+	}
+	return nil
+}
+
+func (m *mockUserRepository) GetMustChangePassword(ctx context.Context, userID string) (bool, error) {
+	for _, u := range m.users {
+		if u.ID == userID {
+			return u.MustChangePassword, nil
+		}
+	}
+	return false, nil
+}
+
 func (m *mockUserRepository) GetUserByEmail(ctx context.Context, email string) (*domain.User, error) {
 	return nil, nil
 }

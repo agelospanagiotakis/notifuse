@@ -11,6 +11,10 @@ var TableDefinitions = []string{
 		email VARCHAR(255) UNIQUE NOT NULL,
 		name VARCHAR(255),
 		password_hash VARCHAR(255),  -- bcrypt; NULL/empty means magic-code only
+		-- Set when an administrator issues a password. While TRUE the auth middleware
+		-- refuses every route but /api/user.setPassword, so an issued password cannot
+		-- become the account's standing password. Cleared by UserService.SetPassword.
+		must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
 		language VARCHAR(10) NOT NULL DEFAULT 'en',
 		created_at TIMESTAMP NOT NULL,
 		updated_at TIMESTAMP NOT NULL
@@ -134,6 +138,14 @@ var MigrationStatements = []string{
 	// V27: Add recurring_interval and integration_id columns to tasks
 	// V41: optional password authentication alongside magic codes.
 	`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)`,
+	// Administrator-issued password reset. A lazy ADD COLUMN rather than a numbered migration
+	// on purpose: internal/migrations is pinned at v40, the highest upstream version, and a
+	// fork that numbers its own migrations from v41 collides the first time upstream ships a
+	// v41 of its own — the registry would treat ours as already applied, or replay theirs over
+	// ours. ADD COLUMN IF NOT EXISTS is idempotent, runs on every boot through
+	// RunMigrationStatements, and needs no version bookkeeping to stay correct. password_hash
+	// itself took this same path.
+	`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE`,
 	`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recurring_interval INTEGER`,
 	`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS integration_id VARCHAR(36)`,
 	`CREATE INDEX IF NOT EXISTS idx_tasks_integration_id ON tasks (integration_id) WHERE integration_id IS NOT NULL`,

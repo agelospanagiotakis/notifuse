@@ -80,6 +80,11 @@ func (h *WorkspaceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/workspaces.removeMember", restrictedInDemo(requireAuth(http.HandlerFunc(h.handleRemoveMember))))
 	mux.Handle("/api/workspaces.deleteInvitation", restrictedInDemo(requireAuth(http.HandlerFunc(h.handleDeleteInvitation))))
 	mux.Handle("/api/workspaces.setUserPermissions", restrictedInDemo(requireAuth(http.HandlerFunc(h.handleSetUserPermissions))))
+	// The request sketched this as /api/workspace.users.setPassword; every workspace route in
+	// this fork is /api/workspaces.<verb>, and a second spelling would be the only
+	// inconsistency in the family. Closing it on the demo instance matters even more than for
+	// the other writes: it hands out a working sign-in credential to whoever asks.
+	mux.Handle("/api/workspaces.setUserPassword", restrictedInDemo(requireAuth(http.HandlerFunc(h.handleSetUserPassword))))
 	mux.Handle("/api/workspaces.setCustomFieldLabels", restrictedInDemo(requireAuth(http.HandlerFunc(h.handleSetCustomFieldLabels))))
 	mux.Handle("/api/workspaces.setBlogSettings", restrictedInDemo(requireAuth(http.HandlerFunc(h.handleSetBlogSettings))))
 	mux.Handle("/api/workspaces.setWebAnalyticsSettings", restrictedInDemo(requireAuth(http.HandlerFunc(h.handleSetWebAnalyticsSettings))))
@@ -417,6 +422,55 @@ func (h *WorkspaceHandler) handleSetUserPermissions(w http.ResponseWriter, r *ht
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "success",
 		"message": "User permissions updated successfully",
+	})
+}
+
+// handleSetUserPassword issues a new password for one member of a workspace.
+//
+// The generated password appears in this response and nowhere else: it is never written to a
+// log line, never stored in plaintext, and a second call produces a different one. The console
+// is expected to show it once and tell the holder to replace it, which the server has already
+// enforced — the account is blocked on every route but /api/user.setPassword until it does.
+func (h *WorkspaceHandler) handleSetUserPassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		WriteJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req domain.SetUserPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteJSONError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := req.Validate(); err != nil {
+		WriteJSONError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	resp, err := h.workspaceService.SetUserPassword(r.Context(), req)
+	if err != nil {
+		// A missing target is a 404 before the generic handler can collapse it to a 500: the
+		// caller named a user id that is not there, which is the caller's mistake to see.
+		var notFound *domain.ErrUserNotFound
+		if errors.As(err, &notFound) {
+			WriteJSONError(w, "User not found", http.StatusNotFound)
+			return
+		}
+		if writeServiceError(w, err, "Only workspace owners can reset a member's password") {
+			return
+		}
+		// The error is logged WITHOUT the request body: it carries no secret today, and this
+		// is the line that has to stay true if one is ever added.
+		h.logger.WithField("workspace_id", req.WorkspaceID).WithField("target_user_id", req.UserID).
+			WithField("error", err.Error()).Error("Failed to reset user password")
+		WriteJSONError(w, "Failed to reset user password", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":               "success",
+		"password":             resp.Password,
+		"must_change_password": resp.MustChangePassword,
 	})
 }
 

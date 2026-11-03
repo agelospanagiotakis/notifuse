@@ -221,3 +221,32 @@ func (mr *MockUserRepositoryMockRecorder) UpdatePasswordHash(arg0, arg1, arg2 in
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePasswordHash", reflect.TypeOf((*MockUserRepository)(nil).UpdatePasswordHash), arg0, arg1, arg2)
 }
+
+// GetMustChangePassword mocks base method.
+func (m *MockUserRepository) GetMustChangePassword(arg0 context.Context, arg1 string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMustChangePassword", arg0, arg1)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMustChangePassword indicates an expected call of GetMustChangePassword.
+func (mr *MockUserRepositoryMockRecorder) GetMustChangePassword(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMustChangePassword", reflect.TypeOf((*MockUserRepository)(nil).GetMustChangePassword), arg0, arg1)
+}
+
+// SetMustChangePassword mocks base method.
+func (m *MockUserRepository) SetMustChangePassword(arg0 context.Context, arg1 string, arg2 bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetMustChangePassword", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetMustChangePassword indicates an expected call of SetMustChangePassword.
+func (mr *MockUserRepositoryMockRecorder) SetMustChangePassword(arg0, arg1, arg2 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetMustChangePassword", reflect.TypeOf((*MockUserRepository)(nil).SetMustChangePassword), arg0, arg1, arg2)
+}

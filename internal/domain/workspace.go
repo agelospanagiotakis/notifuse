@@ -1170,6 +1170,10 @@ type WorkspaceServiceInterface interface {
 	// Permission management
 	SetUserPermissions(ctx context.Context, workspaceID, userID string, permissions UserPermissions) error
 
+	// SetUserPassword issues a new password for a member of a workspace and returns it once.
+	// Only a platform admin or an owner of a workspace the target belongs to may call it.
+	SetUserPassword(ctx context.Context, req SetUserPasswordRequest) (*SetUserPasswordResponse, error)
+
 	// Custom field management
 	SetCustomFieldLabels(ctx context.Context, workspaceID string, labels map[string]string) error
 
@@ -1720,6 +1724,45 @@ type InviteMemberRequest struct {
 	WorkspaceID string          `json:"workspace_id"`
 	Email       string          `json:"email"`
 	Permissions UserPermissions `json:"permissions,omitempty"`
+}
+
+// SetUserPasswordRequest issues a new sign-in password for one member of a workspace.
+//
+// It carries no password: the server generates one and returns it once. A password that
+// never travels from the browser cannot be one the browser chose poorly, and the endpoint
+// then has exactly one secret to leak — the response — instead of two.
+type SetUserPasswordRequest struct {
+	WorkspaceID string `json:"workspace_id"`
+	UserID      string `json:"user_id"`
+}
+
+// Validate validates the reset request. It mirrors SetUserPermissionsRequest's workspace_id
+// rules on purpose: both name a workspace the same way, and a value that one accepts and the
+// other rejects would be a difference nobody could explain.
+func (r *SetUserPasswordRequest) Validate() error {
+	if r.WorkspaceID == "" {
+		return fmt.Errorf("workspace_id is required")
+	}
+	if !govalidator.IsAlphanumeric(r.WorkspaceID) {
+		return fmt.Errorf("workspace_id must be alphanumeric")
+	}
+	if len(r.WorkspaceID) > 32 {
+		return fmt.Errorf("workspace_id length must be between 1 and 32")
+	}
+	if r.UserID == "" {
+		return fmt.Errorf("user_id is required")
+	}
+	return nil
+}
+
+// SetUserPasswordResponse carries the generated password. It is returned exactly once, in
+// this response; nothing stores it and no second request can reproduce it.
+type SetUserPasswordResponse struct {
+	Password string `json:"password"`
+	// MustChangePassword tells the console what the platform already enforced on the server:
+	// the account is blocked from every route but /api/user.setPassword until the holder
+	// replaces this password. Reported rather than assumed, so the UI cannot claim otherwise.
+	MustChangePassword bool `json:"must_change_password"`
 }
 
 // SetUserPermissionsRequest defines the request structure for setting user permissions

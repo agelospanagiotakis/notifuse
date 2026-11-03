@@ -14,7 +14,8 @@ const api = vi.hoisted(() => ({
   setUserPermissions: vi.fn(),
   inviteMember: vi.fn(),
   removeMember: vi.fn(),
-  deleteInvitation: vi.fn()
+  deleteInvitation: vi.fn(),
+  setUserPassword: vi.fn()
 }))
 
 vi.mock('../../services/api/workspace', () => ({ workspaceService: api }))
@@ -26,6 +27,11 @@ beforeEach(() => {
   api.createAPIKey.mockResolvedValue({ token: 'tok', email: 'sender@api.example.com' })
   api.setUserPermissions.mockResolvedValue({ status: 'ok', message: '' })
   api.inviteMember.mockResolvedValue({ status: 'ok', message: '' })
+  api.setUserPassword.mockResolvedValue({
+    status: 'success',
+    password: 'AbcDefGhiJkmNpqRstUv',
+    must_change_password: true
+  })
   // Carries a trailing path segment so the normalisation is exercised, not just the host.
   window.API_ENDPOINT = 'https://api.example.com/'
 })
@@ -429,5 +435,74 @@ describe('invite member drawer', () => {
     for (const resource of ALL_PERMISSION_RESOURCES) {
       expect(drawer.querySelector(`tr[data-row-key="${resource}"]`)).not.toBeNull()
     }
+  })
+})
+
+// The reset control is only meaningful on a human member: an API key authenticates with a
+// token, and the server refuses a password for one.
+describe('WorkspaceMembers password reset', () => {
+  const KEY_ICON = '[data-icon="key"]'
+
+  const humanMember = (): WorkspaceMember => ({
+    ...apiKeyRow({ contacts: { read: true, write: false } }),
+    user_id: 'user-1',
+    email: 'member@example.com',
+    type: 'user'
+  })
+
+  it('offers the control on a human member and not on an API key', () => {
+    renderMembers([humanMember(), apiKeyRow({})])
+
+    expect(rowFor(humanMember()).querySelector(KEY_ICON)).not.toBeNull()
+    expect(rowFor(apiKeyRow({})).querySelector(KEY_ICON)).toBeNull()
+  })
+
+  it('generates the password server-side and shows it once', async () => {
+    const member = humanMember()
+    renderMembers([member])
+
+    fireEvent.click(rowFor(member).querySelector(KEY_ICON)!.closest('button') as HTMLButtonElement)
+
+    const dialog = await screen.findByRole('dialog', { name: 'Reset password' })
+    // Nothing can be requested before it is confirmed: the API mock proves the timing.
+    expect(api.setUserPassword).not.toHaveBeenCalled()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reset password' }))
+
+    await waitFor(() =>
+      expect(api.setUserPassword).toHaveBeenCalledWith({
+        workspace_id: 'ws1',
+        user_id: 'user-1'
+      })
+    )
+
+    // The request carries no password: the field in the request type is absent by design.
+    expect(Object.keys(api.setUserPassword.mock.calls[0][0])).toEqual(['workspace_id', 'user_id'])
+
+    // The value is on screen exactly once, in a read-only field the operator can copy.
+    const shown = (await screen.findByDisplayValue('AbcDefGhiJkmNpqRstUv')) as HTMLInputElement
+    expect(shown.readOnly).toBe(true)
+
+    // Closing drops the value: it is not stored anywhere, so reopening cannot show it again.
+    const liveDialog = await screen.findByRole('dialog')
+    const modalFooter = liveDialog.querySelector('.ant-modal-footer') as HTMLElement
+    fireEvent.click(within(modalFooter).getByRole('button', { name: 'Close' }))
+    await waitFor(() => expect(screen.queryByDisplayValue('AbcDefGhiJkmNpqRstUv')).toBeNull())
+  })
+
+  it('reports the refusal the server gave rather than a generic failure', async () => {
+    const member = humanMember()
+    api.setUserPassword.mockRejectedValueOnce(
+      new Error("cannot reset the password of a platform administrator")
+    )
+    renderMembers([member])
+
+    fireEvent.click(rowFor(member).querySelector(KEY_ICON)!.closest('button') as HTMLButtonElement)
+    const dialog = await screen.findByRole('dialog', { name: 'Reset password' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reset password' }))
+
+    expect(
+      await screen.findByText('cannot reset the password of a platform administrator')
+    ).not.toBeNull()
   })
 })

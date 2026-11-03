@@ -71,11 +71,15 @@
     <meta property="og:title" content="e-Pragma newsletters" />
     <meta property="og:description" content="Newsletters built, sent and archived on our own platform." />
     <meta property="og:url" content="https://newsletters.e-pragma.gr/" />
-    <meta property="og:image" content="https://newsletters.e-pragma.gr/og-image.png" />
+    <!-- The console is served under /console, so the image is placed under it too. Pointing at
+         /og-image.png looked tidier and was wrong: no root-level handler serves that path, so
+         the request fell through to the /console redirect and answered a 3.7 KB HTML document
+         where a 332 KB PNG was declared, and every link preview came back with no image. -->
+    <meta property="og:image" content="https://newsletters.e-pragma.gr/console/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="https://newsletters.e-pragma.gr/og-image.png" />
+    <meta name="twitter:image" content="https://newsletters.e-pragma.gr/console/og-image.png" />
   </head>
 
 <body>

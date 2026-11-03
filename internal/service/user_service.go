@@ -270,6 +270,13 @@ func (s *UserService) SetPassword(ctx context.Context, userID string, input doma
 		s.tracer.MarkSpanError(ctx, err)
 		return err
 	}
+	// A password the holder chose clears the forced-change gate. Without this the flag an
+	// administrator raised would outlive the very change it was waiting for, and the account
+	// would stay blocked on every route with no way out — the gate has no expiry by design.
+	if err := s.repo.SetMustChangePassword(ctx, userID, false); err != nil {
+		s.tracer.MarkSpanError(ctx, err)
+		return err
+	}
 	s.logger.WithField("user_id", userID).Info("Password updated")
 	return nil
 }

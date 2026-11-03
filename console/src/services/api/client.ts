@@ -6,6 +6,30 @@ export { ApiError } from './errors'
 import { ApiError, permissionDeniedMessage, permissionDenialFromBody } from './errors'
 import { licenseRefusalFromBody, licenseRefusedMessage } from './licenseErrors'
 
+// Reported by the server while must_change_password is set: the account may reach
+// /api/user.setPassword and nothing else. Must match middleware.PasswordChangeCode.
+const PASSWORD_CHANGE_REQUIRED = 'password_change_required'
+
+// One redirect per refusal, not one per request. A console page issues several calls at once,
+// and without this every one of them would push a history entry for the same destination.
+let passwordChangeRedirectIssued = false
+
+// sendToPasswordForm moves the user to the one screen that can clear the flag.
+//
+// The security section is a child of the workspace route, so the id is already in the address
+// bar whenever an authenticated page is on screen. It is read from there rather than fetched,
+// because fetching it is a request, and every request is refused.
+function sendToPasswordForm() {
+  if (passwordChangeRedirectIssued) return
+  const match = window.location.pathname.match(/^\/console\/workspace\/([^/]+)/)
+  if (!match) return
+  passwordChangeRedirectIssued = true
+  router.navigate({
+    to: '/console/workspace/$workspaceId/settings/$section',
+    params: { workspaceId: match[1], section: 'security' }
+  })
+}
+
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const errorData = await response.json().catch(() => null)
@@ -41,6 +65,14 @@ async function handleResponse<T>(response: Response): Promise<T> {
     // capability and the remedy, rather than passing the server's English prose through.
     const refusal = denial ? null : licenseRefusalFromBody(errorData)
 
+    // An administrator-issued password blocks every route until it is replaced, so sending the
+    // user to the sign-in screen would be a loop: their credential is valid, and signing in
+    // again produces another blocked session. The security section holds the one form the
+    // server still accepts, so that is where a refusal points.
+    if (errorData?.code === PASSWORD_CHANGE_REQUIRED) {
+      sendToPasswordForm()
+    }
+
     const message = denial
       ? permissionDeniedMessage(denial)
       : refusal
@@ -49,6 +81,9 @@ async function handleResponse<T>(response: Response): Promise<T> {
 
     throw new ApiError(message || 'An error occurred', response.status, errorData)
   }
+  // A success is proof the flag is clear (or was never set), so the next refusal is allowed to
+  // navigate again. Without this a second reset later in the same session would not be routed.
+  passwordChangeRedirectIssued = false
   return response.json()
 }
 

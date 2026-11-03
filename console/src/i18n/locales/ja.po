@@ -573,6 +573,11 @@ msgstr "一括操作がすでに実行中です"
 msgid "A count of past activity includes the event that fires the automation, so \"at least 3 opens\" enrolls on the third open."
 msgstr "過去のアクティビティのカウントには、オートメーションを起動するイベント自体も含まれます。そのため「開封3回以上」は3回目の開封で登録されます。"
 
+#. placeholder {0}: resetTarget?.email ?? ''
+#: src/components/settings/WorkspaceMembers.tsx:699
+msgid "A new password is generated for {0}, every session they have open is closed, and they must replace the password before they can use the console again."
+msgstr ""
+
 #: src/components/blog/ThemeEditorDrawer.tsx:459
 msgid "A newer draft was found in local storage. Would you like to restore it or discard it?"
 msgstr "ローカルストレージに新しい下書きが見つかりました。復元しますか、それとも破棄しますか?"
@@ -1257,7 +1262,7 @@ msgstr "APIキー"
 #: src/components/settings/Integrations.tsx:2168
 #: src/components/settings/Integrations.tsx:2169
 #: src/components/settings/Integrations.tsx:2190
-#: src/components/settings/WorkspaceMembers.tsx:119
+#: src/components/settings/WorkspaceMembers.tsx:126
 msgid "API Key"
 msgstr "APIキー"
 
@@ -1273,11 +1278,11 @@ msgstr "APIキーのアドレス"
 msgid "API key created"
 msgstr "APIキーを作成しました"
 
-#: src/components/settings/WorkspaceMembers.tsx:328
+#: src/components/settings/WorkspaceMembers.tsx:347
 msgid "API key created successfully"
 msgstr "APIキーを作成しました"
 
-#: src/components/settings/WorkspaceMembers.tsx:580
+#: src/components/settings/WorkspaceMembers.tsx:629
 msgid "API Key Created Successfully"
 msgstr "APIキーを作成しました"
 
@@ -1285,7 +1290,7 @@ msgstr "APIキーを作成しました"
 #~ msgid "API key name"
 #~ msgstr "APIキー名"
 
-#: src/components/settings/WorkspaceMembers.tsx:548
+#: src/components/settings/WorkspaceMembers.tsx:597
 msgid "API Key Name"
 msgstr "APIキー名"
 
@@ -1293,7 +1298,7 @@ msgstr "APIキー名"
 msgid "API key token"
 msgstr "APIキーのトークン"
 
-#: src/components/settings/WorkspaceMembers.tsx:587
+#: src/components/settings/WorkspaceMembers.tsx:636
 msgid "API Token"
 msgstr "APIトークン"
 
@@ -1347,7 +1352,7 @@ msgid "Are you sure you want to delete the category"
 msgstr "カテゴリを削除してもよろしいですか"
 
 #. placeholder {0}: record.email
-#: src/components/settings/WorkspaceMembers.tsx:239
+#: src/components/settings/WorkspaceMembers.tsx:258
 msgid "Are you sure you want to delete the invitation for {0}?"
 msgstr "{0}への招待を削除してもよろしいですか?"
 
@@ -1393,7 +1398,7 @@ msgstr "\"{0}\"を再構築しますか?セグメントのメンバーシップ�
 
 #. placeholder {0}: record.email
 #. placeholder {1}: record.type === 'api_key' ? ' This API key will be permanently deleted.' : ''
-#: src/components/settings/WorkspaceMembers.tsx:219
+#: src/components/settings/WorkspaceMembers.tsx:238
 msgid "Are you sure you want to remove {0}?{1}"
 msgstr "{0}を削除してもよろしいですか?{1}"
 
@@ -2308,8 +2313,9 @@ msgstr "キャンペーン"
 #: src/components/settings/WebhookCard.tsx:430
 #: src/components/settings/WebhookCard.tsx:450
 #: src/components/settings/WebhooksSettings.tsx:251
-#: src/components/settings/WorkspaceMembers.tsx:483
-#: src/components/settings/WorkspaceMembers.tsx:536
+#: src/components/settings/WorkspaceMembers.tsx:532
+#: src/components/settings/WorkspaceMembers.tsx:585
+#: src/components/settings/WorkspaceMembers.tsx:662
 #: src/components/templates/CreateTemplateDrawer.tsx:629
 #: src/components/templates/SendTemplateModal.tsx:268
 #: src/components/templates/TemplateTranslationsTab.tsx:276
@@ -2701,7 +2707,8 @@ msgstr "テンプレートを複製"
 #: src/components/contacts/BulkActionProgressModal.tsx:65
 #: src/components/contacts/ContactsCsvUploadDrawer.tsx:825
 #: src/components/settings/WebhookCard.tsx:447
-#: src/components/settings/WorkspaceMembers.tsx:532
+#: src/components/settings/WorkspaceMembers.tsx:581
+#: src/components/settings/WorkspaceMembers.tsx:658
 #: src/components/transactional/ApiCommandModal.tsx:990
 msgid "Close"
 msgstr "閉じる"
@@ -3429,9 +3436,9 @@ msgstr "このインテグレーション用のSESテナントを作成します
 msgid "Create and manage your blog content"
 msgstr "ブログコンテンツを作成・管理"
 
-#: src/components/settings/WorkspaceMembers.tsx:447
-#: src/components/settings/WorkspaceMembers.tsx:519
-#: src/components/settings/WorkspaceMembers.tsx:538
+#: src/components/settings/WorkspaceMembers.tsx:496
+#: src/components/settings/WorkspaceMembers.tsx:568
+#: src/components/settings/WorkspaceMembers.tsx:587
 msgid "Create API Key"
 msgstr "APIキーを作成"
 
@@ -4152,8 +4159,8 @@ msgstr "フォルダを削除（読み取り専用モード）"
 msgid "Delete header"
 msgstr "ヘッダーを削除"
 
-#: src/components/settings/WorkspaceMembers.tsx:238
-#: src/components/settings/WorkspaceMembers.tsx:245
+#: src/components/settings/WorkspaceMembers.tsx:257
+#: src/components/settings/WorkspaceMembers.tsx:264
 msgid "Delete invitation"
 msgstr "招待を削除"
 
@@ -4773,7 +4780,7 @@ msgstr "通知を編集"
 msgid "Edit Notification"
 msgstr "通知を編集"
 
-#: src/components/settings/WorkspaceMembers.tsx:207
+#: src/components/settings/WorkspaceMembers.tsx:214
 msgid "Edit permissions"
 msgstr "権限を編集"
 
@@ -4875,7 +4882,7 @@ msgstr "メール"
 #: src/components/email_builder/ui/tiptap/components/TiptapToolbar.tsx:338
 #: src/components/messages/MessageHistoryTab.tsx:217
 #: src/components/settings/Integrations.tsx:2776
-#: src/components/settings/WorkspaceMembers.tsx:104
+#: src/components/settings/WorkspaceMembers.tsx:111
 #: src/components/timeline/ContactTimeline.tsx:584
 #: src/pages/ContactsPage.tsx:369
 #: src/pages/ContactsPage.tsx:536
@@ -4890,7 +4897,7 @@ msgstr "メール（必須）"
 
 #: src/components/email_builder/ui/tiptap/components/TiptapToolbar.tsx:383
 #: src/components/settings/Integrations.tsx:1943
-#: src/components/settings/WorkspaceMembers.tsx:493
+#: src/components/settings/WorkspaceMembers.tsx:542
 msgid "Email Address"
 msgstr "メールアドレス"
 
@@ -5215,7 +5222,7 @@ msgid "Enter duration"
 msgstr "期間を入力"
 
 #: src/components/contacts/ContactUpsertDrawer.tsx:521
-#: src/components/settings/WorkspaceMembers.tsx:498
+#: src/components/settings/WorkspaceMembers.tsx:547
 msgid "Enter email address"
 msgstr "メールアドレスを入力"
 
@@ -5658,7 +5665,7 @@ msgstr "Zapierの接続に失敗しました"
 msgid "Failed to copy to clipboard"
 msgstr "クリップボードへのコピーに失敗しました"
 
-#: src/components/settings/WorkspaceMembers.tsx:334
+#: src/components/settings/WorkspaceMembers.tsx:353
 msgid "Failed to create API key"
 msgstr "APIキーの作成に失敗しました"
 
@@ -5738,7 +5745,7 @@ msgstr "ファイルの削除に失敗しました: "
 msgid "Failed to delete integration"
 msgstr "連携の削除に失敗しました"
 
-#: src/components/settings/WorkspaceMembers.tsx:385
+#: src/components/settings/WorkspaceMembers.tsx:404
 msgid "Failed to delete invitation"
 msgstr "招待の削除に失敗しました"
 
@@ -5840,7 +5847,7 @@ msgstr "テンプレートのインポートに失敗しました。ファイル
 msgid "Failed to install the licence key"
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:298
+#: src/components/settings/WorkspaceMembers.tsx:317
 msgid "Failed to invite member"
 msgstr "メンバーの招待に失敗しました"
 
@@ -5916,7 +5923,7 @@ msgstr "Webhookの登録に失敗しました"
 msgid "Failed to remove custom field label"
 msgstr "カスタムフィールドラベルの削除に失敗しました"
 
-#: src/components/settings/WorkspaceMembers.tsx:366
+#: src/components/settings/WorkspaceMembers.tsx:385
 msgid "Failed to remove member"
 msgstr "メンバーの削除に失敗しました"
 
@@ -5924,13 +5931,17 @@ msgstr "メンバーの削除に失敗しました"
 msgid "Failed to render preview"
 msgstr "プレビューのレンダリングに失敗しました"
 
-#: src/components/settings/WorkspaceMembers.tsx:418
+#: src/components/settings/WorkspaceMembers.tsx:437
 msgid "Failed to resend invitation"
 msgstr "招待の再送信に失敗しました"
 
 #: src/pages/SignInPage.tsx:233
 msgid "Failed to resend magic code"
 msgstr "マジックコードの再送信に失敗しました"
+
+#: src/components/settings/WorkspaceMembers.tsx:466
+msgid "Failed to reset password"
+msgstr ""
 
 #: src/pages/BroadcastsPage.tsx:1563
 msgid "Failed to resume broadcast"
@@ -6468,7 +6479,7 @@ msgstr "差出人名（上書き）"
 msgid "From:"
 msgstr "差出人:"
 
-#: src/components/settings/WorkspaceMembers.tsx:168
+#: src/components/settings/WorkspaceMembers.tsx:175
 msgid "Full Access"
 msgstr "フルアクセス"
 
@@ -6536,6 +6547,10 @@ msgstr "Supabase Auth Hooks設定でこのキーを生成してください"
 #: src/components/email_builder/MjmlCodeEditor.tsx:691
 msgid "Generated HTML"
 msgstr "生成されたHTML"
+
+#: src/components/settings/WorkspaceMembers.tsx:685
+msgid "Generated password"
+msgstr ""
 
 #: src/components/segment/button_upsert.tsx:698
 msgid "Generated SQL:"
@@ -6649,7 +6664,7 @@ msgstr "gpt-4.1、gpt-5.4、o4-mini、またはカスタムのモデル名"
 #~ msgid "gpt-4o, gpt-4.1, o4-mini, or custom model name"
 #~ msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:48
+#: src/components/settings/WorkspaceMembers.tsx:49
 msgid "Grant all"
 msgstr "すべて付与"
 
@@ -7337,24 +7352,24 @@ msgstr "無効なYouTube URLです"
 msgid "Invitation accepted successfully! Welcome to the workspace."
 msgstr "招待が正常に承認されました！ワークスペースへようこそ。"
 
-#: src/components/settings/WorkspaceMembers.tsx:381
+#: src/components/settings/WorkspaceMembers.tsx:400
 msgid "Invitation deleted successfully"
 msgstr "招待を削除しました"
 
-#: src/components/settings/WorkspaceMembers.tsx:411
+#: src/components/settings/WorkspaceMembers.tsx:430
 msgid "Invitation resent to {email}"
 msgstr "{email}に招待を再送信しました"
 
-#: src/components/settings/WorkspaceMembers.tsx:124
+#: src/components/settings/WorkspaceMembers.tsx:131
 msgid "Invitation sent"
 msgstr "招待を送信しました"
 
-#: src/components/settings/WorkspaceMembers.tsx:288
+#: src/components/settings/WorkspaceMembers.tsx:307
 msgid "Invitation sent to {inviteEmail}"
 msgstr "{inviteEmail}に招待を送信しました"
 
-#: src/components/settings/WorkspaceMembers.tsx:450
-#: src/components/settings/WorkspaceMembers.tsx:474
+#: src/components/settings/WorkspaceMembers.tsx:499
+#: src/components/settings/WorkspaceMembers.tsx:523
 msgid "Invite Member"
 msgstr "メンバーを招待"
 
@@ -8068,7 +8083,7 @@ msgstr "セクションをメールビューポート全幅に広げ、コンテ
 msgid "Makes the wrapper span the entire email viewport width, ignoring container constraints (typically 600px). Useful for full-bleed backgrounds and hero sections."
 msgstr "ラッパーをメールビューポート全幅に広げ、コンテナの制約（通常600px）を無視します。全面背景やヒーローセクションに便利です。"
 
-#: src/components/settings/WorkspaceMembers.tsx:441
+#: src/components/settings/WorkspaceMembers.tsx:490
 msgid "Manage your workspace members"
 msgstr "ワークスペースメンバーを管理"
 
@@ -8218,7 +8233,7 @@ msgstr "中"
 msgid "Mediums"
 msgstr "メディア"
 
-#: src/components/settings/WorkspaceMembers.tsx:362
+#: src/components/settings/WorkspaceMembers.tsx:381
 msgid "Member removed successfully"
 msgstr "メンバーを削除しました"
 
@@ -8554,6 +8569,7 @@ msgid "New message (email...)"
 msgstr "新規メッセージ（メール...）"
 
 #: src/components/settings/SecuritySettings.tsx:57
+#: src/components/settings/WorkspaceMembers.tsx:651
 msgid "New password"
 msgstr ""
 
@@ -8626,8 +8642,8 @@ msgstr "次回実行"
 #: src/components/settings/WebhookCard.tsx:218
 #: src/components/settings/WebhookCard.tsx:274
 #: src/components/settings/WebhookCard.tsx:361
-#: src/components/settings/WorkspaceMembers.tsx:222
-#: src/components/settings/WorkspaceMembers.tsx:242
+#: src/components/settings/WorkspaceMembers.tsx:241
+#: src/components/settings/WorkspaceMembers.tsx:261
 #: src/components/transactional/UpsertTransactionalNotificationDrawer.tsx:153
 #: src/components/web_analytics/filters/BackfillStatus.tsx:84
 #: src/components/web_analytics/filters/FilterTable.tsx:272
@@ -8640,7 +8656,7 @@ msgstr "いいえ"
 msgid "No {0} content to preview"
 msgstr "プレビューする{0}コンテンツがありません"
 
-#: src/components/settings/WorkspaceMembers.tsx:162
+#: src/components/settings/WorkspaceMembers.tsx:169
 msgid "No Access"
 msgstr "アクセス権なし"
 
@@ -8842,7 +8858,7 @@ msgstr "リストが見つかりません"
 msgid "No match"
 msgstr "一致なし"
 
-#: src/components/settings/WorkspaceMembers.tsx:466
+#: src/components/settings/WorkspaceMembers.tsx:515
 msgid "No members found"
 msgstr "メンバーが見つかりません"
 
@@ -9612,7 +9628,7 @@ msgstr "ペイロード:"
 #: src/components/automations/nodes/AddToListNode.tsx:59
 #: src/components/contacts/ContactDetailsDrawer.tsx:583
 #: src/components/lists/ListStats.tsx:90
-#: src/components/settings/WorkspaceMembers.tsx:139
+#: src/components/settings/WorkspaceMembers.tsx:146
 #: src/components/webhooks/OutgoingWebhooksTab.tsx:85
 #: src/components/webhooks/OutgoingWebhooksTab.tsx:245
 #: src/pages/BroadcastsPage.tsx:457
@@ -9661,14 +9677,14 @@ msgstr "新しいNotifuseバージョンとセキュリティアップデート�
 msgid "Permanently delete any contact"
 msgstr "任意のコンタクトを完全に削除する"
 
-#: src/components/settings/WorkspaceMembers.tsx:158
-#: src/components/settings/WorkspaceMembers.tsx:173
+#: src/components/settings/WorkspaceMembers.tsx:165
+#: src/components/settings/WorkspaceMembers.tsx:180
 msgid "Permission Details"
 msgstr "権限の詳細"
 
-#: src/components/settings/WorkspaceMembers.tsx:135
-#: src/components/settings/WorkspaceMembers.tsx:504
-#: src/components/settings/WorkspaceMembers.tsx:572
+#: src/components/settings/WorkspaceMembers.tsx:142
+#: src/components/settings/WorkspaceMembers.tsx:553
+#: src/components/settings/WorkspaceMembers.tsx:621
 msgid "Permissions"
 msgstr "権限"
 
@@ -9870,8 +9886,8 @@ msgstr "ワークスペース名を入力してください"
 msgid "Please enter an API identifier"
 msgstr "API識別子を入力してください"
 
-#: src/components/settings/WorkspaceMembers.tsx:308
-#: src/components/settings/WorkspaceMembers.tsx:550
+#: src/components/settings/WorkspaceMembers.tsx:327
+#: src/components/settings/WorkspaceMembers.tsx:599
 msgid "Please enter an API key name"
 msgstr "APIキー名を入力してください"
 
@@ -9880,8 +9896,8 @@ msgstr "APIキー名を入力してください"
 msgid "Please enter an automation name"
 msgstr "オートメーション名を入力してください"
 
-#: src/components/settings/WorkspaceMembers.tsx:275
-#: src/components/settings/WorkspaceMembers.tsx:495
+#: src/components/settings/WorkspaceMembers.tsx:294
+#: src/components/settings/WorkspaceMembers.tsx:544
 msgid "Please enter an email address"
 msgstr "メールアドレスを入力してください"
 
@@ -10835,8 +10851,8 @@ msgstr "リストから削除"
 msgid "Remove Link"
 msgstr "リンクを削除"
 
-#: src/components/settings/WorkspaceMembers.tsx:218
-#: src/components/settings/WorkspaceMembers.tsx:225
+#: src/components/settings/WorkspaceMembers.tsx:237
+#: src/components/settings/WorkspaceMembers.tsx:244
 msgid "Remove member"
 msgstr "メンバーを削除"
 
@@ -10985,7 +11001,7 @@ msgstr ""
 msgid "Resend code"
 msgstr "コードを再送"
 
-#: src/components/settings/WorkspaceMembers.tsx:253
+#: src/components/settings/WorkspaceMembers.tsx:272
 msgid "Resend invitation"
 msgstr "招待を再送"
 
@@ -11014,6 +11030,12 @@ msgstr "インテグレーションの同期タスクをリセットし、最初
 #: src/components/blog_editor/menus/block-actions/TransformOptionsGroup.tsx:46
 msgid "Reset formatting"
 msgstr "書式をリセット"
+
+#: src/components/settings/WorkspaceMembers.tsx:226
+#: src/components/settings/WorkspaceMembers.tsx:651
+#: src/components/settings/WorkspaceMembers.tsx:669
+msgid "Reset password"
+msgstr ""
 
 #: src/pages/TemplatesPage.tsx:526
 msgid "reset the filter"
@@ -11129,7 +11151,7 @@ msgstr "失敗した宛先を再送しますか？"
 msgid "Retry the recipients the provider refused"
 msgstr "プロバイダーが拒否した宛先を再送する"
 
-#: src/components/settings/WorkspaceMembers.tsx:57
+#: src/components/settings/WorkspaceMembers.tsx:58
 msgid "Revoke all"
 msgstr "すべて取り消す"
 
@@ -11148,7 +11170,7 @@ msgstr "右"
 msgid "Right to Left"
 msgstr "右から左"
 
-#: src/components/settings/WorkspaceMembers.tsx:112
+#: src/components/settings/WorkspaceMembers.tsx:119
 msgid "Role"
 msgstr "役割"
 
@@ -11955,7 +11977,7 @@ msgstr "Pythonを使用してトランザクション通知を送信:"
 msgid "Send a transactional notification using TypeScript/JavaScript:"
 msgstr "TypeScript/JavaScriptを使用してトランザクション通知を送信:"
 
-#: src/components/settings/WorkspaceMembers.tsx:485
+#: src/components/settings/WorkspaceMembers.tsx:534
 msgid "Send Invitation"
 msgstr "招待を送信"
 
@@ -12383,7 +12405,7 @@ msgid "Signup"
 msgstr "サインアップ"
 
 #: src/components/analytics/NewContactsTable.tsx:184
-#: src/components/settings/WorkspaceMembers.tsx:184
+#: src/components/settings/WorkspaceMembers.tsx:191
 msgid "Since"
 msgstr "以来"
 
@@ -12996,11 +13018,11 @@ msgid "Task type:"
 msgstr "タスクタイプ:"
 
 #: src/components/settings/SettingsSidebar.tsx:60
-#: src/components/settings/WorkspaceMembers.tsx:441
+#: src/components/settings/WorkspaceMembers.tsx:490
 msgid "Team"
 msgstr "チーム"
 
-#: src/components/settings/WorkspaceMembers.tsx:296
+#: src/components/settings/WorkspaceMembers.tsx:315
 msgid "Team member limit reached. Please upgrade your plan to add more members."
 msgstr "チームメンバーの上限に達しました。メンバーを追加するにはプランをアップグレードしてください。"
 
@@ -13426,6 +13448,10 @@ msgstr "ブログのメインタイトル"
 msgid "The outbound message log: every email the workspace sent, its delivery status, and the engagement counted against it."
 msgstr "送信メッセージのログ: ワークスペースが送信したすべてのメール、その配信ステータス、およびそれに対して計上されたエンゲージメント。"
 
+#: src/components/settings/WorkspaceMembers.tsx:678
+msgid "The password was changed"
+msgstr ""
+
 #: src/components/settings/SecuritySettings.tsx:76
 msgid "The passwords do not match"
 msgstr ""
@@ -13719,6 +13745,11 @@ msgstr "この通知は連携によって管理されており、テンプレー
 msgid "This page cannot be previewed here"
 msgstr "このページはここでプレビューできません"
 
+#. placeholder {0}: resetTarget?.email ?? ''
+#: src/components/settings/WorkspaceMembers.tsx:679
+msgid "This password is shown once and cannot be retrieved again. Tell {0} out of band; they are signed out everywhere and must choose a new password before they can use the console."
+msgstr ""
+
 #: src/components/settings/PermissionsMatrix.tsx:76
 msgid "This permission gates no endpoint today."
 msgstr "この権限は現在、どのエンドポイントも制御していません。"
@@ -13751,6 +13782,10 @@ msgstr "このセクションは空です。コンテンツを表示するには
 msgid "This segment uses relative date filters and will be automatically recomputed daily at 5:00 AM ({timezone})"
 msgstr "このセグメントは相対日付フィルターを使用しており、毎日午前5時（{timezone}）に自動的に再計算されます"
 
+#: src/components/settings/WorkspaceMembers.tsx:698
+msgid "This signs them out immediately"
+msgstr ""
+
 #: src/components/broadcasts/UpsertBroadcastDrawer.tsx:749
 msgid "This template is already used in another variation"
 msgstr "このテンプレートは既に別のバリエーションで使用されています"
@@ -13775,7 +13810,7 @@ msgstr "このテキストはメールクライアントのプレビューペイ
 msgid "This token is displayed once and cannot be retrieved again. Copy it now and paste it into Zapier."
 msgstr "このトークンは一度だけ表示され、再度取得することはできません。今すぐコピーしてZapierに貼り付けてください。"
 
-#: src/components/settings/WorkspaceMembers.tsx:581
+#: src/components/settings/WorkspaceMembers.tsx:630
 msgid "This token will only be displayed once. Please save it in a secure location. It cannot be retrieved again."
 msgstr "このトークンは一度だけ表示されます。安全な場所に保存してください。再度取得することはできません。"
 
@@ -15385,8 +15420,8 @@ msgstr "年次"
 #: src/components/settings/WebhookCard.tsx:217
 #: src/components/settings/WebhookCard.tsx:273
 #: src/components/settings/WebhookCard.tsx:360
-#: src/components/settings/WorkspaceMembers.tsx:221
-#: src/components/settings/WorkspaceMembers.tsx:241
+#: src/components/settings/WorkspaceMembers.tsx:240
+#: src/components/settings/WorkspaceMembers.tsx:260
 #: src/components/transactional/UpsertTransactionalNotificationDrawer.tsx:152
 #: src/components/web_analytics/filters/FilterTable.tsx:271
 msgid "Yes"

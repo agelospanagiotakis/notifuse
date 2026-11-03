@@ -433,6 +433,15 @@ func (a *App) InitRepositories() error {
 	}
 
 	a.userRepo = repository.NewUserRepository(a.db)
+	// Force the change of an administrator-issued password on every authenticated route but
+	// /api/user.setPassword. Registered once, here, because the gate lives in the middleware
+	// package and every handler builds its own AuthConfig: wiring it per handler is 36
+	// chances to forget, and a forgotten one is a route that stays usable. The closure reads
+	// the repository rather than a snapshot so a later assignment cannot strand it.
+	userRepoForGate := a.userRepo
+	middleware.SetPasswordChangeGate(func(ctx context.Context, userID string) (bool, error) {
+		return userRepoForGate.GetMustChangePassword(ctx, userID)
+	})
 	a.fedRepo = repository.NewFederatedIdentityRepository(a.db)
 	a.taskRepo = repository.NewTaskRepository(a.db)
 	a.authRepo = repository.NewSQLAuthRepository(a.db)

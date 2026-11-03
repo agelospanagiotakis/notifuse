@@ -69,6 +69,8 @@ export type {
   StoredPermissions,
   SetUserPermissionsRequest,
   SetUserPermissionsResponse,
+  SetUserPasswordRequest,
+  SetUserPasswordResponse,
   WorkspaceInvitation,
   User,
   VerifyInvitationTokenResponse,
