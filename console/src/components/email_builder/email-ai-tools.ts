@@ -252,6 +252,19 @@ function displayAttribute(value: unknown): string | undefined {
 }
 
 /**
+ * Shorten an image URL for the context, keeping what identifies it.
+ *
+ * A campaign's images are long MinIO paths or signed CDN URLs; the file name and the folder are
+ * what tell one product photo from another, and the scheme/host are the same for all of them.
+ */
+function shortUrl(value: unknown, max = 120): string {
+  const url = String(value ?? '')
+  if (!url) return ''
+  const withoutScheme = url.replace(/^https?:\/\//, '')
+  return withoutScheme.length <= max ? withoutScheme : '…' + withoutScheme.slice(-max)
+}
+
+/**
  * Serialize the email tree for AI context
  * Simplifies the tree structure to reduce token usage while keeping essential info
  */
@@ -290,7 +303,13 @@ export function serializeEmailTree(tree: EmailBlock): string {
         const href = displayAttribute(attributes.href)
         if (href) keyAttrs.push(`href: ${href}`)
       }
-      if ('src' in attributes && attributes.src) keyAttrs.push(`src: ...`)
+      // The image URL is shown, not hidden. It used to be "src: ...", which meant the model
+      // could see that an image existed but not which one — so "change the product photos"
+      // had nothing to act on, and it answered that it had done it or asked a question
+      // instead. Truncated because a signed CDN URL can be long, and the tail is the part
+      // that identifies the file.
+      if ('src' in attributes && attributes.src) keyAttrs.push(`src: "${shortUrl(attributes.src)}"`)
+      if ('alt' in attributes && attributes.alt) keyAttrs.push(`alt: "${displayAttribute(attributes.alt)}"`)
       if (keyAttrs.length > 0) {
         result += ` [${keyAttrs.join(', ')}]`
       }

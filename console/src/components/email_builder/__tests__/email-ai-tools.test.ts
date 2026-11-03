@@ -214,7 +214,10 @@ describe('Email AI Tools', () => {
       expect(result).toContain('spacer-1')
     })
 
-    test('should show src attribute as ellipsis for images', () => {
+    // The url is shown, not elided. This used to assert 'src: ...' — the token-saving choice
+    // that made "change the product photos" impossible to act on: the model could see an image
+    // existed but not which one, so it either answered that it had done it or did nothing.
+    test('shows the image src, without the scheme', () => {
       const tree: EmailBlock = {
         id: 'image-1',
         type: 'mj-image',
@@ -224,7 +227,9 @@ describe('Email AI Tools', () => {
       }
 
       const result = serializeEmailTree(tree)
-      expect(result).toContain('src: ...')
+      expect(result).toContain('example.com/very-long-image-path/image.png')
+      expect(result).not.toContain('src: ...')
+      expect(result).not.toContain('https://')
     })
 
     test('should include href for links/buttons', () => {

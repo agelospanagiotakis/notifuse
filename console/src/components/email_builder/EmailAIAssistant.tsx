@@ -81,6 +81,12 @@ export function EmailAIAssistant({
         callbacks.onUpdateBlock(input.blockId, input.updates)
         insert(`Updated block ${input.blockId}`, TOOL_NAMES.UPDATE_BLOCK)
         message.success('Block updated')
+        // A result, not a silent side effect: with one tool call per block, the model needs to
+        // learn this one landed before it makes the next, or "change the names and the photos"
+        // stops after the names.
+        return {
+          content: `updated ${input.blockId}: ${Object.keys(input.updates).join(', ')}`
+        }
       }
     ],
     [
@@ -103,6 +109,7 @@ export function EmailAIAssistant({
         )
         insert(`Added ${input.blockType} to ${input.parentId}`, TOOL_NAMES.ADD_BLOCK)
         message.success(`Added ${input.blockType}`)
+        return { content: `added ${input.blockType} to ${input.parentId}` }
       }
     ],
     [
@@ -113,6 +120,7 @@ export function EmailAIAssistant({
         callbacks.onDeleteBlock(input.blockId)
         insert(`Deleted block ${input.blockId}`, TOOL_NAMES.DELETE_BLOCK)
         message.success('Block deleted')
+        return { content: `deleted ${input.blockId}` }
       }
     ],
     [
@@ -155,6 +163,7 @@ export function EmailAIAssistant({
         callbacks.setEmailTree(treeWithNewIds)
         insert('Email structure replaced', TOOL_NAMES.SET_EMAIL_TREE)
         message.success('Email template updated')
+        return { content: 'email structure replaced' }
       }
     ],
     [
@@ -179,6 +188,7 @@ export function EmailAIAssistant({
         if (updates.length > 0) {
           insert(`Updated ${updates.join(' and ')}`, TOOL_NAMES.UPDATE_EMAIL_METADATA)
           message.success(`Updated ${updates.join(' and ')}`)
+          return { content: `updated ${updates.join(' and ')}` }
         }
       }
     ]
@@ -190,7 +200,11 @@ export function EmailAIAssistant({
     tools: EMAIL_AI_TOOLS,
     toolHandlers,
     buildSystemPrompt,
-    validateOnComplete
+    validateOnComplete,
+    // Several rounds, not one. "Change the product names and the photos" needs one tool call per
+    // block; at the default of 1 the loop stopped after the first edit, discarded the result and
+    // never made the second. The round ceiling and the per-turn budgets still bound the cost.
+    maxToolRounds: 5
   })
 
   return (

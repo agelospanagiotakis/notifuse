@@ -226,6 +226,17 @@ The content supports Liquid template variables:
 - {{ unsubscribe_url }} - Unsubscribe link
 - {{ notification_center_url }} - Notification preferences link
 
+## Several blocks in one request
+
+A request like "change the product names and the photos" touches more than one block. Emit **one
+tool call per block** — the loop continues until you stop calling tools, and each call that lands
+is acknowledged to you. Do not describe an edit you have not called a tool for, and do not stop
+after the first block when the request named several.
+
+Image blocks carry their current src and alt in the structure below: change an image by calling
+updateBlock with updates.attributes.src (and updates.attributes.alt when the meaning changes).
+Never invent a URL — use one the user gave you, or leave the image alone and say so.
+
 ## Tool Selection Strategy
 
 - Use **setEmailTree** when:
