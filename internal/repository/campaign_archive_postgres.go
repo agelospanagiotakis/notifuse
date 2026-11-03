@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Notifuse/notifuse/internal/domain"
@@ -48,6 +49,12 @@ ALTER TABLE campaign_archive ADD COLUMN IF NOT EXISTS unique_opens INTEGER NOT N
 -- before audiences were captured), never "an audience with no name": grouping on '' would
 -- invent a list nobody subscribed to.
 ALTER TABLE campaign_archive ADD COLUMN IF NOT EXISTS list_id TEXT NOT NULL DEFAULT '';
+-- The broadcast this entry came from, when the platform sent it. Imported campaigns have none.
+-- It is what makes the archive-on-send hook idempotent: a retried task updates the entry instead
+-- of publishing the same campaign twice under two slugs.
+ALTER TABLE campaign_archive ADD COLUMN IF NOT EXISTS broadcast_id TEXT NOT NULL DEFAULT '';
+CREATE UNIQUE INDEX IF NOT EXISTS campaign_archive_broadcast_id_key
+    ON campaign_archive (broadcast_id) WHERE broadcast_id <> '';
 CREATE INDEX IF NOT EXISTS campaign_archive_list_id_idx ON campaign_archive (list_id, sent_at DESC);
 -- One row per audience, holding the URL slug and the display name. The slug is stored
 -- rather than derived from the name because a list gets renamed and a URL must not move.
@@ -97,7 +104,7 @@ func (r *campaignArchiveRepository) List(ctx context.Context, workspaceID string
 
 	rows, err := db.QueryContext(ctx, `
 		SELECT slug, template_id, template_version, title, subject, sent_at, archived_at,
-		       sent_count, unique_opens, list_id
+		       sent_count, unique_opens, list_id, broadcast_id
 		FROM campaign_archive
 		ORDER BY sent_at DESC`)
 	if err != nil {
@@ -108,7 +115,7 @@ func (r *campaignArchiveRepository) List(ctx context.Context, workspaceID string
 	entries := make([]*domain.ArchiveEntry, 0, 64)
 	for rows.Next() {
 		var e domain.ArchiveEntry
-		if err := rows.Scan(&e.Slug, &e.TemplateID, &e.TemplateVersion, &e.Title, &e.Subject, &e.SentAt, &e.ArchivedAt, &e.SentCount, &e.UniqueOpens, &e.ListID); err != nil {
+		if err := rows.Scan(&e.Slug, &e.TemplateID, &e.TemplateVersion, &e.Title, &e.Subject, &e.SentAt, &e.ArchivedAt, &e.SentCount, &e.UniqueOpens, &e.ListID, &e.BroadcastID); err != nil {
 			return nil, fmt.Errorf("failed to scan campaign archive row: %w", err)
 		}
 		entries = append(entries, &e)
@@ -129,10 +136,10 @@ func (r *campaignArchiveRepository) Get(ctx context.Context, workspaceID, slug s
 	var e domain.ArchiveEntry
 	err = db.QueryRowContext(ctx, `
 		SELECT slug, template_id, template_version, title, subject, sent_at, archived_at,
-		       sent_count, unique_opens, list_id
+		       sent_count, unique_opens, list_id, broadcast_id
 		FROM campaign_archive
 		WHERE slug = $1`, slug).
-		Scan(&e.Slug, &e.TemplateID, &e.TemplateVersion, &e.Title, &e.Subject, &e.SentAt, &e.ArchivedAt, &e.SentCount, &e.UniqueOpens, &e.ListID)
+		Scan(&e.Slug, &e.TemplateID, &e.TemplateVersion, &e.Title, &e.Subject, &e.SentAt, &e.ArchivedAt, &e.SentCount, &e.UniqueOpens, &e.ListID, &e.BroadcastID)
 	if err == sql.ErrNoRows {
 		return nil, domain.ErrArchiveEntryNotFound
 	}
@@ -157,16 +164,17 @@ func (r *campaignArchiveRepository) Upsert(ctx context.Context, workspaceID stri
 	// list_id is updated with NULLIF so an upsert that does not know the audience leaves the
 	// stored one alone: re-running an import must not erase what a previous run discovered.
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO campaign_archive (slug, template_id, template_version, title, subject, sent_at, archived_at, list_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO campaign_archive (slug, template_id, template_version, title, subject, sent_at, archived_at, list_id, broadcast_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (slug) DO UPDATE SET
 			template_id = EXCLUDED.template_id,
 			template_version = EXCLUDED.template_version,
 			title = EXCLUDED.title,
 			subject = EXCLUDED.subject,
 			sent_at = EXCLUDED.sent_at,
-			list_id = NULLIF(EXCLUDED.list_id, '')`,
-		e.Slug, e.TemplateID, e.TemplateVersion, e.Title, e.Subject, e.SentAt, archivedAt, e.ListID)
+			list_id = NULLIF(EXCLUDED.list_id, ''),
+			broadcast_id = NULLIF(EXCLUDED.broadcast_id, '')`,
+		e.Slug, e.TemplateID, e.TemplateVersion, e.Title, e.Subject, e.SentAt, archivedAt, e.ListID, e.BroadcastID)
 	if err != nil {
 		return fmt.Errorf("failed to upsert campaign archive entry: %w", err)
 	}
@@ -196,19 +204,28 @@ func (r *campaignArchiveRepository) ListAudiences(ctx context.Context, workspace
 		return nil, err
 	}
 
+	// One audience can be addressed by two ids: the legacy id the imported campaigns carry
+	// (d545c36792) and the platform list id new campaigns carry (koisopticsmain). They must
+	// count as ONE audience, so the join matches either and the counts are summed.
+	//
+	// That is the whole reason campaign_audience.notifuse_list_id exists: without it the same
+	// list would appear twice in the switch, each with half its campaigns.
 	rows, err := db.QueryContext(ctx, `
-		SELECT a.list_id,
+		SELECT COALESCE(u.list_id, a.list_id)                AS audience_id,
 		       COALESCE(u.slug, ''),
 		       COALESCE(u.name, ''),
-		       a.campaigns,
+		       SUM(a.campaigns)                               AS campaigns,
 		       COALESCE(u.is_listed, TRUE),
 		       COALESCE(u.notifuse_list_id, '')
 		FROM (SELECT list_id, COUNT(*) AS campaigns
 		      FROM campaign_archive
 		      WHERE list_id <> ''
 		      GROUP BY list_id) a
-		LEFT JOIN campaign_audience u ON u.list_id = a.list_id
-		ORDER BY a.campaigns DESC, a.list_id`)
+		LEFT JOIN campaign_audience u
+		       ON u.list_id = a.list_id
+		       OR (u.notifuse_list_id <> '' AND u.notifuse_list_id = a.list_id)
+		GROUP BY 1, 2, 3, 5, 6
+		ORDER BY SUM(a.campaigns) DESC, 1`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list archive audiences: %w", err)
 	}
@@ -228,8 +245,25 @@ func (r *campaignArchiveRepository) ListAudiences(ctx context.Context, workspace
 	return audiences, nil
 }
 
-// ListByListID returns the campaigns sent to one audience, newest first.
-func (r *campaignArchiveRepository) ListByListID(ctx context.Context, workspaceID, listID string) ([]*domain.ArchiveEntry, error) {
+// ListByAudienceIDs returns the campaigns filed under any of the given list ids, newest first.
+//
+// An audience answers to more than one id — the legacy one on imported campaigns and the
+// platform list id on everything sent from here — and the page has to show both, in one list.
+func (r *campaignArchiveRepository) ListByAudienceIDs(ctx context.Context, workspaceID string, listIDs []string) ([]*domain.ArchiveEntry, error) {
+	if len(listIDs) == 0 {
+		return []*domain.ArchiveEntry{}, nil
+	}
+	placeholders := make([]string, 0, len(listIDs))
+	args := make([]interface{}, 0, len(listIDs))
+	for i, id := range listIDs {
+		placeholders = append(placeholders, fmt.Sprintf("$%d", i+1))
+		args = append(args, id)
+	}
+	return r.listWhere(ctx, workspaceID, "WHERE list_id IN ("+strings.Join(placeholders, ", ")+")", args)
+}
+
+// listWhere is the shared scan for the audience-filtered list.
+func (r *campaignArchiveRepository) listWhere(ctx context.Context, workspaceID, where string, args []interface{}) ([]*domain.ArchiveEntry, error) {
 	db, err := r.connection(ctx, workspaceID)
 	if err != nil {
 		return nil, err
@@ -237,10 +271,9 @@ func (r *campaignArchiveRepository) ListByListID(ctx context.Context, workspaceI
 
 	rows, err := db.QueryContext(ctx, `
 		SELECT slug, template_id, template_version, title, subject, sent_at, archived_at,
-		       sent_count, unique_opens, list_id
-		FROM campaign_archive
-		WHERE list_id = $1
-		ORDER BY sent_at DESC`, listID)
+		       sent_count, unique_opens, list_id, broadcast_id
+		FROM campaign_archive `+where+`
+		ORDER BY sent_at DESC`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list campaign archive by audience: %w", err)
 	}
@@ -249,7 +282,7 @@ func (r *campaignArchiveRepository) ListByListID(ctx context.Context, workspaceI
 	entries := make([]*domain.ArchiveEntry, 0, 64)
 	for rows.Next() {
 		var e domain.ArchiveEntry
-		if err := rows.Scan(&e.Slug, &e.TemplateID, &e.TemplateVersion, &e.Title, &e.Subject, &e.SentAt, &e.ArchivedAt, &e.SentCount, &e.UniqueOpens, &e.ListID); err != nil {
+		if err := rows.Scan(&e.Slug, &e.TemplateID, &e.TemplateVersion, &e.Title, &e.Subject, &e.SentAt, &e.ArchivedAt, &e.SentCount, &e.UniqueOpens, &e.ListID, &e.BroadcastID); err != nil {
 			return nil, fmt.Errorf("failed to scan campaign archive row: %w", err)
 		}
 		entries = append(entries, &e)
@@ -272,7 +305,7 @@ func (r *campaignArchiveRepository) GetAudience(ctx context.Context, workspaceID
 		SELECT u.list_id, u.slug, u.name, u.is_listed, u.notifuse_list_id,
 		       (SELECT COUNT(*) FROM campaign_archive c WHERE c.list_id = u.list_id)
 		FROM campaign_audience u
-		WHERE u.slug = $1 OR u.list_id = $1`, slug).
+		WHERE u.slug = $1 OR u.list_id = $1 OR (u.notifuse_list_id <> '' AND u.notifuse_list_id = $1)`, slug).
 		Scan(&a.ListID, &a.Slug, &a.Name, &a.Listed, &a.NotifuseListID, &a.Campaigns)
 	if err == sql.ErrNoRows {
 		return nil, domain.ErrArchiveAudienceNotFound
@@ -318,4 +351,40 @@ func (r *campaignArchiveRepository) SetAudienceListed(ctx context.Context, works
 		return domain.ErrArchiveAudienceNotFound
 	}
 	return nil
+}
+
+// GetByBroadcastID returns the archive entry a broadcast produced, if any.
+func (r *campaignArchiveRepository) GetByBroadcastID(ctx context.Context, workspaceID, broadcastID string) (*domain.ArchiveEntry, error) {
+	db, err := r.connection(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	var e domain.ArchiveEntry
+	err = db.QueryRowContext(ctx, `
+		SELECT slug, template_id, template_version, title, subject, sent_at, archived_at,
+		       sent_count, unique_opens, list_id, broadcast_id
+		FROM campaign_archive
+		WHERE broadcast_id = $1`, broadcastID).
+		Scan(&e.Slug, &e.TemplateID, &e.TemplateVersion, &e.Title, &e.Subject, &e.SentAt, &e.ArchivedAt, &e.SentCount, &e.UniqueOpens, &e.ListID, &e.BroadcastID)
+	if err == sql.ErrNoRows {
+		return nil, domain.ErrArchiveEntryNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get archive entry by broadcast: %w", err)
+	}
+	return &e, nil
+}
+
+// SlugExists reports whether a slug is already taken.
+func (r *campaignArchiveRepository) SlugExists(ctx context.Context, workspaceID, slug string) (bool, error) {
+	db, err := r.connection(ctx, workspaceID)
+	if err != nil {
+		return false, err
+	}
+	var exists bool
+	if err := db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM campaign_archive WHERE slug = $1)`, slug).Scan(&exists); err != nil {
+		return false, fmt.Errorf("failed to check archive slug: %w", err)
+	}
+	return exists, nil
 }

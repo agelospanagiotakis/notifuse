@@ -31,6 +31,10 @@ type ArchiveEntry struct {
 	// and every campaign this platform sent without one. An empty value is never treated as
 	// an audience of its own.
 	ListID string `json:"list_id,omitempty"`
+	// BroadcastID is set when this platform sent the campaign. Imported campaigns have none, and
+	// the unique index on it is what stops a retried send task from publishing the same campaign
+	// twice under two slugs.
+	BroadcastID string `json:"broadcast_id,omitempty"`
 	// SentCount and UniqueOpens are reported figures for a campaign sent elsewhere.
 	// Zero means "not known", never "nobody opened": an imported campaign that has no
 	// report must not be displayed as a failure.
@@ -106,8 +110,14 @@ type CampaignArchiveRepository interface {
 	// count. Audiences with no campaigns are not listed: an archive page for a list
 	// nothing was ever sent to is a page nobody should land on.
 	ListAudiences(ctx context.Context, workspaceID string) ([]*ArchiveAudience, error)
-	// ListByListID returns the campaigns sent to one audience, newest first.
-	ListByListID(ctx context.Context, workspaceID, listID string) ([]*ArchiveEntry, error)
+	// ListByAudienceIDs returns the campaigns filed under any of the given list ids, newest
+	// first. An audience answers to two ids — the legacy one on imported campaigns and the
+	// platform list id on everything sent from here — and its page shows both as one list.
+	ListByAudienceIDs(ctx context.Context, workspaceID string, listIDs []string) ([]*ArchiveEntry, error)
+	// GetByBroadcastID returns the entry a broadcast produced, if any.
+	GetByBroadcastID(ctx context.Context, workspaceID, broadcastID string) (*ArchiveEntry, error)
+	// SlugExists reports whether a slug is already published, for collision handling.
+	SlugExists(ctx context.Context, workspaceID, slug string) (bool, error)
 	// GetAudience resolves an audience by its URL slug.
 	GetAudience(ctx context.Context, workspaceID, slug string) (*ArchiveAudience, error)
 	// SetAudienceListed ticks or unticks an audience in the public archive.

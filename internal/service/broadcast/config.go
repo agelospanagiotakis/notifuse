@@ -1,6 +1,9 @@
 package broadcast
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // Config contains configuration for broadcast processing
 type Config struct {
@@ -26,6 +29,10 @@ type Config struct {
 	// Retry settings
 	MaxRetries    int           `json:"max_retries"`
 	RetryInterval time.Duration `json:"retry_interval"`
+
+	// OnBroadcastSent, when set, runs after a broadcast completes with at least one recipient.
+	// Optional: nil means nothing is notified, which is what every test gets.
+	OnBroadcastSent BroadcastSentHook `json:"-"`
 }
 
 // DefaultConfig returns a configuration with sensible defaults
@@ -62,3 +69,12 @@ func TestConfig() *Config {
 		RetryInterval:           30 * time.Second,
 	}
 }
+
+// BroadcastSentHook is called once a broadcast has been marked processed and at least one
+// recipient was enqueued. It receives the template and the exact version the send used, because
+// a template edited during a long send must not be archived at a version nobody received.
+//
+// It runs after the status is saved, so it cannot fail the send; an implementation that returns
+// an error is expected to log it. The archive is wired here rather than imported, keeping the
+// broadcast package free of a dependency on it.
+type BroadcastSentHook func(ctx context.Context, workspaceID, broadcastID, templateID string, templateVersion int64)

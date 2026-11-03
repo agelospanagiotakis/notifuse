@@ -101,6 +101,37 @@ func (f *fakeArchiveRepo) UpsertAudience(_ context.Context, _ string, a *domain.
 	return nil
 }
 
+func (f *fakeArchiveRepo) ListByAudienceIDs(ctx context.Context, ws string, listIDs []string) ([]*domain.ArchiveEntry, error) {
+	out := make([]*domain.ArchiveEntry, 0, len(f.entries))
+	for _, e := range f.entries {
+		for _, id := range listIDs {
+			if e.ListID == id {
+				out = append(out, e)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeArchiveRepo) GetByBroadcastID(_ context.Context, _ string, broadcastID string) (*domain.ArchiveEntry, error) {
+	for _, e := range f.entries {
+		if e.BroadcastID == broadcastID {
+			return e, nil
+		}
+	}
+	return nil, domain.ErrArchiveEntryNotFound
+}
+
+func (f *fakeArchiveRepo) SlugExists(_ context.Context, _ string, slug string) (bool, error) {
+	for _, e := range f.entries {
+		if e.Slug == slug {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (f *fakeArchiveRepo) SetAudienceListed(_ context.Context, _ string, listID string, listed bool) error {
 	for _, a := range f.audiences {
 		if a.ListID == listID {

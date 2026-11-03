@@ -125,6 +125,7 @@ type App struct {
 	customEventRepo               domain.CustomEventRepository
 	webhookSubscriptionRepo       domain.WebhookSubscriptionRepository
 	webhookDeliveryRepo           domain.WebhookDeliveryRepository
+	archiveRepo                   domain.CampaignArchiveRepository
 	automationRepo                domain.AutomationRepository
 	emailQueueRepo                domain.EmailQueueRepository
 	webAnalyticsRepo              domain.WebAnalyticsRepository
@@ -863,8 +864,32 @@ func (a *App) InitServices() error {
 		a.config.APIEndpoint, // API endpoint for tracking URLs
 	)
 
+	// The campaign archive is constructed here rather than beside its handlers further down:
+	// the broadcast factory needs it now, as the hook that records campaigns this platform
+	// sends. The archive handlers below reuse this same instance.
+	a.archiveRepo = repository.NewCampaignArchiveRepository(a.workspaceRepo)
+	archiveService := service.NewArchiveService(
+		a.broadcastRepo,
+		a.templateRepo,
+		a.listRepo,
+		a.archiveRepo,
+		a.logger,
+	)
+
 	// Create broadcast factory with refactored components
 	broadcastConfig := broadcast.DefaultConfig()
+	// A sent campaign becomes a permanent public page. The hook runs after the broadcast is
+	// marked processed; it cannot fail the send, and it says so in the log when it cannot
+	// archive — the mail has already gone, and a missing archive page is not a reason to
+	// report a failed campaign.
+	broadcastConfig.OnBroadcastSent = func(ctx context.Context, workspaceID, broadcastID, templateID string, templateVersion int64) {
+		if err := archiveService.ArchiveSentBroadcast(ctx, workspaceID, broadcastID, templateID, templateVersion); err != nil {
+			a.logger.WithField("workspace_id", workspaceID).
+				WithField("broadcast_id", broadcastID).
+				WithField("error", err.Error()).
+				Warn("Failed to archive a sent broadcast")
+		}
+	}
 	// Override default rate limit if set in config
 	if a.config.Broadcast.DefaultRateLimit > 0 {
 		broadcastConfig.DefaultRateLimit = a.config.Broadcast.DefaultRateLimit
@@ -1375,7 +1400,7 @@ func (a *App) InitHandlers() error {
 	// from the templates we already hold. Read-only and unauthenticated by design
 	// (it is a page for readers, not operators); the workspace turns it on and
 	// gates it with basic auth in settings.archive.
-	archiveRepo := repository.NewCampaignArchiveRepository(a.workspaceRepo)
+	archiveRepo := a.archiveRepo
 	archiveAdminHandler := httpHandler.NewArchiveAdminHandler(
 		a.workspaceRepo,
 		archiveRepo,

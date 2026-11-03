@@ -278,12 +278,25 @@ const audienceCSS = `<style>
 .audience-count{font-size:11px;opacity:.65}
 </style>`
 
+// audienceIDs is every list id an audience answers to: the legacy id on imported campaigns and
+// the platform list id on campaigns sent from here. Its page has to show both.
+func audienceIDs(a *domain.ArchiveAudience) []string {
+	if a == nil {
+		return nil
+	}
+	ids := []string{a.ListID}
+	if a.NotifuseListID != "" && a.NotifuseListID != a.ListID {
+		ids = append(ids, a.NotifuseListID)
+	}
+	return ids
+}
+
 // renderList serves the archive's home, or one audience's home when audience is set.
 func (h *ArchiveHandler) renderList(w http.ResponseWriter, r *http.Request, workspace *domain.Workspace, settings *domain.ArchiveSettings, audience *domain.ArchiveAudience) {
 	var entries []*domain.ArchiveEntry
 	var err error
 	if audience != nil {
-		entries, err = h.archiveRepo.ListByListID(r.Context(), workspace.ID, audience.ListID)
+		entries, err = h.archiveRepo.ListByAudienceIDs(r.Context(), workspace.ID, audienceIDs(audience))
 	} else {
 		entries, err = h.archiveRepo.List(r.Context(), workspace.ID)
 	}
@@ -606,7 +619,7 @@ func (h *ArchiveHandler) renderFeed(w http.ResponseWriter, r *http.Request, work
 	var entries []*domain.ArchiveEntry
 	var err error
 	if audience != nil {
-		entries, err = h.archiveRepo.ListByListID(r.Context(), workspace.ID, audience.ListID)
+		entries, err = h.archiveRepo.ListByAudienceIDs(r.Context(), workspace.ID, audienceIDs(audience))
 	} else {
 		entries, err = h.archiveRepo.List(r.Context(), workspace.ID)
 	}

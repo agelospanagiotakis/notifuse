@@ -1473,6 +1473,14 @@ func (o *BroadcastOrchestrator) Process(ctx context.Context, task *domain.Task, 
 			"phase":          broadcastState.Phase,
 		}).Info("Broadcast marked as " + statusMessage + " successfully")
 		// codecov:ignore:end
+
+		// The send has happened; tell whoever archives sent campaigns. After the status update,
+		// so the archive can trust "processed" as its permission to publish, and only when at
+		// least one recipient was actually enqueued — an empty audience is not a campaign.
+		if o.config.OnBroadcastSent != nil && broadcast.EnqueuedCount > 0 {
+			sentTemplate, sentVersion := sentTemplateVersion(broadcast, templates)
+			o.config.OnBroadcastSent(context.Background(), task.WorkspaceID, broadcast.ID, sentTemplate, sentVersion)
+		}
 	}
 
 	// codecov:ignore:start
@@ -1601,4 +1609,24 @@ func (o *BroadcastOrchestrator) evaluateWinner(ctx context.Context, broadcast *d
 	}).Info("Auto winner evaluation completed successfully")
 
 	return nil
+}
+
+// sentTemplateVersion reports which template the send used and at which version.
+//
+// The version comes from the templates this run loaded, not from a fresh read: a template edited
+// while a long send is running would otherwise be archived at a version no recipient received.
+func sentTemplateVersion(b *domain.Broadcast, loaded map[string]*domain.Template) (string, int64) {
+	id := ""
+	if b.WinningTemplate != nil && *b.WinningTemplate != "" {
+		id = *b.WinningTemplate
+	} else if len(b.TestSettings.Variations) > 0 {
+		id = b.TestSettings.Variations[0].TemplateID
+	}
+	if id == "" {
+		return "", 0
+	}
+	if tpl, ok := loaded[id]; ok && tpl != nil {
+		return id, tpl.Version
+	}
+	return id, 0
 }
