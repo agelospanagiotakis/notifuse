@@ -573,6 +573,10 @@ msgstr "一括操作がすでに実行中です"
 msgid "A count of past activity includes the event that fires the automation, so \"at least 3 opens\" enrolls on the third open."
 msgstr "過去のアクティビティのカウントには、オートメーションを起動するイベント自体も含まれます。そのため「開封3回以上」は3回目の開封で登録されます。"
 
+#: src/components/integrations/LLMIntegration.tsx:232
+msgid "A key is stored. Leave blank to keep it."
+msgstr ""
+
 #. placeholder {0}: resetTarget?.email ?? ''
 #: src/components/settings/WorkspaceMembers.tsx:703
 msgid "A new password is generated for {0}, every session they have open is closed, and they must replace the password before they can use the console again."
@@ -1257,7 +1261,7 @@ msgid "API key"
 msgstr "APIキー"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:84
-#: src/components/integrations/LLMIntegration.tsx:209
+#: src/components/integrations/LLMIntegration.tsx:227
 #: src/components/settings/Integrations.tsx:1657
 #: src/components/settings/Integrations.tsx:1708
 #: src/components/settings/Integrations.tsx:2117
@@ -1742,8 +1746,8 @@ msgstr "背景サイズ"
 msgid "Background Type"
 msgstr "背景タイプ"
 
-#: src/components/integrations/LLMIntegration.tsx:250
-#: src/components/integrations/LLMIntegration.tsx:294
+#: src/components/integrations/LLMIntegration.tsx:274
+#: src/components/integrations/LLMIntegration.tsx:318
 #: src/components/settings/Integrations.tsx:1651
 msgid "Base URL"
 msgstr "ベースURL"
@@ -3944,7 +3948,7 @@ msgstr "装飾"
 msgid "Deduplication:"
 msgstr "重複排除:"
 
-#: src/components/integrations/LLMIntegration.tsx:286
+#: src/components/integrations/LLMIntegration.tsx:310
 msgid "deepseek-chat or a custom model id"
 msgstr ""
 
@@ -3954,7 +3958,7 @@ msgid "default"
 msgstr "デフォルト"
 
 #: src/components/email_builder/ui/FontStyleInput.tsx:232
-#: src/components/integrations/LLMIntegration.tsx:264
+#: src/components/integrations/LLMIntegration.tsx:288
 #: src/components/settings/Integrations.tsx:398
 msgid "Default"
 msgstr "デフォルト"
@@ -4626,11 +4630,11 @@ msgstr "例: welcome_series"
 msgid "e.g., Company Name, Industry, etc."
 msgstr "例: 会社名、業種など"
 
-#: src/components/integrations/LLMIntegration.tsx:203
+#: src/components/integrations/LLMIntegration.tsx:221
 msgid "e.g., My Anthropic Integration"
 msgstr "例: My Anthropic連携"
 
-#: src/components/integrations/LLMIntegration.tsx:200
+#: src/components/integrations/LLMIntegration.tsx:218
 msgid "e.g., My DeepSeek Integration"
 msgstr ""
 
@@ -4638,11 +4642,11 @@ msgstr ""
 msgid "e.g., My Firecrawl Integration"
 msgstr "例: My Firecrawl連携"
 
-#: src/components/integrations/LLMIntegration.tsx:202
+#: src/components/integrations/LLMIntegration.tsx:220
 msgid "e.g., My Google Gemini Integration"
 msgstr "例: My Google Gemini Integration"
 
-#: src/components/integrations/LLMIntegration.tsx:198
+#: src/components/integrations/LLMIntegration.tsx:216
 msgid "e.g., My OpenAI Integration"
 msgstr "例: My OpenAI Integration"
 
@@ -5616,7 +5620,7 @@ msgstr "すべてのコンタクトをエクスポート中"
 msgid "External ID"
 msgstr "外部ID"
 
-#: src/components/integrations/LLMIntegration.tsx:270
+#: src/components/integrations/LLMIntegration.tsx:294
 msgid "Extra high"
 msgstr "非常に高い"
 
@@ -5989,7 +5993,7 @@ msgid "Failed to save Firecrawl integration"
 msgstr "Firecrawl連携の保存に失敗しました"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:69
-#: src/components/integrations/LLMIntegration.tsx:184
+#: src/components/integrations/LLMIntegration.tsx:202
 #: src/components/integrations/SupabaseIntegration.tsx:123
 #: src/components/settings/Integrations.tsx:1181
 msgid "Failed to save integration"
@@ -6532,7 +6536,7 @@ msgstr "フルスクリーン"
 #~ msgid "gemini-2.5-flash, gemini-3.1-pro-preview, or a custom model ID"
 #~ msgstr ""
 
-#: src/components/integrations/LLMIntegration.tsx:311
+#: src/components/integrations/LLMIntegration.tsx:335
 msgid "gemini-3.1-pro-preview or a custom model ID"
 msgstr "gemini-3.1-pro-preview またはカスタムのモデルID"
 
@@ -6677,7 +6681,7 @@ msgstr "曜日・時間帯別のゴール"
 msgid "Google Workspace / Gmail"
 msgstr "Google Workspace / Gmail"
 
-#: src/components/integrations/LLMIntegration.tsx:246
+#: src/components/integrations/LLMIntegration.tsx:270
 msgid "gpt-4.1, gpt-5.4, o4-mini, or custom model name"
 msgstr "gpt-4.1、gpt-5.4、o4-mini、またはカスタムのモデル名"
 
@@ -6786,7 +6790,7 @@ msgstr "非表示"
 msgid "Hide Details"
 msgstr "詳細を非表示"
 
-#: src/components/integrations/LLMIntegration.tsx:269
+#: src/components/integrations/LLMIntegration.tsx:293
 msgid "High"
 msgstr "高"
 
@@ -7268,7 +7272,7 @@ msgid "Integration ID:"
 msgstr "連携ID:"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:76
-#: src/components/integrations/LLMIntegration.tsx:191
+#: src/components/integrations/LLMIntegration.tsx:209
 #: src/components/integrations/SupabaseIntegration.tsx:130
 #: src/components/settings/Integrations.tsx:1804
 msgid "Integration Name"
@@ -7609,7 +7613,6 @@ msgid "Leave blank to keep the current value"
 msgstr "現在の値を維持するには空欄のままにしてください"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:86
-#: src/components/integrations/LLMIntegration.tsx:211
 msgid "Leave blank to keep the existing API key"
 msgstr "既存のAPIキーを保持するには空白のままにしてください"
 
@@ -8056,7 +8059,7 @@ msgstr "自社の外部IDでコンタクトのレコード全体を検索する"
 msgid "Loop"
 msgstr "ループ"
 
-#: src/components/integrations/LLMIntegration.tsx:267
+#: src/components/integrations/LLMIntegration.tsx:291
 msgid "Low"
 msgstr "低"
 
@@ -8245,7 +8248,7 @@ msgstr "TimeScoreの中央値"
 msgid "Median Value"
 msgstr "値の中央値"
 
-#: src/components/integrations/LLMIntegration.tsx:268
+#: src/components/integrations/LLMIntegration.tsx:292
 msgid "Medium"
 msgstr "中"
 
@@ -8330,7 +8333,7 @@ msgstr "中央"
 msgid "min"
 msgstr "分"
 
-#: src/components/integrations/LLMIntegration.tsx:266
+#: src/components/integrations/LLMIntegration.tsx:290
 msgid "Minimal"
 msgstr "最小限"
 
@@ -8441,10 +8444,10 @@ msgstr "モバイルブレークポイント"
 msgid "Mobile view (400px)"
 msgstr "モバイルビュー（400px）"
 
-#: src/components/integrations/LLMIntegration.tsx:231
-#: src/components/integrations/LLMIntegration.tsx:242
-#: src/components/integrations/LLMIntegration.tsx:280
-#: src/components/integrations/LLMIntegration.tsx:305
+#: src/components/integrations/LLMIntegration.tsx:255
+#: src/components/integrations/LLMIntegration.tsx:266
+#: src/components/integrations/LLMIntegration.tsx:304
+#: src/components/integrations/LLMIntegration.tsx:329
 #: src/components/settings/Integrations.tsx:1636
 msgid "Model"
 msgstr "モデル"
@@ -8856,6 +8859,10 @@ msgstr "問題なし"
 msgid "No items selected"
 msgstr "アイテムが選択されていません"
 
+#: src/components/integrations/LLMIntegration.tsx:233
+msgid "No key is stored for this integration yet — enter one, or every AI request will fail."
+msgstr ""
+
 #: src/components/settings/LicenseSettings.tsx:107
 msgid "No licence — Community"
 msgstr ""
@@ -9066,7 +9073,7 @@ msgstr "非アクティブ"
 #: src/components/email_builder/ui/ColorPickerWithPresets.tsx:32
 #: src/components/email_builder/ui/FontStyleInput.tsx:129
 #: src/components/email_builder/ui/FontStyleInput.tsx:136
-#: src/components/integrations/LLMIntegration.tsx:265
+#: src/components/integrations/LLMIntegration.tsx:289
 #: src/components/web_analytics/explore/BreakdownDrawer.tsx:114
 msgid "None"
 msgstr "なし"
@@ -9324,7 +9331,7 @@ msgid "Only one breakpoint per email template is allowed"
 msgstr "メールテンプレートごとに1つのブレークポイントのみ許可されています"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:47
-#: src/components/integrations/LLMIntegration.tsx:125
+#: src/components/integrations/LLMIntegration.tsx:143
 #: src/components/integrations/SupabaseIntegration.tsx:77
 msgid "Only workspace owners can modify integrations"
 msgstr "ワークスペースオーナーのみが連携を変更できます"
@@ -9445,11 +9452,11 @@ msgstr "任意"
 msgid "Optional bearer token"
 msgstr "任意のBearerトークン"
 
-#: src/components/integrations/LLMIntegration.tsx:260
+#: src/components/integrations/LLMIntegration.tsx:284
 msgid "Optional. Controls how much reasoning models think. Leave as Default for non-reasoning models; some providers ignore it."
 msgstr "任意。推論モデルがどれだけ思考するかを制御します。推論モデル以外ではデフォルトのままにしてください。一部のプロバイダーではこの設定は無視されます。"
 
-#: src/components/integrations/LLMIntegration.tsx:252
+#: src/components/integrations/LLMIntegration.tsx:276
 msgid "Optional. For OpenAI-compatible providers (Ollama, vLLM, LiteLLM, Azure, etc.). Leave empty for the default OpenAI endpoint."
 msgstr "任意。OpenAI互換のプロバイダー (Ollama、vLLM、LiteLLM、Azure など) 向けです。空欄の場合はデフォルトのOpenAIエンドポイントを使用します。"
 
@@ -9457,7 +9464,7 @@ msgstr "任意。OpenAI互換のプロバイダー (Ollama、vLLM、LiteLLM、Az
 msgid "Optional. If provided, sent as Authorization: Bearer <secret>"
 msgstr "任意。指定すると Authorization: Bearer <secret> として送信"
 
-#: src/components/integrations/LLMIntegration.tsx:296
+#: src/components/integrations/LLMIntegration.tsx:320
 msgid "Optional. Leave empty for https://api.deepseek.com. Change it only for a proxy or a regional endpoint."
 msgstr ""
 
@@ -9835,7 +9842,7 @@ msgstr "リストIDを入力してください"
 msgid "Please enter a list name"
 msgstr "リスト名を入力してください"
 
-#: src/components/integrations/LLMIntegration.tsx:244
+#: src/components/integrations/LLMIntegration.tsx:268
 msgid "Please enter a model name"
 msgstr "モデル名を入力してください"
 
@@ -9932,7 +9939,7 @@ msgid "Please enter an email address"
 msgstr "メールアドレスを入力してください"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:78
-#: src/components/integrations/LLMIntegration.tsx:193
+#: src/components/integrations/LLMIntegration.tsx:211
 #: src/components/integrations/SupabaseIntegration.tsx:132
 msgid "Please enter integration name"
 msgstr "インテグレーション名を入力してください"
@@ -9946,7 +9953,7 @@ msgid "Please enter workspace name"
 msgstr "ワークスペース名を入力してください"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:87
-#: src/components/integrations/LLMIntegration.tsx:213
+#: src/components/integrations/LLMIntegration.tsx:237
 msgid "Please enter your API key"
 msgstr "APIキーを入力してください"
 
@@ -9997,7 +10004,7 @@ msgstr "リストを選択してください"
 msgid "Please select a list for unsubscribe operation"
 msgstr "配信停止操作のリストを選択してください"
 
-#: src/components/integrations/LLMIntegration.tsx:233
+#: src/components/integrations/LLMIntegration.tsx:257
 msgid "Please select a model"
 msgstr "モデルを選択してください"
 
@@ -10062,8 +10069,8 @@ msgstr "イベントタイプを1つ以上選択してください"
 msgid "Please select operator"
 msgstr "演算子を選択してください"
 
-#: src/components/integrations/LLMIntegration.tsx:282
-#: src/components/integrations/LLMIntegration.tsx:307
+#: src/components/integrations/LLMIntegration.tsx:306
+#: src/components/integrations/LLMIntegration.tsx:331
 msgid "Please select or enter a model"
 msgstr "モデルを選択または入力してください"
 
@@ -10644,7 +10651,7 @@ msgstr "使用可能"
 msgid "Reason:"
 msgstr "理由:"
 
-#: src/components/integrations/LLMIntegration.tsx:258
+#: src/components/integrations/LLMIntegration.tsx:282
 msgid "Reasoning effort"
 msgstr "推論の強度"
 
@@ -11698,7 +11705,7 @@ msgstr "メールノードを有効にするにはリストを選択"
 msgid "Select a list..."
 msgstr "リストを選択..."
 
-#: src/components/integrations/LLMIntegration.tsx:235
+#: src/components/integrations/LLMIntegration.tsx:259
 msgid "Select a model"
 msgstr "モデルを選択"
 

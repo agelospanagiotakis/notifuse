@@ -56,6 +56,24 @@ export const LLMIntegration: React.FC<LLMIntegrationProps> = ({
   // Get the provider info for default values
   const providerInfo = llmProviders.find((p) => p.kind === providerKind)
 
+  // Whether this integration already holds a key. The console never receives the key itself —
+  // only its encrypted form — but "is one stored" is the question the form has to answer, because
+  // "Leave blank to keep the existing API key" is a lie for an integration that has none.
+  const storedKeyFor = () => {
+    const lp = integration?.llm_provider
+    if (!lp) return ''
+    const block =
+      providerKind === 'anthropic'
+        ? lp.anthropic
+        : providerKind === 'openai'
+          ? lp.openai
+          : providerKind === 'gemini'
+            ? lp.gemini
+            : lp.deepseek
+    return block?.encrypted_api_key ?? ''
+  }
+  const hasStoredKey = storedKeyFor() !== ''
+
   useEffect(() => {
     if (providerKind === 'openai') {
       if (integration?.llm_provider?.openai) {
@@ -208,7 +226,13 @@ export const LLMIntegration: React.FC<LLMIntegrationProps> = ({
       <Form.Item
         label={t`API Key`}
         name="api_key"
-        extra={integration ? t`Leave blank to keep the existing API key` : undefined}
+        extra={
+          integration
+            ? hasStoredKey
+              ? t`A key is stored. Leave blank to keep it.`
+              : t`No key is stored for this integration yet — enter one, or every AI request will fail.`
+            : undefined
+        }
         rules={
           integration ? [] : [{ required: true, message: t`Please enter your API key` }]
         }

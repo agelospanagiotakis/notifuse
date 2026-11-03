@@ -571,6 +571,10 @@ msgstr "Εκτελείται ήδη μια μαζική ενέργεια"
 msgid "A count of past activity includes the event that fires the automation, so \"at least 3 opens\" enrolls on the third open."
 msgstr "Μια μέτρηση προηγούμενης δραστηριότητας περιλαμβάνει το συμβάν που ενεργοποιεί τον αυτοματισμό, επομένως \"τουλάχιστον 3 ανοίγματα\" εγγράφονται στο τρίτο άνοιγμα."
 
+#: src/components/integrations/LLMIntegration.tsx:232
+msgid "A key is stored. Leave blank to keep it."
+msgstr ""
+
 #. placeholder {0}: resetTarget?.email ?? ''
 #: src/components/settings/WorkspaceMembers.tsx:703
 msgid "A new password is generated for {0}, every session they have open is closed, and they must replace the password before they can use the console again."
@@ -1255,7 +1259,7 @@ msgid "API key"
 msgstr "Κλειδί API"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:84
-#: src/components/integrations/LLMIntegration.tsx:209
+#: src/components/integrations/LLMIntegration.tsx:227
 #: src/components/settings/Integrations.tsx:1657
 #: src/components/settings/Integrations.tsx:1708
 #: src/components/settings/Integrations.tsx:2117
@@ -1740,8 +1744,8 @@ msgstr "Μέγεθος φόντου"
 msgid "Background Type"
 msgstr "Τύπος φόντου"
 
-#: src/components/integrations/LLMIntegration.tsx:250
-#: src/components/integrations/LLMIntegration.tsx:294
+#: src/components/integrations/LLMIntegration.tsx:274
+#: src/components/integrations/LLMIntegration.tsx:318
 #: src/components/settings/Integrations.tsx:1651
 msgid "Base URL"
 msgstr "Βασική διεύθυνση URL"
@@ -3942,7 +3946,7 @@ msgstr "Διακόσμηση"
 msgid "Deduplication:"
 msgstr "Αποδιπλασιασμός:"
 
-#: src/components/integrations/LLMIntegration.tsx:286
+#: src/components/integrations/LLMIntegration.tsx:310
 msgid "deepseek-chat or a custom model id"
 msgstr "deepseek-chat ή ένα προσαρμοσμένο αναγνωριστικό μοντέλου"
 
@@ -3952,7 +3956,7 @@ msgid "default"
 msgstr "προεπιλογή"
 
 #: src/components/email_builder/ui/FontStyleInput.tsx:232
-#: src/components/integrations/LLMIntegration.tsx:264
+#: src/components/integrations/LLMIntegration.tsx:288
 #: src/components/settings/Integrations.tsx:398
 msgid "Default"
 msgstr "Προεπιλογή"
@@ -4624,11 +4628,11 @@ msgstr ""
 msgid "e.g., Company Name, Industry, etc."
 msgstr "π.χ. Επωνυμία εταιρείας, Βιομηχανία κ.λπ."
 
-#: src/components/integrations/LLMIntegration.tsx:203
+#: src/components/integrations/LLMIntegration.tsx:221
 msgid "e.g., My Anthropic Integration"
 msgstr "π.χ., My Anthropic Integration"
 
-#: src/components/integrations/LLMIntegration.tsx:200
+#: src/components/integrations/LLMIntegration.tsx:218
 msgid "e.g., My DeepSeek Integration"
 msgstr "π.χ. Η ενσωμάτωση DeepSeek μου"
 
@@ -4636,11 +4640,11 @@ msgstr "π.χ. Η ενσωμάτωση DeepSeek μου"
 msgid "e.g., My Firecrawl Integration"
 msgstr "π.χ. My Firecrawl Integration"
 
-#: src/components/integrations/LLMIntegration.tsx:202
+#: src/components/integrations/LLMIntegration.tsx:220
 msgid "e.g., My Google Gemini Integration"
 msgstr "π.χ. My Google Gemini Integration"
 
-#: src/components/integrations/LLMIntegration.tsx:198
+#: src/components/integrations/LLMIntegration.tsx:216
 msgid "e.g., My OpenAI Integration"
 msgstr "π.χ. My OpenAI Integration"
 
@@ -5614,7 +5618,7 @@ msgstr "Εξαγωγή όλων των επαφών"
 msgid "External ID"
 msgstr "Εξωτερική ταυτότητα"
 
-#: src/components/integrations/LLMIntegration.tsx:270
+#: src/components/integrations/LLMIntegration.tsx:294
 msgid "Extra high"
 msgstr "Εξαιρετικά ψηλά"
 
@@ -5987,7 +5991,7 @@ msgid "Failed to save Firecrawl integration"
 msgstr "Αποτυχία αποθήκευσης της ενσωμάτωσης Firecrawl"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:69
-#: src/components/integrations/LLMIntegration.tsx:184
+#: src/components/integrations/LLMIntegration.tsx:202
 #: src/components/integrations/SupabaseIntegration.tsx:123
 #: src/components/settings/Integrations.tsx:1181
 msgid "Failed to save integration"
@@ -6530,7 +6534,7 @@ msgstr "Πλήρης οθόνη"
 #~ msgid "gemini-2.5-flash, gemini-3.1-pro-preview, or a custom model ID"
 #~ msgstr "gemini-2.5-flash, gemini-3.1-pro-preview, or a custom model ID"
 
-#: src/components/integrations/LLMIntegration.tsx:311
+#: src/components/integrations/LLMIntegration.tsx:335
 msgid "gemini-3.1-pro-preview or a custom model ID"
 msgstr "gemini-3.1-pro-preview ή προσαρμοσμένο αναγνωριστικό μοντέλου"
 
@@ -6675,7 +6679,7 @@ msgstr "Στόχοι ανά ημέρα και ώρα"
 msgid "Google Workspace / Gmail"
 msgstr "Google Workspace / Gmail"
 
-#: src/components/integrations/LLMIntegration.tsx:246
+#: src/components/integrations/LLMIntegration.tsx:270
 msgid "gpt-4.1, gpt-5.4, o4-mini, or custom model name"
 msgstr "gpt-4.1, gpt-5.4, o4-mini ή όνομα προσαρμοσμένου μοντέλου"
 
@@ -6784,7 +6788,7 @@ msgstr "Απόκρυψη"
 msgid "Hide Details"
 msgstr "Απόκρυψη λεπτομερειών"
 
-#: src/components/integrations/LLMIntegration.tsx:269
+#: src/components/integrations/LLMIntegration.tsx:293
 msgid "High"
 msgstr "Ψηλά"
 
@@ -7266,7 +7270,7 @@ msgid "Integration ID:"
 msgstr "Αναγνωριστικό ενσωμάτωσης:"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:76
-#: src/components/integrations/LLMIntegration.tsx:191
+#: src/components/integrations/LLMIntegration.tsx:209
 #: src/components/integrations/SupabaseIntegration.tsx:130
 #: src/components/settings/Integrations.tsx:1804
 msgid "Integration Name"
@@ -7607,7 +7611,6 @@ msgid "Leave blank to keep the current value"
 msgstr "Αφήστε το κενό για να διατηρήσετε την τρέχουσα τιμή"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:86
-#: src/components/integrations/LLMIntegration.tsx:211
 msgid "Leave blank to keep the existing API key"
 msgstr "Αφήστε το κενό για να διατηρήσετε το υπάρχον κλειδί API"
 
@@ -8054,7 +8057,7 @@ msgstr "Αναζητήστε την πλήρη εγγραφή μιας επαφ�
 msgid "Loop"
 msgstr "Βρόχος"
 
-#: src/components/integrations/LLMIntegration.tsx:267
+#: src/components/integrations/LLMIntegration.tsx:291
 msgid "Low"
 msgstr "Χαμηλό"
 
@@ -8243,7 +8246,7 @@ msgstr "Διάμεσος Χρονοσκορ"
 msgid "Median Value"
 msgstr "Διάμεση Αξία"
 
-#: src/components/integrations/LLMIntegration.tsx:268
+#: src/components/integrations/LLMIntegration.tsx:292
 msgid "Medium"
 msgstr "Μεσαίο"
 
@@ -8328,7 +8331,7 @@ msgstr "Μέση"
 msgid "min"
 msgstr "ελάχ"
 
-#: src/components/integrations/LLMIntegration.tsx:266
+#: src/components/integrations/LLMIntegration.tsx:290
 msgid "Minimal"
 msgstr "Minimal"
 
@@ -8439,10 +8442,10 @@ msgstr "Σημείο διακοπής κινητού"
 msgid "Mobile view (400px)"
 msgstr "Προβολή για κινητά (400 pixel)"
 
-#: src/components/integrations/LLMIntegration.tsx:231
-#: src/components/integrations/LLMIntegration.tsx:242
-#: src/components/integrations/LLMIntegration.tsx:280
-#: src/components/integrations/LLMIntegration.tsx:305
+#: src/components/integrations/LLMIntegration.tsx:255
+#: src/components/integrations/LLMIntegration.tsx:266
+#: src/components/integrations/LLMIntegration.tsx:304
+#: src/components/integrations/LLMIntegration.tsx:329
 #: src/components/settings/Integrations.tsx:1636
 msgid "Model"
 msgstr "Μοντέλο"
@@ -8854,6 +8857,10 @@ msgstr "Κανένα Θέμα"
 msgid "No items selected"
 msgstr "Δεν επιλέχθηκαν στοιχεία"
 
+#: src/components/integrations/LLMIntegration.tsx:233
+msgid "No key is stored for this integration yet — enter one, or every AI request will fail."
+msgstr ""
+
 #: src/components/settings/LicenseSettings.tsx:107
 msgid "No licence — Community"
 msgstr "Χωρίς άδεια — Κοινότητα"
@@ -9064,7 +9071,7 @@ msgstr "Μη ενεργό"
 #: src/components/email_builder/ui/ColorPickerWithPresets.tsx:32
 #: src/components/email_builder/ui/FontStyleInput.tsx:129
 #: src/components/email_builder/ui/FontStyleInput.tsx:136
-#: src/components/integrations/LLMIntegration.tsx:265
+#: src/components/integrations/LLMIntegration.tsx:289
 #: src/components/web_analytics/explore/BreakdownDrawer.tsx:114
 msgid "None"
 msgstr "Κανένα"
@@ -9322,7 +9329,7 @@ msgid "Only one breakpoint per email template is allowed"
 msgstr "Επιτρέπεται μόνο ένα σημείο διακοπής ανά πρότυπο email"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:47
-#: src/components/integrations/LLMIntegration.tsx:125
+#: src/components/integrations/LLMIntegration.tsx:143
 #: src/components/integrations/SupabaseIntegration.tsx:77
 msgid "Only workspace owners can modify integrations"
 msgstr "Μόνο οι κάτοχοι χώρων εργασίας μπορούν να τροποποιήσουν τις ενσωματώσεις"
@@ -9443,11 +9450,11 @@ msgstr "Προαιρετικό"
 msgid "Optional bearer token"
 msgstr "Προαιρετικό κουπόνι φορέα"
 
-#: src/components/integrations/LLMIntegration.tsx:260
+#: src/components/integrations/LLMIntegration.tsx:284
 msgid "Optional. Controls how much reasoning models think. Leave as Default for non-reasoning models; some providers ignore it."
 msgstr ""
 
-#: src/components/integrations/LLMIntegration.tsx:252
+#: src/components/integrations/LLMIntegration.tsx:276
 msgid "Optional. For OpenAI-compatible providers (Ollama, vLLM, LiteLLM, Azure, etc.). Leave empty for the default OpenAI endpoint."
 msgstr ""
 
@@ -9455,7 +9462,7 @@ msgstr ""
 msgid "Optional. If provided, sent as Authorization: Bearer <secret>"
 msgstr ""
 
-#: src/components/integrations/LLMIntegration.tsx:296
+#: src/components/integrations/LLMIntegration.tsx:320
 msgid "Optional. Leave empty for https://api.deepseek.com. Change it only for a proxy or a regional endpoint."
 msgstr "Προαιρετικό. Αφήστε το κενό για https://api.deepseek.com. Αλλάξτε το μόνο για proxy ή περιφερειακό endpoint."
 
@@ -9833,7 +9840,7 @@ msgstr "Εισαγάγετε ένα αναγνωριστικό λίστας"
 msgid "Please enter a list name"
 msgstr "Εισαγάγετε ένα όνομα λίστας"
 
-#: src/components/integrations/LLMIntegration.tsx:244
+#: src/components/integrations/LLMIntegration.tsx:268
 msgid "Please enter a model name"
 msgstr "Εισαγάγετε ένα όνομα μοντέλου"
 
@@ -9930,7 +9937,7 @@ msgid "Please enter an email address"
 msgstr "Εισαγάγετε μια διεύθυνση email"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:78
-#: src/components/integrations/LLMIntegration.tsx:193
+#: src/components/integrations/LLMIntegration.tsx:211
 #: src/components/integrations/SupabaseIntegration.tsx:132
 msgid "Please enter integration name"
 msgstr "Εισαγάγετε το όνομα ενσωμάτωσης"
@@ -9944,7 +9951,7 @@ msgid "Please enter workspace name"
 msgstr "Εισαγάγετε όνομα χώρου εργασίας"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:87
-#: src/components/integrations/LLMIntegration.tsx:213
+#: src/components/integrations/LLMIntegration.tsx:237
 msgid "Please enter your API key"
 msgstr "Εισαγάγετε το κλειδί API σας"
 
@@ -9995,7 +10002,7 @@ msgstr "Επιλέξτε μια λίστα"
 msgid "Please select a list for unsubscribe operation"
 msgstr "Επιλέξτε μια λίστα για λειτουργία κατάργησης εγγραφής"
 
-#: src/components/integrations/LLMIntegration.tsx:233
+#: src/components/integrations/LLMIntegration.tsx:257
 msgid "Please select a model"
 msgstr "Επιλέξτε ένα μοντέλο"
 
@@ -10060,8 +10067,8 @@ msgstr "Επιλέξτε τουλάχιστον έναν τύπο συμβάντ
 msgid "Please select operator"
 msgstr "Επιλέξτε χειριστή"
 
-#: src/components/integrations/LLMIntegration.tsx:282
-#: src/components/integrations/LLMIntegration.tsx:307
+#: src/components/integrations/LLMIntegration.tsx:306
+#: src/components/integrations/LLMIntegration.tsx:331
 msgid "Please select or enter a model"
 msgstr "Επιλέξτε ή εισαγάγετε ένα μοντέλο"
 
@@ -10642,7 +10649,7 @@ msgstr "Έτοιμο για χρήση"
 msgid "Reason:"
 msgstr "Λόγος:"
 
-#: src/components/integrations/LLMIntegration.tsx:258
+#: src/components/integrations/LLMIntegration.tsx:282
 msgid "Reasoning effort"
 msgstr "Προσπάθεια συλλογισμού"
 
@@ -11696,7 +11703,7 @@ msgstr "Επιλέξτε μια λίστα για να ενεργοποιήσε�
 msgid "Select a list..."
 msgstr "Επιλέξτε μια λίστα..."
 
-#: src/components/integrations/LLMIntegration.tsx:235
+#: src/components/integrations/LLMIntegration.tsx:259
 msgid "Select a model"
 msgstr "Επιλέξτε ένα μοντέλο"
 

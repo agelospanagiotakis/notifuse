@@ -573,6 +573,10 @@ msgstr "Uma ação em massa já está em execução"
 msgid "A count of past activity includes the event that fires the automation, so \"at least 3 opens\" enrolls on the third open."
 msgstr "A contagem de atividade passada inclui o evento que dispara a automação, então \"pelo menos 3 aberturas\" inscreve na terceira abertura."
 
+#: src/components/integrations/LLMIntegration.tsx:232
+msgid "A key is stored. Leave blank to keep it."
+msgstr ""
+
 #. placeholder {0}: resetTarget?.email ?? ''
 #: src/components/settings/WorkspaceMembers.tsx:703
 msgid "A new password is generated for {0}, every session they have open is closed, and they must replace the password before they can use the console again."
@@ -1257,7 +1261,7 @@ msgid "API key"
 msgstr "Chave API"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:84
-#: src/components/integrations/LLMIntegration.tsx:209
+#: src/components/integrations/LLMIntegration.tsx:227
 #: src/components/settings/Integrations.tsx:1657
 #: src/components/settings/Integrations.tsx:1708
 #: src/components/settings/Integrations.tsx:2117
@@ -1742,8 +1746,8 @@ msgstr "Tamanho do Fundo"
 msgid "Background Type"
 msgstr "Tipo de Fundo"
 
-#: src/components/integrations/LLMIntegration.tsx:250
-#: src/components/integrations/LLMIntegration.tsx:294
+#: src/components/integrations/LLMIntegration.tsx:274
+#: src/components/integrations/LLMIntegration.tsx:318
 #: src/components/settings/Integrations.tsx:1651
 msgid "Base URL"
 msgstr "URL base"
@@ -3944,7 +3948,7 @@ msgstr "Decoração"
 msgid "Deduplication:"
 msgstr "Deduplicação:"
 
-#: src/components/integrations/LLMIntegration.tsx:286
+#: src/components/integrations/LLMIntegration.tsx:310
 msgid "deepseek-chat or a custom model id"
 msgstr ""
 
@@ -3954,7 +3958,7 @@ msgid "default"
 msgstr "padrão"
 
 #: src/components/email_builder/ui/FontStyleInput.tsx:232
-#: src/components/integrations/LLMIntegration.tsx:264
+#: src/components/integrations/LLMIntegration.tsx:288
 #: src/components/settings/Integrations.tsx:398
 msgid "Default"
 msgstr "Padrão"
@@ -4626,11 +4630,11 @@ msgstr "ex: welcome_series"
 msgid "e.g., Company Name, Industry, etc."
 msgstr "ex: Nome da Empresa, Setor, etc."
 
-#: src/components/integrations/LLMIntegration.tsx:203
+#: src/components/integrations/LLMIntegration.tsx:221
 msgid "e.g., My Anthropic Integration"
 msgstr "ex: Minha Integração Anthropic"
 
-#: src/components/integrations/LLMIntegration.tsx:200
+#: src/components/integrations/LLMIntegration.tsx:218
 msgid "e.g., My DeepSeek Integration"
 msgstr ""
 
@@ -4638,11 +4642,11 @@ msgstr ""
 msgid "e.g., My Firecrawl Integration"
 msgstr "ex: Minha Integração Firecrawl"
 
-#: src/components/integrations/LLMIntegration.tsx:202
+#: src/components/integrations/LLMIntegration.tsx:220
 msgid "e.g., My Google Gemini Integration"
 msgstr "ex.: Minha Integração Google Gemini"
 
-#: src/components/integrations/LLMIntegration.tsx:198
+#: src/components/integrations/LLMIntegration.tsx:216
 msgid "e.g., My OpenAI Integration"
 msgstr "ex.: Minha Integração OpenAI"
 
@@ -5616,7 +5620,7 @@ msgstr "Exportando todos os contatos"
 msgid "External ID"
 msgstr "ID Externo"
 
-#: src/components/integrations/LLMIntegration.tsx:270
+#: src/components/integrations/LLMIntegration.tsx:294
 msgid "Extra high"
 msgstr "Muito alto"
 
@@ -5989,7 +5993,7 @@ msgid "Failed to save Firecrawl integration"
 msgstr "Falha ao salvar integração Firecrawl"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:69
-#: src/components/integrations/LLMIntegration.tsx:184
+#: src/components/integrations/LLMIntegration.tsx:202
 #: src/components/integrations/SupabaseIntegration.tsx:123
 #: src/components/settings/Integrations.tsx:1181
 msgid "Failed to save integration"
@@ -6532,7 +6536,7 @@ msgstr "Tela Cheia"
 #~ msgid "gemini-2.5-flash, gemini-3.1-pro-preview, or a custom model ID"
 #~ msgstr ""
 
-#: src/components/integrations/LLMIntegration.tsx:311
+#: src/components/integrations/LLMIntegration.tsx:335
 msgid "gemini-3.1-pro-preview or a custom model ID"
 msgstr "gemini-3.1-pro-preview ou um ID de modelo personalizado"
 
@@ -6677,7 +6681,7 @@ msgstr "Metas por dia e hora"
 msgid "Google Workspace / Gmail"
 msgstr "Google Workspace / Gmail"
 
-#: src/components/integrations/LLMIntegration.tsx:246
+#: src/components/integrations/LLMIntegration.tsx:270
 msgid "gpt-4.1, gpt-5.4, o4-mini, or custom model name"
 msgstr "gpt-4.1, gpt-5.4, o4-mini ou um nome de modelo personalizado"
 
@@ -6786,7 +6790,7 @@ msgstr "Ocultar"
 msgid "Hide Details"
 msgstr "Ocultar Detalhes"
 
-#: src/components/integrations/LLMIntegration.tsx:269
+#: src/components/integrations/LLMIntegration.tsx:293
 msgid "High"
 msgstr "Alto"
 
@@ -7268,7 +7272,7 @@ msgid "Integration ID:"
 msgstr "ID da Integração:"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:76
-#: src/components/integrations/LLMIntegration.tsx:191
+#: src/components/integrations/LLMIntegration.tsx:209
 #: src/components/integrations/SupabaseIntegration.tsx:130
 #: src/components/settings/Integrations.tsx:1804
 msgid "Integration Name"
@@ -7609,7 +7613,6 @@ msgid "Leave blank to keep the current value"
 msgstr "Deixe em branco para manter o valor atual"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:86
-#: src/components/integrations/LLMIntegration.tsx:211
 msgid "Leave blank to keep the existing API key"
 msgstr "Deixe em branco para manter a chave API existente"
 
@@ -8056,7 +8059,7 @@ msgstr "Buscar o registro completo de um contato pelo seu próprio ID externo"
 msgid "Loop"
 msgstr "Repetir"
 
-#: src/components/integrations/LLMIntegration.tsx:267
+#: src/components/integrations/LLMIntegration.tsx:291
 msgid "Low"
 msgstr "Baixo"
 
@@ -8245,7 +8248,7 @@ msgstr "TimeScore Mediano"
 msgid "Median Value"
 msgstr "Valor Mediano"
 
-#: src/components/integrations/LLMIntegration.tsx:268
+#: src/components/integrations/LLMIntegration.tsx:292
 msgid "Medium"
 msgstr "Médio"
 
@@ -8330,7 +8333,7 @@ msgstr "Meio"
 msgid "min"
 msgstr "min"
 
-#: src/components/integrations/LLMIntegration.tsx:266
+#: src/components/integrations/LLMIntegration.tsx:290
 msgid "Minimal"
 msgstr "Mínimo"
 
@@ -8441,10 +8444,10 @@ msgstr "Ponto de Quebra Mobile"
 msgid "Mobile view (400px)"
 msgstr "Visualização mobile (400px)"
 
-#: src/components/integrations/LLMIntegration.tsx:231
-#: src/components/integrations/LLMIntegration.tsx:242
-#: src/components/integrations/LLMIntegration.tsx:280
-#: src/components/integrations/LLMIntegration.tsx:305
+#: src/components/integrations/LLMIntegration.tsx:255
+#: src/components/integrations/LLMIntegration.tsx:266
+#: src/components/integrations/LLMIntegration.tsx:304
+#: src/components/integrations/LLMIntegration.tsx:329
 #: src/components/settings/Integrations.tsx:1636
 msgid "Model"
 msgstr "Modelo"
@@ -8856,6 +8859,10 @@ msgstr "Sem Problemas"
 msgid "No items selected"
 msgstr "Nenhum item selecionado"
 
+#: src/components/integrations/LLMIntegration.tsx:233
+msgid "No key is stored for this integration yet — enter one, or every AI request will fail."
+msgstr ""
+
 #: src/components/settings/LicenseSettings.tsx:107
 msgid "No licence — Community"
 msgstr ""
@@ -9066,7 +9073,7 @@ msgstr "Não Ativo"
 #: src/components/email_builder/ui/ColorPickerWithPresets.tsx:32
 #: src/components/email_builder/ui/FontStyleInput.tsx:129
 #: src/components/email_builder/ui/FontStyleInput.tsx:136
-#: src/components/integrations/LLMIntegration.tsx:265
+#: src/components/integrations/LLMIntegration.tsx:289
 #: src/components/web_analytics/explore/BreakdownDrawer.tsx:114
 msgid "None"
 msgstr "Nenhum"
@@ -9324,7 +9331,7 @@ msgid "Only one breakpoint per email template is allowed"
 msgstr "Apenas um ponto de quebra por template de email é permitido"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:47
-#: src/components/integrations/LLMIntegration.tsx:125
+#: src/components/integrations/LLMIntegration.tsx:143
 #: src/components/integrations/SupabaseIntegration.tsx:77
 msgid "Only workspace owners can modify integrations"
 msgstr "Apenas proprietários do workspace podem modificar integrações"
@@ -9445,11 +9452,11 @@ msgstr "Opcional"
 msgid "Optional bearer token"
 msgstr "Token bearer opcional"
 
-#: src/components/integrations/LLMIntegration.tsx:260
+#: src/components/integrations/LLMIntegration.tsx:284
 msgid "Optional. Controls how much reasoning models think. Leave as Default for non-reasoning models; some providers ignore it."
 msgstr "Opcional. Controla o quanto os modelos de raciocínio pensam. Deixe como Padrão para modelos sem raciocínio; alguns provedores ignoram este ajuste."
 
-#: src/components/integrations/LLMIntegration.tsx:252
+#: src/components/integrations/LLMIntegration.tsx:276
 msgid "Optional. For OpenAI-compatible providers (Ollama, vLLM, LiteLLM, Azure, etc.). Leave empty for the default OpenAI endpoint."
 msgstr "Opcional. Para provedores compatíveis com OpenAI (Ollama, vLLM, LiteLLM, Azure, etc.). Deixe vazio para o endpoint padrão da OpenAI."
 
@@ -9457,7 +9464,7 @@ msgstr "Opcional. Para provedores compatíveis com OpenAI (Ollama, vLLM, LiteLLM
 msgid "Optional. If provided, sent as Authorization: Bearer <secret>"
 msgstr "Opcional. Se fornecido, enviado como Authorization: Bearer <secret>"
 
-#: src/components/integrations/LLMIntegration.tsx:296
+#: src/components/integrations/LLMIntegration.tsx:320
 msgid "Optional. Leave empty for https://api.deepseek.com. Change it only for a proxy or a regional endpoint."
 msgstr ""
 
@@ -9835,7 +9842,7 @@ msgstr "Por favor, insira um ID da lista"
 msgid "Please enter a list name"
 msgstr "Por favor, insira um nome para a lista"
 
-#: src/components/integrations/LLMIntegration.tsx:244
+#: src/components/integrations/LLMIntegration.tsx:268
 msgid "Please enter a model name"
 msgstr "Informe um nome de modelo"
 
@@ -9932,7 +9939,7 @@ msgid "Please enter an email address"
 msgstr "Por favor, insira um endereço de email"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:78
-#: src/components/integrations/LLMIntegration.tsx:193
+#: src/components/integrations/LLMIntegration.tsx:211
 #: src/components/integrations/SupabaseIntegration.tsx:132
 msgid "Please enter integration name"
 msgstr "Por favor, insira o nome da integração"
@@ -9946,7 +9953,7 @@ msgid "Please enter workspace name"
 msgstr "Por favor, insira o nome do workspace"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:87
-#: src/components/integrations/LLMIntegration.tsx:213
+#: src/components/integrations/LLMIntegration.tsx:237
 msgid "Please enter your API key"
 msgstr "Por favor, insira sua chave API"
 
@@ -9997,7 +10004,7 @@ msgstr "Por favor, selecione uma lista"
 msgid "Please select a list for unsubscribe operation"
 msgstr "Por favor, selecione uma lista para operação de descadastro"
 
-#: src/components/integrations/LLMIntegration.tsx:233
+#: src/components/integrations/LLMIntegration.tsx:257
 msgid "Please select a model"
 msgstr "Por favor, selecione um modelo"
 
@@ -10062,8 +10069,8 @@ msgstr "Por favor, selecione pelo menos um tipo de evento"
 msgid "Please select operator"
 msgstr "Por favor, selecione o operador"
 
-#: src/components/integrations/LLMIntegration.tsx:282
-#: src/components/integrations/LLMIntegration.tsx:307
+#: src/components/integrations/LLMIntegration.tsx:306
+#: src/components/integrations/LLMIntegration.tsx:331
 msgid "Please select or enter a model"
 msgstr "Selecione ou informe um modelo"
 
@@ -10644,7 +10651,7 @@ msgstr "Pronto para usar"
 msgid "Reason:"
 msgstr "Motivo:"
 
-#: src/components/integrations/LLMIntegration.tsx:258
+#: src/components/integrations/LLMIntegration.tsx:282
 msgid "Reasoning effort"
 msgstr "Esforço de raciocínio"
 
@@ -11698,7 +11705,7 @@ msgstr "Selecione uma lista para habilitar os nós de email"
 msgid "Select a list..."
 msgstr "Selecione uma lista..."
 
-#: src/components/integrations/LLMIntegration.tsx:235
+#: src/components/integrations/LLMIntegration.tsx:259
 msgid "Select a model"
 msgstr "Selecione um modelo"
 

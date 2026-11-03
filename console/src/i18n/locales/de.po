@@ -573,6 +573,10 @@ msgstr "Eine Massenaktion läuft bereits"
 msgid "A count of past activity includes the event that fires the automation, so \"at least 3 opens\" enrolls on the third open."
 msgstr "Eine Zählung vergangener Aktivität schließt das Ereignis ein, das die Automatisierung auslöst, sodass \"mindestens 3 Öffnungen\" bereits bei der dritten Öffnung aufnimmt."
 
+#: src/components/integrations/LLMIntegration.tsx:232
+msgid "A key is stored. Leave blank to keep it."
+msgstr ""
+
 #. placeholder {0}: resetTarget?.email ?? ''
 #: src/components/settings/WorkspaceMembers.tsx:703
 msgid "A new password is generated for {0}, every session they have open is closed, and they must replace the password before they can use the console again."
@@ -1257,7 +1261,7 @@ msgid "API key"
 msgstr "API-Schlüssel"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:84
-#: src/components/integrations/LLMIntegration.tsx:209
+#: src/components/integrations/LLMIntegration.tsx:227
 #: src/components/settings/Integrations.tsx:1657
 #: src/components/settings/Integrations.tsx:1708
 #: src/components/settings/Integrations.tsx:2117
@@ -1742,8 +1746,8 @@ msgstr "Hintergrundgröße"
 msgid "Background Type"
 msgstr "Hintergrundtyp"
 
-#: src/components/integrations/LLMIntegration.tsx:250
-#: src/components/integrations/LLMIntegration.tsx:294
+#: src/components/integrations/LLMIntegration.tsx:274
+#: src/components/integrations/LLMIntegration.tsx:318
 #: src/components/settings/Integrations.tsx:1651
 msgid "Base URL"
 msgstr "Basis-URL"
@@ -3944,7 +3948,7 @@ msgstr "Dekoration"
 msgid "Deduplication:"
 msgstr "Deduplizierung:"
 
-#: src/components/integrations/LLMIntegration.tsx:286
+#: src/components/integrations/LLMIntegration.tsx:310
 msgid "deepseek-chat or a custom model id"
 msgstr ""
 
@@ -3954,7 +3958,7 @@ msgid "default"
 msgstr "Standard"
 
 #: src/components/email_builder/ui/FontStyleInput.tsx:232
-#: src/components/integrations/LLMIntegration.tsx:264
+#: src/components/integrations/LLMIntegration.tsx:288
 #: src/components/settings/Integrations.tsx:398
 msgid "Default"
 msgstr "Standard"
@@ -4626,11 +4630,11 @@ msgstr "z.B. welcome_series"
 msgid "e.g., Company Name, Industry, etc."
 msgstr "z.B. Firmenname, Branche usw."
 
-#: src/components/integrations/LLMIntegration.tsx:203
+#: src/components/integrations/LLMIntegration.tsx:221
 msgid "e.g., My Anthropic Integration"
 msgstr "z.B. Meine Anthropic-Integration"
 
-#: src/components/integrations/LLMIntegration.tsx:200
+#: src/components/integrations/LLMIntegration.tsx:218
 msgid "e.g., My DeepSeek Integration"
 msgstr ""
 
@@ -4638,11 +4642,11 @@ msgstr ""
 msgid "e.g., My Firecrawl Integration"
 msgstr "z.B. Meine Firecrawl-Integration"
 
-#: src/components/integrations/LLMIntegration.tsx:202
+#: src/components/integrations/LLMIntegration.tsx:220
 msgid "e.g., My Google Gemini Integration"
 msgstr "z.B. Meine Google Gemini-Integration"
 
-#: src/components/integrations/LLMIntegration.tsx:198
+#: src/components/integrations/LLMIntegration.tsx:216
 msgid "e.g., My OpenAI Integration"
 msgstr "z.B. Meine OpenAI-Integration"
 
@@ -5616,7 +5620,7 @@ msgstr "Alle Kontakte werden exportiert"
 msgid "External ID"
 msgstr "Externe ID"
 
-#: src/components/integrations/LLMIntegration.tsx:270
+#: src/components/integrations/LLMIntegration.tsx:294
 msgid "Extra high"
 msgstr "Sehr hoch"
 
@@ -5989,7 +5993,7 @@ msgid "Failed to save Firecrawl integration"
 msgstr "Speichern der Firecrawl-Integration fehlgeschlagen"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:69
-#: src/components/integrations/LLMIntegration.tsx:184
+#: src/components/integrations/LLMIntegration.tsx:202
 #: src/components/integrations/SupabaseIntegration.tsx:123
 #: src/components/settings/Integrations.tsx:1181
 msgid "Failed to save integration"
@@ -6532,7 +6536,7 @@ msgstr "Vollbild"
 #~ msgid "gemini-2.5-flash, gemini-3.1-pro-preview, or a custom model ID"
 #~ msgstr ""
 
-#: src/components/integrations/LLMIntegration.tsx:311
+#: src/components/integrations/LLMIntegration.tsx:335
 msgid "gemini-3.1-pro-preview or a custom model ID"
 msgstr "gemini-3.1-pro-preview oder eine benutzerdefinierte Modell-ID"
 
@@ -6677,7 +6681,7 @@ msgstr "Ziele nach Tag und Stunde"
 msgid "Google Workspace / Gmail"
 msgstr "Google Workspace / Gmail"
 
-#: src/components/integrations/LLMIntegration.tsx:246
+#: src/components/integrations/LLMIntegration.tsx:270
 msgid "gpt-4.1, gpt-5.4, o4-mini, or custom model name"
 msgstr "gpt-4.1, gpt-5.4, o4-mini oder benutzerdefinierter Modellname"
 
@@ -6786,7 +6790,7 @@ msgstr "Ausblenden"
 msgid "Hide Details"
 msgstr "Details ausblenden"
 
-#: src/components/integrations/LLMIntegration.tsx:269
+#: src/components/integrations/LLMIntegration.tsx:293
 msgid "High"
 msgstr "Hoch"
 
@@ -7268,7 +7272,7 @@ msgid "Integration ID:"
 msgstr "Integrations-ID:"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:76
-#: src/components/integrations/LLMIntegration.tsx:191
+#: src/components/integrations/LLMIntegration.tsx:209
 #: src/components/integrations/SupabaseIntegration.tsx:130
 #: src/components/settings/Integrations.tsx:1804
 msgid "Integration Name"
@@ -7609,7 +7613,6 @@ msgid "Leave blank to keep the current value"
 msgstr "Leer lassen, um den aktuellen Wert beizubehalten"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:86
-#: src/components/integrations/LLMIntegration.tsx:211
 msgid "Leave blank to keep the existing API key"
 msgstr "Leer lassen, um den bestehenden API-Schlüssel beizubehalten"
 
@@ -8056,7 +8059,7 @@ msgstr "Den vollständigen Datensatz eines Kontakts anhand Ihrer eigenen externe
 msgid "Loop"
 msgstr "Schleife"
 
-#: src/components/integrations/LLMIntegration.tsx:267
+#: src/components/integrations/LLMIntegration.tsx:291
 msgid "Low"
 msgstr "Niedrig"
 
@@ -8245,7 +8248,7 @@ msgstr "Medianer TimeScore"
 msgid "Median Value"
 msgstr "Medianwert"
 
-#: src/components/integrations/LLMIntegration.tsx:268
+#: src/components/integrations/LLMIntegration.tsx:292
 msgid "Medium"
 msgstr "Mittel"
 
@@ -8330,7 +8333,7 @@ msgstr "Mitte"
 msgid "min"
 msgstr "min"
 
-#: src/components/integrations/LLMIntegration.tsx:266
+#: src/components/integrations/LLMIntegration.tsx:290
 msgid "Minimal"
 msgstr "Minimal"
 
@@ -8441,10 +8444,10 @@ msgstr "Mobiler Breakpoint"
 msgid "Mobile view (400px)"
 msgstr "Mobile Ansicht (400px)"
 
-#: src/components/integrations/LLMIntegration.tsx:231
-#: src/components/integrations/LLMIntegration.tsx:242
-#: src/components/integrations/LLMIntegration.tsx:280
-#: src/components/integrations/LLMIntegration.tsx:305
+#: src/components/integrations/LLMIntegration.tsx:255
+#: src/components/integrations/LLMIntegration.tsx:266
+#: src/components/integrations/LLMIntegration.tsx:304
+#: src/components/integrations/LLMIntegration.tsx:329
 #: src/components/settings/Integrations.tsx:1636
 msgid "Model"
 msgstr "Modell"
@@ -8856,6 +8859,10 @@ msgstr "Keine Probleme"
 msgid "No items selected"
 msgstr "Keine Elemente ausgewählt"
 
+#: src/components/integrations/LLMIntegration.tsx:233
+msgid "No key is stored for this integration yet — enter one, or every AI request will fail."
+msgstr ""
+
 #: src/components/settings/LicenseSettings.tsx:107
 msgid "No licence — Community"
 msgstr ""
@@ -9066,7 +9073,7 @@ msgstr "Nicht aktiv"
 #: src/components/email_builder/ui/ColorPickerWithPresets.tsx:32
 #: src/components/email_builder/ui/FontStyleInput.tsx:129
 #: src/components/email_builder/ui/FontStyleInput.tsx:136
-#: src/components/integrations/LLMIntegration.tsx:265
+#: src/components/integrations/LLMIntegration.tsx:289
 #: src/components/web_analytics/explore/BreakdownDrawer.tsx:114
 msgid "None"
 msgstr "Keine"
@@ -9324,7 +9331,7 @@ msgid "Only one breakpoint per email template is allowed"
 msgstr "Nur ein Breakpoint pro E-Mail-Vorlage ist erlaubt"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:47
-#: src/components/integrations/LLMIntegration.tsx:125
+#: src/components/integrations/LLMIntegration.tsx:143
 #: src/components/integrations/SupabaseIntegration.tsx:77
 msgid "Only workspace owners can modify integrations"
 msgstr "Nur Arbeitsbereich-Inhaber können Integrationen ändern"
@@ -9445,11 +9452,11 @@ msgstr "Optional"
 msgid "Optional bearer token"
 msgstr "Optionales Bearer-Token"
 
-#: src/components/integrations/LLMIntegration.tsx:260
+#: src/components/integrations/LLMIntegration.tsx:284
 msgid "Optional. Controls how much reasoning models think. Leave as Default for non-reasoning models; some providers ignore it."
 msgstr "Optional. Steuert, wie viel Reasoning-Modelle nachdenken. Belassen Sie es bei Standard für Modelle ohne Reasoning; manche Anbieter ignorieren es."
 
-#: src/components/integrations/LLMIntegration.tsx:252
+#: src/components/integrations/LLMIntegration.tsx:276
 msgid "Optional. For OpenAI-compatible providers (Ollama, vLLM, LiteLLM, Azure, etc.). Leave empty for the default OpenAI endpoint."
 msgstr "Optional. Für OpenAI-kompatible Anbieter (Ollama, vLLM, LiteLLM, Azure usw.). Leer lassen für den Standard-OpenAI-Endpunkt."
 
@@ -9457,7 +9464,7 @@ msgstr "Optional. Für OpenAI-kompatible Anbieter (Ollama, vLLM, LiteLLM, Azure 
 msgid "Optional. If provided, sent as Authorization: Bearer <secret>"
 msgstr "Optional. Falls angegeben, wird als Authorization: Bearer <secret> gesendet"
 
-#: src/components/integrations/LLMIntegration.tsx:296
+#: src/components/integrations/LLMIntegration.tsx:320
 msgid "Optional. Leave empty for https://api.deepseek.com. Change it only for a proxy or a regional endpoint."
 msgstr ""
 
@@ -9835,7 +9842,7 @@ msgstr "Bitte geben Sie eine Listen-ID ein"
 msgid "Please enter a list name"
 msgstr "Bitte geben Sie einen Listennamen ein"
 
-#: src/components/integrations/LLMIntegration.tsx:244
+#: src/components/integrations/LLMIntegration.tsx:268
 msgid "Please enter a model name"
 msgstr "Bitte geben Sie einen Modellnamen ein"
 
@@ -9932,7 +9939,7 @@ msgid "Please enter an email address"
 msgstr "Bitte geben Sie eine E-Mail-Adresse ein"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:78
-#: src/components/integrations/LLMIntegration.tsx:193
+#: src/components/integrations/LLMIntegration.tsx:211
 #: src/components/integrations/SupabaseIntegration.tsx:132
 msgid "Please enter integration name"
 msgstr "Bitte geben Sie den Integrationsnamen ein"
@@ -9946,7 +9953,7 @@ msgid "Please enter workspace name"
 msgstr "Bitte geben Sie den Arbeitsbereichsnamen ein"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:87
-#: src/components/integrations/LLMIntegration.tsx:213
+#: src/components/integrations/LLMIntegration.tsx:237
 msgid "Please enter your API key"
 msgstr "Bitte geben Sie Ihren API-Schlüssel ein"
 
@@ -9997,7 +10004,7 @@ msgstr "Bitte wählen Sie eine Liste aus"
 msgid "Please select a list for unsubscribe operation"
 msgstr "Bitte wählen Sie eine Liste für den Abmeldevorgang"
 
-#: src/components/integrations/LLMIntegration.tsx:233
+#: src/components/integrations/LLMIntegration.tsx:257
 msgid "Please select a model"
 msgstr "Bitte wählen Sie ein Modell"
 
@@ -10062,8 +10069,8 @@ msgstr "Bitte wählen Sie mindestens einen Ereignistyp"
 msgid "Please select operator"
 msgstr "Bitte wählen Sie einen Operator"
 
-#: src/components/integrations/LLMIntegration.tsx:282
-#: src/components/integrations/LLMIntegration.tsx:307
+#: src/components/integrations/LLMIntegration.tsx:306
+#: src/components/integrations/LLMIntegration.tsx:331
 msgid "Please select or enter a model"
 msgstr "Bitte wählen Sie ein Modell aus oder geben Sie eines ein"
 
@@ -10644,7 +10651,7 @@ msgstr "Einsatzbereit"
 msgid "Reason:"
 msgstr "Grund:"
 
-#: src/components/integrations/LLMIntegration.tsx:258
+#: src/components/integrations/LLMIntegration.tsx:282
 msgid "Reasoning effort"
 msgstr "Reasoning-Aufwand"
 
@@ -11698,7 +11705,7 @@ msgstr "Liste auswählen, um E-Mail-Knoten zu aktivieren"
 msgid "Select a list..."
 msgstr "Liste auswählen..."
 
-#: src/components/integrations/LLMIntegration.tsx:235
+#: src/components/integrations/LLMIntegration.tsx:259
 msgid "Select a model"
 msgstr "Modell auswählen"
 

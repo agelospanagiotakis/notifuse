@@ -47,7 +47,7 @@ func (s *LLMService) streamChatOpenAI(
 	// Get decrypted API key
 	apiKey := settings.APIKey
 	if apiKey == "" {
-		return fmt.Errorf("API key is not configured for LLM integration")
+		return fmt.Errorf("API key is not configured for LLM integration — open Settings → Integrations, enter it and save")
 	}
 	model := settings.Model
 	if model == "" {

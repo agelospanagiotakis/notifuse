@@ -160,3 +160,50 @@ func (l *LLMProvider) PreserveSecretsFrom(existing *LLMProvider) {
 		}
 	}
 }
+
+// RedactSecrets clears every decrypted secret on the provider, in place.
+//
+// This was the third list of providers to be written by hand and the third to be forgotten when
+// DeepSeek arrived: after Validate/Encrypt/Decrypt and PreserveSecretsFrom, Integration.Redact
+// emptied the Anthropic, OpenAI and Gemini keys and left the DeepSeek one in the struct — so
+// workspaces.get handed the plaintext key to the browser. The enumeration lives here now, next to
+// the other switches, so a fifth provider has one place to appear and one place to be missed.
+func (l *LLMProvider) RedactSecrets() {
+	if l == nil {
+		return
+	}
+	if l.Anthropic != nil {
+		l.Anthropic.APIKey = ""
+	}
+	if l.OpenAI != nil {
+		l.OpenAI.APIKey = ""
+	}
+	if l.Gemini != nil {
+		l.Gemini.APIKey = ""
+	}
+	if l.DeepSeek != nil {
+		l.DeepSeek.APIKey = ""
+	}
+}
+
+// SecretHints reports, per configured provider, whether a secret is present — never the secret
+// itself. The console uses it to tell an operator "a key is stored" without ever receiving one.
+func (l *LLMProvider) SecretHints() map[string]string {
+	hints := map[string]string{}
+	if l == nil {
+		return hints
+	}
+	if l.Anthropic != nil && l.Anthropic.APIKey != "" {
+		hints["anthropic.api_key"] = credentialHint(l.Anthropic.APIKey)
+	}
+	if l.OpenAI != nil && l.OpenAI.APIKey != "" {
+		hints["openai.api_key"] = credentialHint(l.OpenAI.APIKey)
+	}
+	if l.Gemini != nil && l.Gemini.APIKey != "" {
+		hints["gemini.api_key"] = credentialHint(l.Gemini.APIKey)
+	}
+	if l.DeepSeek != nil && l.DeepSeek.APIKey != "" {
+		hints["deepseek.api_key"] = credentialHint(l.DeepSeek.APIKey)
+	}
+	return hints
+}

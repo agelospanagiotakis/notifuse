@@ -162,6 +162,12 @@ func (s *LLMService) StreamChat(ctx context.Context, req *domain.LLMChatRequest,
 		if integration.LLMProvider.DeepSeek == nil {
 			return fmt.Errorf("DeepSeek configuration is missing")
 		}
+		// Said here rather than in the shared OpenAI path, so the message names the provider and
+		// the place to fix it. The generic "API key is not configured" sent people looking at the
+		// wrong integration twice.
+		if integration.LLMProvider.DeepSeek.APIKey == "" {
+			return fmt.Errorf("no DeepSeek API key is stored for this integration — open Settings → Integrations, enter the key and save")
+		}
 		// DeepSeek is OpenAI-compatible, so the OpenAI path does the work; it needs the host
 		// and a model name filled in when the operator left them at their defaults.
 		integration.LLMProvider.DeepSeek.WithDefaults()

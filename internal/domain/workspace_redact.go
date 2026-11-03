@@ -147,14 +147,13 @@ func (i *Integration) Redact() {
 		}
 	}
 	if i.LLMProvider != nil {
-		if i.LLMProvider.Anthropic != nil {
-			record("anthropic.api_key", i.LLMProvider.Anthropic.APIKey)
-		}
-		if i.LLMProvider.OpenAI != nil {
-			record("openai.api_key", i.LLMProvider.OpenAI.APIKey)
-		}
-		if i.LLMProvider.Gemini != nil {
-			record("gemini.api_key", i.LLMProvider.Gemini.APIKey)
+		// One list, on the provider. The hand-written one here missed DeepSeek in both halves:
+		// no hint, and — worse — the plaintext key left in the struct and serialised to the
+		// browser.
+		for key, hint := range i.LLMProvider.SecretHints() {
+			if hint != "" {
+				hints[key] = hint
+			}
 		}
 	}
 	if i.FirecrawlSettings != nil {
@@ -175,17 +174,7 @@ func (i *Integration) Redact() {
 
 	i.EmailProvider.Redact()
 
-	if i.LLMProvider != nil {
-		if i.LLMProvider.Anthropic != nil {
-			i.LLMProvider.Anthropic.APIKey = ""
-		}
-		if i.LLMProvider.OpenAI != nil {
-			i.LLMProvider.OpenAI.APIKey = ""
-		}
-		if i.LLMProvider.Gemini != nil {
-			i.LLMProvider.Gemini.APIKey = ""
-		}
-	}
+	i.LLMProvider.RedactSecrets()
 
 	if i.FirecrawlSettings != nil {
 		i.FirecrawlSettings.APIKey = ""
