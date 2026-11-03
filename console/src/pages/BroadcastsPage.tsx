@@ -169,6 +169,22 @@ const deliveryVerdict = (progressStats?: ProgressStats): DeliveryVerdict => {
 // which answers "" to a tagged template — so each badge and tooltip here rendered blank.
 export const StatusBadge = ({ broadcast, remainingTime, progressStats }: StatusBadgeProps) => {
   const { t } = useLingui()
+  // Imported campaigns were really sent — by Mailchimp, years before this platform
+  // existed. The row's *state* stays draft, because the scheduler must not touch it;
+  // the *label* says what happened, because "Draft" would claim it never went out.
+  const importedFrom = (broadcast.metadata as { mailchimp?: { sent?: number } } | undefined)?.mailchimp
+  if (importedFrom && broadcast.status === 'draft') {
+    return (
+      <Tooltip
+        title={t`Sent by Mailchimp in ${broadcast.created_at.slice(0, 10)}. Imported for the record — this platform did not send it and cannot re-send it.`}
+      >
+        <span>
+          <Badge status="success" text={t`Sent · Mailchimp`} />
+        </span>
+      </Tooltip>
+    )
+  }
+
   switch (broadcast.status) {
     case 'draft':
       return (
@@ -752,7 +768,10 @@ const BroadcastCard: React.FC<BroadcastCardProps> = ({
                   ghost
                   disabled={
                     !permissions?.broadcasts?.write ||
-                    !currentWorkspace?.settings?.marketing_email_provider_id
+                    !currentWorkspace?.settings?.marketing_email_provider_id ||
+                    // An imported campaign must never be sendable: it already went
+                    // out, to a list of people who received it years ago.
+                    Boolean((broadcast.metadata as { mailchimp?: unknown } | undefined)?.mailchimp)
                   }
                   onClick={() => onSchedule(broadcast)}
                 >
