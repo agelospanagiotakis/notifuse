@@ -657,6 +657,27 @@ type Workspace struct {
 	UpdatedAt    time.Time         `json:"updated_at"`
 }
 
+// NormalizeWorkspaceIDReplica reduces an arbitrary string to the shape a workspace id may
+// legally take: lowercase alphanumerics only.
+//
+// It exists for ONE reason. A provider webhook is a URL that was registered with the provider
+// and cannot be corrected from here when the key that registered it is send-only: the address
+// carries a workspace_id, and the Resend callback registered for this deployment carries
+// "kois-optics" — the workspace's NAME — where the id is "koisoptics". Every event was therefore
+// answered "workspace not found" and dropped, so opens, clicks and bounces never reached the
+// database. Accepting the replica as a fallback turns those events back on without asking for a
+// full-access key. It is a migration shim, not a second identifier: it only ever runs after the
+// exact id has failed to resolve.
+func NormalizeWorkspaceIDReplica(raw string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(raw) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // Validate performs validation on the workspace fields
 func (w *Workspace) Validate(passphrase string) error {
 	// Validate ID

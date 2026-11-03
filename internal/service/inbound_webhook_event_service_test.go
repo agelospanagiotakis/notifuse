@@ -222,9 +222,11 @@ func TestProcessWebhook_Success(t *testing.T) {
 		// Call method
 		err := service.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, rawPayload)
 
-		// Assert
+		// Assert. The message names the missing integration, not the provider kind: the kind
+		// was empty only because the zero-value Integration was switched on, and reporting
+		// "unsupported email provider kind: " pointed at the wrong thing entirely.
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "unsupported email provider kind")
+		assert.Contains(t, err.Error(), "integration integration1 not found in workspace workspace1")
 	})
 
 	// Test storage error case

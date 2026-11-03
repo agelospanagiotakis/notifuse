@@ -274,17 +274,43 @@ func (s *InboundWebhookEventService) ProcessWebhook(ctx context.Context, workspa
 	// get workspace and integration
 	workspace, err := s.workspaceRepo.GetByID(ctx, workspaceID)
 	if err != nil {
+		// A callback URL registered with the provider cannot be re-pointed from here when the
+		// key that registered it may only send. The Resend callback on this deployment carries
+		// "kois-optics" — the workspace's name — where the id is "koisoptics", so the exact
+		// lookup fails and EVERY event was dropped with "workspace not found: kois-optics".
+		// Retrying once against the id-shaped replica restores opens, clicks and bounces; it
+		// costs one extra lookup, and only on a request that was about to fail anyway.
+		replica := domain.NormalizeWorkspaceIDReplica(workspaceID)
+		if replica != "" && replica != workspaceID {
+			if aliased, aliasErr := s.workspaceRepo.GetByID(ctx, replica); aliasErr == nil {
+				s.logger.WithField("webhook_workspace_id", workspaceID).
+					WithField("resolved_workspace_id", aliased.ID).
+					Warn("Webhook addressed a workspace by its display name; resolved to the id")
+				workspace, workspaceID, err = aliased, aliased.ID, nil
+			}
+		}
+	}
+	if err != nil {
 		// codecov:ignore:start
 		tracing.MarkSpanError(ctx, err)
 		// codecov:ignore:end
 		return fmt.Errorf("failed to get workspace: %w", err)
 	}
 	var integration domain.Integration
+	found := false
 	for _, i := range workspace.Integrations {
 		if i.ID == integrationID {
 			integration = i
+			found = true
 			break
 		}
+	}
+	if !found {
+		// Without this the switch below reads the zero value and reports "unsupported email
+		// provider kind: ", which names the wrong problem: the integration is missing, not its
+		// kind. The webhook is addressed by an integration id that no longer exists — renamed,
+		// deleted, or registered against another workspace.
+		return fmt.Errorf("integration %s not found in workspace %s", integrationID, workspaceID)
 	}
 	var events []*domain.InboundWebhookEvent
 
