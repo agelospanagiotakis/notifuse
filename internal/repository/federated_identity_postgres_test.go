@@ -149,9 +149,9 @@ func TestUserRepository_GetUserByEmailInsensitive(t *testing.T) {
 	repo := NewUserRepository(db)
 
 	t.Run("matches regardless of stored casing", func(t *testing.T) {
-		rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "type", "language", "created_at", "updated_at"}).
-			AddRow("u-1", "Jane@Corp.com", "Jane", "", domain.UserTypeUser, "en", time.Now().UTC(), time.Now().UTC())
-		mock.ExpectQuery(`SELECT id, email, name, COALESCE\(password_hash, ''\), type, language, created_at, updated_at FROM users WHERE lower\(email\)=lower\(\$1\)`).
+		rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "must_change_password", "type", "language", "created_at", "updated_at"}).
+			AddRow("u-1", "Jane@Corp.com", "Jane", "", false, domain.UserTypeUser, "en", time.Now().UTC(), time.Now().UTC())
+		mock.ExpectQuery(`SELECT id, email, name, COALESCE\(password_hash, ''\), must_change_password, type, language, created_at, updated_at FROM users WHERE lower\(email\)=lower\(\$1\)`).
 			WithArgs("jane@corp.com").
 			WillReturnRows(rows)
 
@@ -161,7 +161,7 @@ func TestUserRepository_GetUserByEmailInsensitive(t *testing.T) {
 	})
 
 	t.Run("no row maps to ErrUserNotFound", func(t *testing.T) {
-		mock.ExpectQuery(`SELECT id, email, name, COALESCE\(password_hash, ''\), type, language, created_at, updated_at FROM users WHERE lower\(email\)=lower\(\$1\)`).
+		mock.ExpectQuery(`SELECT id, email, name, COALESCE\(password_hash, ''\), must_change_password, type, language, created_at, updated_at FROM users WHERE lower\(email\)=lower\(\$1\)`).
 			WithArgs("nobody@corp.com").
 			WillReturnError(sql.ErrNoRows)
 

@@ -38,7 +38,12 @@ type User struct {
 	Email string   `json:"email" db:"email"`
 	Name  string   `json:"name,omitempty" db:"name"`
 	// PasswordHash is bcrypt. Never serialised: `json:"-"` keeps it out of every API response.
-	PasswordHash string    `json:"-" db:"password_hash"`
+	PasswordHash string `json:"-" db:"password_hash"`
+	// MustChangePassword is TRUE while an administrator-issued password is in force. The auth
+	// middleware refuses every route but /api/user.setPassword until the holder replaces it,
+	// so a password read off a screen or a chat message can never be used to operate the
+	// account. Exposed to the console so it can explain the refusal instead of looping on 403.
+	MustChangePassword bool      `json:"must_change_password" db:"must_change_password"`
 	Language     string    `json:"language" db:"language"`
 	CreatedAt    time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
@@ -116,6 +121,13 @@ type UserRepository interface {
 
 	// UpdatePasswordHash stores (or clears, with an empty hash) the user's password hash
 	UpdatePasswordHash(ctx context.Context, userID string, hash string) error
+	// SetMustChangePassword raises or clears the forced-change flag. It is a separate write
+	// from UpdatePasswordHash because the two answer different questions and a caller that
+	// only means one of them must not silently do the other.
+	SetMustChangePassword(ctx context.Context, userID string, required bool) error
+	// GetMustChangePassword reads the flag alone, for the middleware's per-request gate: the
+	// middleware must not pull a full user (and a bcrypt hash) to answer a boolean.
+	GetMustChangePassword(ctx context.Context, userID string) (bool, error)
 	// UpdateUserLanguage updates a user's preferred language
 	UpdateUserLanguage(ctx context.Context, userID string, language string) error
 

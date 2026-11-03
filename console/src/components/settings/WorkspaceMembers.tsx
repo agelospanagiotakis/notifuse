@@ -12,7 +12,8 @@ import {
   Popover,
   Dropdown,
   Result,
-  Skeleton
+  Skeleton,
+  Modal
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { AtSign, KeyRound, MoreHorizontal, Plus } from 'lucide-react'
@@ -154,6 +155,9 @@ export function WorkspaceMembers({
     useState<UserPermissions>(createFullPermissions)
   const [creatingApiKey, setCreatingApiKey] = useState(false)
   const [apiKeyToken, setApiKeyToken] = useState('')
+  const [resetTarget, setResetTarget] = useState<WorkspaceMember | null>(null)
+  const [generatedPassword, setGeneratedPassword] = useState('')
+  const [resettingPassword, setResettingPassword] = useState(false)
   const [, setRemovingMember] = useState(false)
   const [, setResendingInvitation] = useState(false)
 
@@ -207,6 +211,32 @@ export function WorkspaceMembers({
     })
   }
 
+  const openPasswordReset = (member: WorkspaceMember) => {
+    setGeneratedPassword('')
+    setResetTarget(member)
+  }
+
+  const closePasswordReset = () => {
+    setResetTarget(null)
+    setGeneratedPassword('')
+  }
+
+  const handleResetPassword = async () => {
+    if (!resetTarget) return
+    setResettingPassword(true)
+    try {
+      const res = await workspaceService.setUserPassword({
+        workspace_id: workspaceId,
+        user_id: resetTarget.user_id
+      })
+      setGeneratedPassword(res.password)
+    } catch (error) {
+      message.error((error as Error).message || t`Failed to reset the password`)
+    } finally {
+      setResettingPassword(false)
+    }
+  }
+
   const actionsFor = (member: WorkspaceMember) => {
     if (!isOwner || member.role === 'owner') return null
     const items = isInvitation(member)
@@ -214,12 +244,16 @@ export function WorkspaceMembers({
           { key: 'resend', label: t`Resend invitation`, onClick: () => handleResendInvitation(member) },
           { key: 'delete', label: t`Delete invitation`, danger: true, onClick: () => confirmDeleteInvitation(member) }
         ]
-      : [
-          { key: 'edit', label: t`Edit permissions`, onClick: () => handleEditPermissions(member) },
-          member.type === 'api_key'
-            ? { key: 'remove', label: t`Delete key`, danger: true, onClick: () => confirmRemove(member) }
-            : { key: 'remove', label: t`Remove from workspace`, danger: true, onClick: () => confirmRemove(member) }
-        ]
+      : member.type === 'api_key'
+        ? [
+            { key: 'edit', label: t`Edit permissions`, onClick: () => handleEditPermissions(member) },
+            { key: 'remove', label: t`Delete key`, danger: true, onClick: () => confirmRemove(member) }
+          ]
+        : [
+            { key: 'edit', label: t`Edit permissions`, onClick: () => handleEditPermissions(member) },
+            { key: 'password', label: t`Reset password`, onClick: () => openPasswordReset(member) },
+            { key: 'remove', label: t`Remove from workspace`, danger: true, onClick: () => confirmRemove(member) }
+          ]
     return (
       <Dropdown trigger={['click']} menu={{ items }} placement="bottomRight">
         <Button
@@ -695,6 +729,56 @@ export function WorkspaceMembers({
         onClose={handlePermissionsDrawerClose}
         onSuccess={handlePermissionsSuccess}
       />
+
+      <Modal
+        title={generatedPassword ? t`New password` : t`Reset password`}
+        open={resetTarget !== null}
+        onCancel={closePasswordReset}
+        destroyOnHidden
+        footer={
+          generatedPassword ? (
+            <Button type="primary" onClick={closePasswordReset}>
+              {t`Close`}
+            </Button>
+          ) : (
+            <Space>
+              <Button onClick={closePasswordReset}>{t`Cancel`}</Button>
+              <Button type="primary" danger loading={resettingPassword} onClick={handleResetPassword}>
+                {t`Reset password`}
+              </Button>
+            </Space>
+          )
+        }
+      >
+        {generatedPassword ? (
+          <>
+            <Alert
+              title={t`The password was changed`}
+              description={t`This password is shown once and cannot be retrieved again. Tell ${resetTarget?.email ?? ''} out of band; they are signed out everywhere and must choose a new password before they can use the console.`}
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+            <Form layout="vertical">
+              <Form.Item label={t`Generated password`}>
+                <Input.TextArea
+                  value={generatedPassword}
+                  readOnly
+                  autoSize={{ minRows: 2, maxRows: 2 }}
+                  style={{ fontFamily: 'monospace', fontSize: 16 }}
+                />
+              </Form.Item>
+            </Form>
+          </>
+        ) : (
+          <Alert
+            title={t`This signs them out immediately`}
+            description={t`A new password is generated for ${resetTarget?.email ?? ''}, every session they have open is closed, and they must replace the password before they can use the console again.`}
+            type="info"
+            showIcon
+          />
+        )}
+      </Modal>
     </>
   )
 }

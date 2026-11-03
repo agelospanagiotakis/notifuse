@@ -76,6 +76,7 @@ var demoRestrictedWorkspaceRoutes = []string{
 	"/api/workspaces.deleteInvitation",
 	"/api/workspaces.joinInvitation",
 	"/api/workspaces.setUserPermissions",
+	"/api/workspaces.setUserPassword",
 	"/api/workspaces.setCustomFieldLabels",
 	"/api/workspaces.setBlogSettings",
 	"/api/workspaces.setWebAnalyticsSettings",

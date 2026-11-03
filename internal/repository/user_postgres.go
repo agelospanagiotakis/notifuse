@@ -87,10 +87,41 @@ func (r *userRepository) UpdatePasswordHash(ctx context.Context, userID string, 
 	return nil
 }
 
+// SetMustChangePassword raises or clears the forced-password-change flag.
+func (r *userRepository) SetMustChangePassword(ctx context.Context, userID string, required bool) error {
+	query := `UPDATE users SET must_change_password = $2, updated_at = NOW() WHERE id = $1`
+	res, err := r.systemDB.ExecContext(ctx, query, userID, required)
+	if err != nil {
+		return fmt.Errorf("failed to set must_change_password: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return &domain.ErrUserNotFound{Message: "user not found"}
+	}
+	return nil
+}
+
+// GetMustChangePassword answers the middleware's per-request question with one indexed
+// primary-key lookup. It returns false for an unknown user rather than an error: the token
+// that got this far is a valid one, and a missing row is the API-key revocation case, which
+// the handlers already answer — turning it into a 500 here would hide a revoked key behind a
+// database-looking failure.
+func (r *userRepository) GetMustChangePassword(ctx context.Context, userID string) (bool, error) {
+	var required bool
+	err := r.systemDB.QueryRowContext(ctx,
+		`SELECT must_change_password FROM users WHERE id = $1`, userID).Scan(&required)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to get must_change_password: %w", err)
+	}
+	return required, nil
+}
+
 func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*domain.User, error) {
 	var user domain.User
 	query := `
-		SELECT id, email, name, COALESCE(password_hash, ''), type, language, created_at, updated_at
+		SELECT id, email, name, COALESCE(password_hash, ''), must_change_password, type, language, created_at, updated_at
 		FROM users
 		WHERE email = $1
 	`
@@ -99,6 +130,7 @@ func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*dom
 		&user.Email,
 		&user.Name,
 		&user.PasswordHash,
+		&user.MustChangePassword,
 		&user.Type,
 		&user.Language,
 		&user.CreatedAt,
@@ -119,7 +151,7 @@ func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*dom
 func (r *userRepository) GetUserByEmailInsensitive(ctx context.Context, email string) (*domain.User, error) {
 	var user domain.User
 	query := `
-		SELECT id, email, name, COALESCE(password_hash, ''), type, language, created_at, updated_at
+		SELECT id, email, name, COALESCE(password_hash, ''), must_change_password, type, language, created_at, updated_at
 		FROM users
 		WHERE lower(email)=lower($1)
 	`
@@ -128,6 +160,7 @@ func (r *userRepository) GetUserByEmailInsensitive(ctx context.Context, email st
 		&user.Email,
 		&user.Name,
 		&user.PasswordHash,
+		&user.MustChangePassword,
 		&user.Type,
 		&user.Language,
 		&user.CreatedAt,
@@ -150,7 +183,7 @@ func (r *userRepository) GetUserByID(ctx context.Context, id string) (*domain.Us
 
 	var user domain.User
 	query := `
-		SELECT id, email, name, COALESCE(password_hash, ''), type, language, created_at, updated_at
+		SELECT id, email, name, COALESCE(password_hash, ''), must_change_password, type, language, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
@@ -160,6 +193,7 @@ func (r *userRepository) GetUserByID(ctx context.Context, id string) (*domain.Us
 		&user.Email,
 		&user.Name,
 		&user.PasswordHash,
+		&user.MustChangePassword,
 		&user.Type,
 		&user.Language,
 		&user.CreatedAt,
