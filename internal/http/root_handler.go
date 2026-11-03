@@ -94,6 +94,10 @@ func (h *RootHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Handle /console/* - serve console SPA
+	if r.URL.Path == "/3d" {
+		h.serve3DViewer(w, r)
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/console") {
 		h.serveConsole(w, r)
 		return

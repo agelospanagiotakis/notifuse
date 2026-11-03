@@ -16,7 +16,8 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",
-    "bundle-liquid": "cp node_modules/liquidjs/dist/liquid.browser.umd.js ../pkg/liquid/liquid.bundle.js"
+    "bundle-liquid": "cp node_modules/liquidjs/dist/liquid.browser.umd.js ../pkg/liquid/liquid.bundle.js",
+    "prebuild": "cp node_modules/@google/model-viewer/dist/model-viewer.min.js public/model-viewer.min.js"
   },
   "dependencies": {
     "@ant-design/icons": "6.3.2",

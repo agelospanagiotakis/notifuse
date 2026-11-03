@@ -27,3 +27,6 @@ dist-ssr
 playwright-report/
 playwright/.cache/
 test-results/
+
+# Generated from node_modules by the prebuild script; not a source file.
+public/model-viewer.min.js
