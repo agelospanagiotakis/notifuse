@@ -2260,41 +2260,11 @@ func (s *WorkspaceService) UpdateIntegration(ctx context.Context, req domain.Upd
 		// Preserve existing encrypted API key if new key is not provided
 		if req.LLMProvider != nil {
 			updatedIntegration.LLMProvider = req.LLMProvider
-
-			// Preserve Anthropic encrypted API key if not provided in update
-			if req.LLMProvider.Anthropic != nil &&
-				req.LLMProvider.Anthropic.APIKey == "" &&
-				req.LLMProvider.Anthropic.EncryptedAPIKey == "" &&
-				existingIntegration.LLMProvider != nil &&
-				existingIntegration.LLMProvider.Anthropic != nil {
-				updatedIntegration.LLMProvider.Anthropic.EncryptedAPIKey =
-					existingIntegration.LLMProvider.Anthropic.EncryptedAPIKey
-			}
-
-			// Preserve OpenAI encrypted API key if not provided in update.
-			// NOTE: only the secret (API key) is preserved here. Non-secret fields like
-			// model/base_url/reasoning_effort are taken verbatim from req (the whole
-			// OpenAI struct above is overwritten), so the frontend must always resend
-			// them or they reset to their zero value. Any future SECRET field needs its
-			// own preserve-on-blank branch like this one.
-			if req.LLMProvider.OpenAI != nil &&
-				req.LLMProvider.OpenAI.APIKey == "" &&
-				req.LLMProvider.OpenAI.EncryptedAPIKey == "" &&
-				existingIntegration.LLMProvider != nil &&
-				existingIntegration.LLMProvider.OpenAI != nil {
-				updatedIntegration.LLMProvider.OpenAI.EncryptedAPIKey =
-					existingIntegration.LLMProvider.OpenAI.EncryptedAPIKey
-			}
-
-			// Preserve Gemini encrypted API key if not provided in update
-			if req.LLMProvider.Gemini != nil &&
-				req.LLMProvider.Gemini.APIKey == "" &&
-				req.LLMProvider.Gemini.EncryptedAPIKey == "" &&
-				existingIntegration.LLMProvider != nil &&
-				existingIntegration.LLMProvider.Gemini != nil {
-				updatedIntegration.LLMProvider.Gemini.EncryptedAPIKey =
-					existingIntegration.LLMProvider.Gemini.EncryptedAPIKey
-			}
+			// The per-provider preserve logic used to live here, listing Anthropic, OpenAI and
+			// Gemini by hand — so DeepSeek, added later, silently lost its key on every save.
+			// It lives on the provider now, beside Validate/Encrypt/Decrypt, where a new kind
+			// has one place to add its branch.
+			updatedIntegration.LLMProvider.PreserveSecretsFrom(existingIntegration.LLMProvider)
 		} else {
 			// If no settings provided, preserve existing
 			updatedIntegration.LLMProvider = existingIntegration.LLMProvider
