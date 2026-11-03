@@ -399,8 +399,22 @@ func TestArchive_AudiencePages(t *testing.T) {
 		assert.Equal(t, http.StatusGone, rec.Code)
 	})
 
-	t.Run("the nav lists every audience with its count", func(t *testing.T) {
+	t.Run("the audience switch is absent unless the setting turns it on", func(t *testing.T) {
+		// The default: which list a campaign went to is running information, and a reader on
+		// an archive page is not an operator.
 		rec := get(h, "/archive/koisoptics/", nil)
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.NotContains(t, rec.Body.String(), `class="audiences"`)
+	})
+
+	t.Run("the nav lists every audience with its count when enabled", func(t *testing.T) {
+		enabled := archiveWorkspace(&domain.ArchiveSettings{
+			Enabled:         true,
+			Title:           "Kois archive",
+			ShowAudienceNav: true,
+		})
+		rec := get(archiveHandler(t, enabled, repo), "/archive/koisoptics/", nil)
 
 		require.Equal(t, http.StatusOK, rec.Code)
 		body := rec.Body.String()

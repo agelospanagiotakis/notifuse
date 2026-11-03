@@ -26,6 +26,14 @@ interface ArchiveEntry {
   preview_url: string
 }
 
+interface ArchiveAudience {
+  list_id: string
+  slug: string
+  name: string
+  campaigns: number
+  url: string
+}
+
 interface ArchiveState {
   settings: {
     enabled: boolean
@@ -33,9 +41,11 @@ interface ArchiveState {
     subscribe_url: string
     subscribe_list_ids: string[]
     basic_auth_user: string
+    show_audience_nav?: boolean
   }
   gate_set: boolean
   entries: ArchiveEntry[]
+  audiences: ArchiveAudience[]
   public_url: string
 }
 
@@ -66,7 +76,8 @@ export function ArchiveSettings({ workspace }: { workspace: { id: string; name: 
         subscribe_url: data.settings.subscribe_url,
         subscribe_list_ids: (data.settings.subscribe_list_ids || []).join(', '),
         basic_auth_user: data.settings.basic_auth_user,
-        basic_auth_password: ''
+        basic_auth_password: '',
+        show_audience_nav: data.settings.show_audience_nav ?? false
       })
     } catch (error) {
       message.error((error as Error).message || 'Could not load the archive')
@@ -95,6 +106,7 @@ export function ArchiveSettings({ workspace }: { workspace: { id: string; name: 
             .filter(Boolean),
           basic_auth_user: values.basic_auth_user || '',
           basic_auth_password: values.basic_auth_password || '',
+          show_audience_nav: values.show_audience_nav ?? false,
           clear_gate: !values.basic_auth_user
         }
       })
@@ -172,6 +184,14 @@ export function ArchiveSettings({ workspace }: { workspace: { id: string; name: 
             <Switch />
           </Form.Item>
           <Form.Item
+            name="show_audience_nav"
+            label="Show the audience switch on the public pages"
+            valuePropName="checked"
+            extra="Off by default: which list a campaign went to is running information, not something a reader needs. The per-audience pages stay available — they are listed below."
+          >
+            <Switch />
+          </Form.Item>
+          <Form.Item
             name="title"
             label="Page title"
             extra="The toolbar shows the part before the · separator."
@@ -213,6 +233,52 @@ export function ArchiveSettings({ workspace }: { workspace: { id: string; name: 
             )}
           </Space>
         </Form>
+      </Card>
+
+      <Card
+        title={`Audiences${state ? ` (${state.audiences.length})` : ''}`}
+        extra={
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            Each list&apos;s archive home — the address to give to whoever asks for it
+          </Text>
+        }
+      >
+        <Table
+          rowKey="list_id"
+          size="small"
+          loading={loading}
+          dataSource={state?.audiences ?? []}
+          pagination={false}
+          columns={[
+            {
+              title: 'Audience',
+              dataIndex: 'name',
+              render: (name: string, row: ArchiveAudience) => (
+                <Space direction="vertical" size={0}>
+                  <Text strong>{name}</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {row.list_id}
+                  </Text>
+                </Space>
+              )
+            },
+            {
+              title: 'Campaigns',
+              dataIndex: 'campaigns',
+              width: 120
+            },
+            {
+              title: 'Archive',
+              width: 180,
+              render: (_: unknown, row: ArchiveAudience) => (
+                <Link href={row.url} target="_blank" rel="noreferrer">
+                  Open
+                </Link>
+              )
+            }
+          ]}
+          locale={{ emptyText: 'No campaigns name an audience yet.' }}
+        />
       </Card>
 
       <Card

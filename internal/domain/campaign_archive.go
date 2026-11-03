@@ -75,6 +75,12 @@ type ArchiveSettings struct {
 	// external SubscribeURL is the fallback for a workspace that would rather keep
 	// signup on its own site.
 	SubscribeListIDs []string `json:"subscribe_list_ids,omitempty"`
+	// ShowAudienceNav puts the audience switch on the PUBLIC archive pages. Off by
+	// default, because which list a campaign went to is running information, not publishing
+	// information: a reader on an offer page has no use for "this went to 11,924 people on
+	// Kois Optics". The per-audience pages still exist and stay linkable — the console lists
+	// them for the people who need them.
+	ShowAudienceNav bool `json:"show_audience_nav,omitempty"`
 }
 
 // ErrArchiveEntryNotFound is returned when a slug is not in the archive.

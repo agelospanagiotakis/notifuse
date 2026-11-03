@@ -311,8 +311,12 @@ func (h *ArchiveHandler) renderList(w http.ResponseWriter, r *http.Request, work
 	b.WriteString(fmt.Sprintf("<p class=\"count\">%d campaign%s</p></header>",
 		len(entries), plural(len(entries))))
 
-	if nav := h.audienceNav(r, workspace, audience); nav != "" {
-		b.WriteString(`<div class="archive-nav">` + nav + `</div>`)
+	// Off by default: see ArchiveSettings.ShowAudienceNav. An audience page is still
+	// reachable by its own URL; this only decides whether the home page advertises the split.
+	if settings.ShowAudienceNav {
+		if nav := h.audienceNav(r, workspace, audience); nav != "" {
+			b.WriteString(`<div class="archive-nav">` + nav + `</div>`)
+		}
 	}
 
 	if len(settings.SubscribeListIDs) > 0 {

@@ -112,10 +112,38 @@ func (h *ArchiveAdminHandler) handleGet(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	// Audiences, with the URL each one's page lives at. This is the console's answer to
+	// "where is this list's archive?" — the question the public pages deliberately do not
+	// advertise. A list with no registry row is reported by its id, which is also the URL it
+	// resolves at, so the link is never dead.
+	audiences := []map[string]any{}
+	if err := h.archiveRepo.EnsureSchema(r.Context(), ws.ID); err == nil {
+		if list, err := h.archiveRepo.ListAudiences(r.Context(), ws.ID); err == nil {
+			for _, a := range list {
+				slug := a.Slug
+				if slug == "" {
+					slug = a.ListID
+				}
+				name := a.Name
+				if name == "" {
+					name = a.ListID
+				}
+				audiences = append(audiences, map[string]any{
+					"list_id":   a.ListID,
+					"slug":      slug,
+					"name":      name,
+					"campaigns": a.Campaigns,
+					"url":       "/archive/" + slugify(ws.Name) + "/" + slug + "/",
+				})
+			}
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"settings":   settings,
 		"gate_set":   gateSet,
 		"entries":    entries,
+		"audiences":  audiences,
 		"public_url": "/archive/" + slugify(ws.Name) + "/",
 	})
 }
@@ -137,6 +165,7 @@ func (h *ArchiveAdminHandler) handleUpdate(w http.ResponseWriter, r *http.Reques
 			BasicAuthUser     string   `json:"basic_auth_user"`
 			BasicAuthPassword string   `json:"basic_auth_password"`
 			ClearGate         bool     `json:"clear_gate"`
+			ShowAudienceNav   bool     `json:"show_audience_nav"`
 		} `json:"settings"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -156,6 +185,7 @@ func (h *ArchiveAdminHandler) handleUpdate(w http.ResponseWriter, r *http.Reques
 		SubscribeURL:     strings.TrimSpace(body.Settings.SubscribeURL),
 		SubscribeListIDs: body.Settings.SubscribeListIDs,
 		BasicAuthUser:    strings.TrimSpace(body.Settings.BasicAuthUser),
+		ShowAudienceNav:  body.Settings.ShowAudienceNav,
 	}
 	if body.Settings.ClearGate {
 		next.BasicAuthUser = ""

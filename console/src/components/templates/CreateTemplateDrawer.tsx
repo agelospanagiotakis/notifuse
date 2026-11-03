@@ -28,6 +28,8 @@ import type { PreviewRef } from '../email_builder/panels/Preview'
 import { kebabCase } from 'lodash'
 import IphoneEmailPreview from './PhonePreview'
 import defaultTemplateData from './email-template.json'
+import { StartFromPicker } from './StartFromPicker'
+import type { TemplateStarter } from './starters'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faQuestion } from '@fortawesome/free-solid-svg-icons'
 import { Tour } from 'antd'
@@ -201,6 +203,10 @@ export function CreateTemplateDrawer({
   const [tourOpen, setTourOpen] = useState(false)
   const [forcedViewMode, setForcedViewMode] = useState<'edit' | 'preview' | null>(null)
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null)
+  // Which starter the canvas was seeded from. Purely presentational (the picker's selection
+  // ring); the tree itself is the source of truth. Reset on open so a second new template does
+  // not claim to have been built from the design the first one used.
+  const [starterId, setStarterId] = useState<string>('')
   const [emailBuilderHeight, setEmailBuilderHeight] = useState<string>(
     `calc(100vh - ${HEADER_HEIGHT}px)`
   )
@@ -511,6 +517,7 @@ export function CreateTemplateDrawer({
         }
       }
     }
+    setStarterId('')
     setIsOpen(true)
 
     // Calculate EmailBuilder height after drawer opens
@@ -535,6 +542,28 @@ export function CreateTemplateDrawer({
   const handleImport = (tree: EmailBlock) => {
     dirtyRef.current = true
     setVisualEditorTree(tree)
+  }
+
+  /**
+   * Seed the canvas from a starter.
+   *
+   * The tree is deep-cloned rather than referenced: the starters are built once at module load,
+   * and handing the editor the module's own object would let one template's edits leak into the
+   * next one opened in the same browser session. The category follows the starter only when the
+   * caller has not forced one (`forceCategory`), because the caller's choice is the stronger
+   * statement of intent.
+   */
+  const handlePickStarter = (starter: TemplateStarter | null) => {
+    dirtyRef.current = true
+    setStarterId(starter ? starter.id : '')
+    if (!starter) {
+      setVisualEditorTree(createDefaultBlocks())
+      return
+    }
+    setVisualEditorTree(JSON.parse(JSON.stringify(starter.tree)) as EmailBlock)
+    if (!forceCategory) {
+      form.setFieldsValue({ category: starter.category })
+    }
   }
 
   const handleSaveBlock = async (
@@ -796,6 +825,11 @@ export function CreateTemplateDrawer({
             <div className="relative">
               <div style={{ display: tab === 'settings' ? 'block' : 'none' }}>
                 <div className="p-8">
+                  {/* Only when creating. Replacing the canvas of a template someone is editing
+                      would be a data-loss button, and the drawer is also used to edit. */}
+                  {!template && editorMode === 'visual' && (
+                    <StartFromPicker selectedId={starterId} onPick={handlePickStarter} />
+                  )}
                   <Row gutter={24}>
                     <Col span={6}>
                       <Form.Item name="name" label={t`Template name`} rules={[{ required: true }]}>
