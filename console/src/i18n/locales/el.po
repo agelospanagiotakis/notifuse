@@ -104,7 +104,7 @@ msgid "{0} emails bounced back"
 msgstr "Τα μηνύματα ηλεκτρονικού ταχυδρομείου {0} επανήλθαν"
 
 #. placeholder {0}: stats.total_bounced
-#: src/components/broadcasts/BroadcastStats.tsx:299
+#: src/components/broadcasts/BroadcastStats.tsx:318
 msgid "{0} emails bounced back - Click to view details"
 msgstr "Τα μηνύματα ηλεκτρονικού ταχυδρομείου {0} αναπήδησαν - Κάντε κλικ για να δείτε λεπτομέρειες"
 
@@ -119,7 +119,7 @@ msgid "{0} emails failed to send"
 msgstr "Απέτυχε η αποστολή των μηνυμάτων ηλεκτρονικού ταχυδρομείου {0}"
 
 #. placeholder {0}: stats.total_failed
-#: src/components/broadcasts/BroadcastStats.tsx:264
+#: src/components/broadcasts/BroadcastStats.tsx:283
 msgid "{0} emails failed to send - Click to view details"
 msgstr "Αποτυχία αποστολής μηνυμάτων ηλεκτρονικού ταχυδρομείου {0} - Κάντε κλικ για να δείτε λεπτομέρειες"
 
@@ -134,7 +134,7 @@ msgid "{0} emails successfully delivered"
 msgstr "Τα μηνύματα ηλεκτρονικού ταχυδρομείου {0} παραδόθηκαν με επιτυχία"
 
 #. placeholder {0}: stats.total_delivered
-#: src/components/broadcasts/BroadcastStats.tsx:186
+#: src/components/broadcasts/BroadcastStats.tsx:205
 msgid "{0} emails successfully delivered - Click to view details"
 msgstr "Τα email {0} παραδόθηκαν επιτυχώς - Κάντε κλικ για να δείτε λεπτομέρειες"
 
@@ -167,7 +167,7 @@ msgid "{0} of {1} rules match"
 msgstr "Οι κανόνες {0} από {1} ταιριάζουν"
 
 #. placeholder {0}: requeued.toLocaleString()
-#: src/pages/BroadcastsPage.tsx:1521
+#: src/pages/BroadcastsPage.tsx:1522
 msgid "{0} recipients queued for another attempt"
 msgstr "Οι παραλήπτες {0} έκαναν ουρά για άλλη μια προσπάθεια"
 
@@ -187,7 +187,7 @@ msgid "{0} total clicks"
 msgstr "{0} συνολικά κλικ"
 
 #. placeholder {0}: stats.total_clicked
-#: src/components/broadcasts/BroadcastStats.tsx:240
+#: src/components/broadcasts/BroadcastStats.tsx:259
 msgid "{0} total clicks - Click to view details"
 msgstr "{0} συνολικά κλικ - Κάντε κλικ για να δείτε λεπτομέρειες"
 
@@ -202,7 +202,7 @@ msgid "{0} total complaints"
 msgstr "{0} συνολικά παράπονα"
 
 #. placeholder {0}: stats.total_complained
-#: src/components/broadcasts/BroadcastStats.tsx:333
+#: src/components/broadcasts/BroadcastStats.tsx:352
 msgid "{0} total complaints - Click to view details"
 msgstr "{0} συνολικά παράπονα - Κάντε κλικ για να δείτε λεπτομέρειες"
 
@@ -217,7 +217,7 @@ msgid "{0} total emails sent"
 msgstr "{0} το σύνολο των email που στάλθηκαν"
 
 #. placeholder {0}: stats.total_sent
-#: src/components/broadcasts/BroadcastStats.tsx:158
+#: src/components/broadcasts/BroadcastStats.tsx:177
 msgid "{0} total emails sent - Click to view details"
 msgstr "{0} σύνολο email που στάλθηκαν - Κάντε κλικ για να δείτε λεπτομέρειες"
 
@@ -232,7 +232,7 @@ msgid "{0} total opens"
 msgstr "{0} σύνολο ανοίγει"
 
 #. placeholder {0}: stats.total_opened
-#: src/components/broadcasts/BroadcastStats.tsx:216
+#: src/components/broadcasts/BroadcastStats.tsx:235
 msgid "{0} total opens - Click to view details"
 msgstr "{0} σύνολο ανοίγει - Κάντε κλικ για να δείτε λεπτομέρειες"
 
@@ -247,7 +247,7 @@ msgid "{0} total unsubscribes"
 msgstr "{0} συνολικές απεγγραφές"
 
 #. placeholder {0}: stats.total_unsubscribed
-#: src/components/broadcasts/BroadcastStats.tsx:363
+#: src/components/broadcasts/BroadcastStats.tsx:382
 msgid "{0} total unsubscribes - Click to view details"
 msgstr "{0} συνολικές απεγγραφές - Κάντε κλικ για να δείτε λεπτομέρειες"
 
@@ -264,7 +264,7 @@ msgstr "{0}-{1} από αυτοματισμούς {total}"
 
 #. placeholder {0}: range[0]
 #. placeholder {1}: range[1]
-#: src/pages/BroadcastsPage.tsx:1725
+#: src/pages/BroadcastsPage.tsx:1726
 msgid "{0}-{1} of {total} broadcasts"
 msgstr "{0}-{1} από εκπομπές {total}"
 
@@ -276,7 +276,7 @@ msgstr "Το {capability} απαιτεί άδεια Notifuse {tier}."
 msgid "{capability} requires a Notifuse licence."
 msgstr "Το {capability} απαιτεί άδεια Notifuse."
 
-#: src/pages/BroadcastsPage.tsx:966
+#: src/pages/BroadcastsPage.tsx:967
 msgid "{clicks} clicks out of {recipients} recipients"
 msgstr "{clicks} κλικ από {recipients} παραλήπτες"
 
@@ -333,7 +333,7 @@ msgstr "{minutes}m {remainingSeconds}s"
 msgid "{minutes}m {seconds}s"
 msgstr "{minutes}m {seconds}s"
 
-#: src/pages/BroadcastsPage.tsx:931
+#: src/pages/BroadcastsPage.tsx:932
 msgid "{opens} opens out of {recipients} recipients"
 msgstr "Το {opens} ανοίγει από τους παραλήπτες {recipients}"
 
@@ -462,7 +462,7 @@ msgstr "+{0} περισσότερα"
 msgid "+{hiddenCount} more"
 msgstr "+{hiddenCount} περισσότερα"
 
-#: src/pages/BroadcastsPage.tsx:950
+#: src/pages/BroadcastsPage.tsx:951
 msgid "0 clicks out of 0 recipients"
 msgstr "0 κλικ από 0 παραλήπτες"
 
@@ -470,7 +470,7 @@ msgstr "0 κλικ από 0 παραλήπτες"
 msgid "0 contacts"
 msgstr "0 επαφές"
 
-#: src/pages/BroadcastsPage.tsx:919
+#: src/pages/BroadcastsPage.tsx:920
 msgid "0 opens out of 0 recipients"
 msgstr "Ανοίγει 0 από 0 παραλήπτες"
 
@@ -610,7 +610,7 @@ msgstr ""
 #: src/components/automations/nodes/ABTestNode.tsx:47
 #: src/components/automations/nodes/StatNode.tsx:87
 #: src/components/automations/nodes/StatNode.tsx:340
-#: src/pages/BroadcastsPage.tsx:1235
+#: src/pages/BroadcastsPage.tsx:1236
 msgid "A/B Test"
 msgstr "Δοκιμή A/B"
 
@@ -641,7 +641,7 @@ msgstr "Δράση"
 
 #: src/components/blog/PostsTable.tsx:296
 #: src/components/blog/RecentThemesTable.tsx:179
-#: src/pages/BroadcastsPage.tsx:980
+#: src/pages/BroadcastsPage.tsx:981
 msgid "Actions"
 msgstr "Δράσεις"
 
@@ -950,7 +950,7 @@ msgstr "μετά"
 
 #. placeholder {0}: broadcast.test_settings.test_duration_hours
 #. placeholder {1}: broadcast.test_settings.auto_send_winner_metric === 'open_rate' ? t`opens` : t`clicks`
-#: src/pages/BroadcastsPage.tsx:1253
+#: src/pages/BroadcastsPage.tsx:1254
 msgid "After {0} hours based on highest {1}"
 msgstr "Μετά από {0} ώρες με βάση το υψηλότερο {1}"
 
@@ -1014,7 +1014,7 @@ msgstr "Ευθυγράμμιση"
 #: src/components/analytics/EmailMetricsChart.tsx:284
 #: src/components/web_analytics/tabs/AnnotationsTab.tsx:124
 #: src/components/web_analytics/tabs/FiltersTab.tsx:152
-#: src/pages/BroadcastsPage.tsx:1640
+#: src/pages/BroadcastsPage.tsx:1641
 #: src/pages/TemplatesPage.tsx:128
 msgid "All"
 msgstr "Όλα"
@@ -1336,7 +1336,7 @@ msgid "Are you sure you want to delete \"{0}\"?"
 msgstr "Είστε βέβαιοι ότι θέλετε να διαγράψετε το \"{0}\";"
 
 #. placeholder {0}: broadcastToDelete.name
-#: src/pages/BroadcastsPage.tsx:1809
+#: src/pages/BroadcastsPage.tsx:1810
 msgid "Are you sure you want to delete the broadcast \"{0}\"?"
 msgstr "Είστε βέβαιοι ότι θέλετε να διαγράψετε την εκπομπή \"{0}\";"
 
@@ -1412,7 +1412,7 @@ msgid "Are you sure you want to remove this variation?"
 msgstr "Είστε βέβαιοι ότι θέλετε να καταργήσετε αυτήν την παραλλαγή;"
 
 #. placeholder {0}: record.templateName
-#: src/pages/BroadcastsPage.tsx:1055
+#: src/pages/BroadcastsPage.tsx:1056
 msgid "Are you sure you want to select \"{0}\" as the winner? The broadcast will be sent to the remaining recipients."
 msgstr ""
 
@@ -1490,7 +1490,7 @@ msgstr "Κανόνες απόδοσης"
 #~ msgid "Attribution rules saved. Run a backfill to rewrite historical data."
 #~ msgstr "Attribution rules saved. Run a backfill to rewrite historical data."
 
-#: src/pages/BroadcastsPage.tsx:1102
+#: src/pages/BroadcastsPage.tsx:1103
 msgid "Audience"
 msgstr "Κοινό"
 
@@ -1570,7 +1570,7 @@ msgstr "Αυτόματη απενεργοποίηση"
 msgid "Auto-reply"
 msgstr "Αυτόματη απάντηση"
 
-#: src/pages/BroadcastsPage.tsx:1244
+#: src/pages/BroadcastsPage.tsx:1245
 msgid "Auto-send Winner"
 msgstr "Αυτόματη αποστολή Νικητή"
 
@@ -2009,7 +2009,7 @@ msgstr "Τύπος αναπήδησης"
 #: src/components/analytics/EmailMetricsChart.tsx:429
 #: src/components/automations/config/TriggerConfigForm.tsx:81
 #: src/components/automations/config/TriggerConfigForm.tsx:101
-#: src/components/broadcasts/BroadcastStats.tsx:318
+#: src/components/broadcasts/BroadcastStats.tsx:337
 #: src/components/contacts/ContactDetailsDrawer.tsx:585
 #: src/components/lists/ListStats.tsx:134
 #: src/components/messages/MessageHistoryTab.tsx:164
@@ -2083,27 +2083,27 @@ msgid "Broadcast"
 msgstr "Εκπομπή"
 
 #. placeholder {0}: broadcast.name
-#: src/pages/BroadcastsPage.tsx:1555
+#: src/pages/BroadcastsPage.tsx:1556
 msgid "Broadcast \"{0}\" cancelled successfully"
 msgstr "Η μετάδοση \"{0}\" ακυρώθηκε με επιτυχία"
 
 #. placeholder {0}: broadcastToDelete.name
-#: src/pages/BroadcastsPage.tsx:1479
+#: src/pages/BroadcastsPage.tsx:1480
 msgid "Broadcast \"{0}\" deleted successfully"
 msgstr "Η μετάδοση \"{0}\" διαγράφηκε με επιτυχία"
 
 #. placeholder {0}: broadcast.name
-#: src/pages/BroadcastsPage.tsx:1505
+#: src/pages/BroadcastsPage.tsx:1506
 msgid "Broadcast \"{0}\" paused successfully"
 msgstr "Η μετάδοση \"{0}\" διακόπηκε με επιτυχία"
 
 #. placeholder {0}: broadcast.name
-#: src/pages/BroadcastsPage.tsx:1593
+#: src/pages/BroadcastsPage.tsx:1594
 msgid "Broadcast \"{0}\" refreshed"
 msgstr "Η εκπομπή \"{0}\" ανανεώθηκε"
 
 #. placeholder {0}: broadcast.name
-#: src/pages/BroadcastsPage.tsx:1539
+#: src/pages/BroadcastsPage.tsx:1540
 msgid "Broadcast \"{0}\" resumed successfully"
 msgstr "Η μετάδοση \"{0}\" συνεχίστηκε με επιτυχία"
 
@@ -2126,7 +2126,7 @@ msgstr "Η εκπομπή δημιουργήθηκε με επιτυχία"
 msgid "Broadcast ID"
 msgstr "Αναγνωριστικό εκπομπής"
 
-#: src/pages/BroadcastsPage.tsx:1820
+#: src/pages/BroadcastsPage.tsx:1821
 msgid "Broadcast ID copied to clipboard"
 msgstr "Το αναγνωριστικό εκπομπής αντιγράφηκε στο πρόχειρο"
 
@@ -2141,7 +2141,7 @@ msgstr "Η εκπομπή ενημερώθηκε με επιτυχία"
 #: src/components/analytics/EmailMetricsChart.tsx:285
 #: src/components/settings/PermissionsMatrix.tsx:124
 #: src/layouts/WorkspaceLayout.tsx:402
-#: src/pages/BroadcastsPage.tsx:1608
+#: src/pages/BroadcastsPage.tsx:1609
 #: src/services/api/errors.ts:63
 msgid "Broadcasts"
 msgstr "Εκπομπές"
@@ -2324,8 +2324,8 @@ msgstr "καμπάνιες"
 #: src/pages/BroadcastsPage.tsx:643
 #: src/pages/BroadcastsPage.tsx:667
 #: src/pages/BroadcastsPage.tsx:689
-#: src/pages/BroadcastsPage.tsx:1058
-#: src/pages/BroadcastsPage.tsx:1793
+#: src/pages/BroadcastsPage.tsx:1059
+#: src/pages/BroadcastsPage.tsx:1794
 #: src/pages/ListsPage.tsx:318
 #: src/pages/TemplatesPage.tsx:383
 #: src/pages/TransactionalNotificationsPage.tsx:149
@@ -2362,7 +2362,7 @@ msgstr "Ακύρωση μεταφόρτωσης;"
 
 #: src/pages/BroadcastsPage.tsx:268
 #: src/pages/BroadcastsPage.tsx:449
-#: src/pages/BroadcastsPage.tsx:1192
+#: src/pages/BroadcastsPage.tsx:1193
 msgid "Cancelled"
 msgstr "Ακυρώθηκε"
 
@@ -2572,7 +2572,7 @@ msgstr "Εκκαθάριση όλων"
 msgid "Clear field"
 msgstr "Καθαρό πεδίο"
 
-#: src/pages/BroadcastsPage.tsx:1739
+#: src/pages/BroadcastsPage.tsx:1740
 msgid "Clear filters"
 msgstr "Καθαρίστε τα φίλτρα"
 
@@ -2641,14 +2641,14 @@ msgstr "Κάντε κλικ"
 msgid "clicked link contains"
 msgstr "ο σύνδεσμος που κάνατε κλικ περιέχει"
 
-#: src/pages/BroadcastsPage.tsx:1253
+#: src/pages/BroadcastsPage.tsx:1254
 msgid "clicks"
 msgstr "κλικ"
 
 #: src/components/analytics/EmailMetricsChart.tsx:269
 #: src/components/analytics/EmailMetricsChart.tsx:402
-#: src/components/broadcasts/BroadcastStats.tsx:253
-#: src/pages/BroadcastsPage.tsx:943
+#: src/components/broadcasts/BroadcastStats.tsx:272
+#: src/pages/BroadcastsPage.tsx:944
 msgid "Clicks"
 msgstr "Κλικ"
 
@@ -2836,7 +2836,7 @@ msgstr "Καταγγελία"
 
 #: src/components/analytics/EmailMetricsChart.tsx:271
 #: src/components/analytics/EmailMetricsChart.tsx:456
-#: src/components/broadcasts/BroadcastStats.tsx:352
+#: src/components/broadcasts/BroadcastStats.tsx:371
 #: src/components/lists/ListStats.tsx:158
 msgid "Complaints"
 msgstr "Παράπονα"
@@ -2867,7 +2867,7 @@ msgstr "ολοκληρωθεί"
 #: src/components/automations/nodes/StatNode.tsx:264
 #: src/components/automations/nodes/StatNode.tsx:353
 #: src/pages/BroadcastsPage.tsx:445
-#: src/pages/BroadcastsPage.tsx:1173
+#: src/pages/BroadcastsPage.tsx:1174
 msgid "Completed"
 msgstr "Ολοκληρώθηκε"
 
@@ -2947,7 +2947,7 @@ msgid "Configure outgoing webhooks to receive real-time notifications when event
 msgstr "Διαμορφώστε τα εξερχόμενα webhook για να λαμβάνετε ειδοποιήσεις σε πραγματικό χρόνο όταν συμβαίνουν συμβάντα στον χώρο εργασίας σας."
 
 #: src/components/broadcasts/SendOrScheduleModal.tsx:187
-#: src/pages/BroadcastsPage.tsx:1677
+#: src/pages/BroadcastsPage.tsx:1678
 msgid "Configure Provider"
 msgstr "Διαμόρφωση παρόχου"
 
@@ -3235,7 +3235,7 @@ msgstr "Αντιγράψτε τον κωδικό {0}"
 #~ msgid "Copy code"
 #~ msgstr "Copy code"
 
-#: src/pages/BroadcastsPage.tsx:1813
+#: src/pages/BroadcastsPage.tsx:1814
 msgid "Copy to clipboard"
 msgstr "Αντιγραφή στο πρόχειρο"
 
@@ -3440,8 +3440,8 @@ msgid "Create Automation"
 msgstr "Δημιουργία Αυτοματισμού"
 
 #: src/components/broadcasts/UpsertBroadcastDrawer.tsx:371
-#: src/pages/BroadcastsPage.tsx:1623
-#: src/pages/BroadcastsPage.tsx:1762
+#: src/pages/BroadcastsPage.tsx:1624
+#: src/pages/BroadcastsPage.tsx:1763
 msgid "Create Broadcast"
 msgstr "Δημιουργία εκπομπής"
 
@@ -3536,7 +3536,7 @@ msgstr "Δημιουργήστε τον πρώτο σας αυτοματισμό
 msgid "Create your first blog post to get started"
 msgstr "Δημιουργήστε την πρώτη σας ανάρτηση ιστολογίου για να ξεκινήσετε"
 
-#: src/pages/BroadcastsPage.tsx:1747
+#: src/pages/BroadcastsPage.tsx:1748
 msgid "Create your first broadcast to get started"
 msgstr "Δημιουργήστε την πρώτη σας εκπομπή για να ξεκινήσετε"
 
@@ -3945,7 +3945,7 @@ msgstr "Προεπιλεγμένα χαρακτηριστικά"
 msgid "Default Language"
 msgstr "Προεπιλεγμένη γλώσσα"
 
-#: src/pages/BroadcastsPage.tsx:850
+#: src/pages/BroadcastsPage.tsx:851
 msgid "Default sender"
 msgstr "Προεπιλεγμένος αποστολέας"
 
@@ -4010,7 +4010,7 @@ msgstr "Καθυστέρηση"
 #: src/components/web_analytics/filters/FilterTable.tsx:136
 #: src/components/web_analytics/filters/FilterTable.tsx:291
 #: src/components/web_analytics/filters/OperationsBuilder.tsx:104
-#: src/pages/BroadcastsPage.tsx:1803
+#: src/pages/BroadcastsPage.tsx:1804
 #: src/pages/ContactsPage.tsx:946
 #: src/pages/ListsPage.tsx:328
 msgid "Delete"
@@ -4111,7 +4111,7 @@ msgid "Delete Block"
 msgstr "Διαγραφή αποκλεισμού"
 
 #: src/pages/BroadcastsPage.tsx:730
-#: src/pages/BroadcastsPage.tsx:1788
+#: src/pages/BroadcastsPage.tsx:1789
 msgid "Delete Broadcast"
 msgstr "Διαγραφή εκπομπής"
 
@@ -4257,7 +4257,7 @@ msgstr "παραδόθηκε"
 
 #: src/components/analytics/EmailMetricsChart.tsx:267
 #: src/components/analytics/EmailMetricsChart.tsx:348
-#: src/components/broadcasts/BroadcastStats.tsx:205
+#: src/components/broadcasts/BroadcastStats.tsx:224
 #: src/components/messages/MessageHistoryTab.tsx:112
 #: src/components/messages/MessageHistoryTab.tsx:114
 #: src/components/messages/MessageHistoryTable.tsx:328
@@ -4515,7 +4515,7 @@ msgstr "Λήφθηκαν αρχεία {0}"
 #: src/components/automations/AutomationCard.tsx:63
 #: src/components/blog/PostStatusTag.tsx:33
 #: src/pages/BroadcastsPage.tsx:177
-#: src/pages/BroadcastsPage.tsx:1641
+#: src/pages/BroadcastsPage.tsx:1642
 msgid "Draft"
 msgstr "Σχέδιο"
 
@@ -4960,7 +4960,7 @@ msgstr "Προεπισκόπηση email"
 msgid "Email Provider Configuration Needed"
 msgstr "Απαιτείται διαμόρφωση παρόχου email"
 
-#: src/pages/BroadcastsPage.tsx:1666
+#: src/pages/BroadcastsPage.tsx:1667
 msgid "Email Provider Required"
 msgstr "Απαιτείται πάροχος email"
 
@@ -5177,7 +5177,7 @@ msgstr "Εισαγάγετε τη διεύθυνση URL εικόνας φόντ
 msgid "Enter BCC email addresses"
 msgstr "Εισαγάγετε διευθύνσεις email BCC"
 
-#: src/pages/BroadcastsPage.tsx:1826
+#: src/pages/BroadcastsPage.tsx:1827
 msgid "Enter broadcast ID to confirm"
 msgstr "Εισαγάγετε το αναγνωριστικό εκπομπής για επιβεβαίωση"
 
@@ -5479,7 +5479,7 @@ msgstr "Απόσπασμα"
 msgid "Excerpt only"
 msgstr "Απόσπασμα μόνο"
 
-#: src/pages/BroadcastsPage.tsx:1134
+#: src/pages/BroadcastsPage.tsx:1135
 msgid "Exclude Unsubscribed"
 msgstr "Εξαίρεση Μη εγγεγραμμένων"
 
@@ -5600,7 +5600,7 @@ msgstr "απέτυχε"
 #: src/components/automations/nodes/StatNode.tsx:138
 #: src/components/automations/nodes/StatNode.tsx:200
 #: src/components/automations/nodes/StatNode.tsx:359
-#: src/components/broadcasts/BroadcastStats.tsx:277
+#: src/components/broadcasts/BroadcastStats.tsx:296
 #: src/components/contacts/BulkActionProgressModal.tsx:106
 #: src/components/contacts/BulkActionProgressModal.tsx:146
 #: src/components/contacts/BulkUpdateDrawer.tsx:695
@@ -5614,7 +5614,7 @@ msgstr "απέτυχε"
 #: src/pages/BroadcastsPage.tsx:276
 #: src/pages/BroadcastsPage.tsx:447
 #: src/pages/BroadcastsPage.tsx:514
-#: src/pages/BroadcastsPage.tsx:1645
+#: src/pages/BroadcastsPage.tsx:1646
 #: src/pages/TransactionalNotificationsPage.tsx:234
 msgid "Failed"
 msgstr "Απέτυχε"
@@ -5631,7 +5631,7 @@ msgstr "Αποτυχία ενεργοποίησης αυτοματισμού"
 msgid "Failed to add to list: {error}"
 msgstr "Αποτυχία προσθήκης στη λίστα: {error}"
 
-#: src/pages/BroadcastsPage.tsx:1560
+#: src/pages/BroadcastsPage.tsx:1561
 msgid "Failed to cancel broadcast"
 msgstr "Η ακύρωση της εκπομπής απέτυχε"
 
@@ -5715,7 +5715,7 @@ msgstr "Αποτυχία δημιουργίας χώρου εργασίας"
 msgid "Failed to delete automation"
 msgstr "Αποτυχία διαγραφής αυτοματισμού"
 
-#: src/pages/BroadcastsPage.tsx:1492
+#: src/pages/BroadcastsPage.tsx:1493
 msgid "Failed to delete broadcast"
 msgstr "Αποτυχία διαγραφής εκπομπής"
 
@@ -5862,7 +5862,7 @@ msgstr "Η φόρτωση των συνδρομών webhook απέτυχε"
 msgid "Failed to pause automation"
 msgstr "Η παύση του αυτοματισμού απέτυχε"
 
-#: src/pages/BroadcastsPage.tsx:1510
+#: src/pages/BroadcastsPage.tsx:1511
 msgid "Failed to pause broadcast"
 msgstr "Η παύση της μετάδοσης απέτυχε"
 
@@ -5930,11 +5930,11 @@ msgstr "Απέτυχε η εκ νέου αποστολή της πρόσκλησ
 msgid "Failed to resend magic code"
 msgstr "Απέτυχε η εκ νέου αποστολή του μαγικού κώδικα"
 
-#: src/pages/BroadcastsPage.tsx:1544
+#: src/pages/BroadcastsPage.tsx:1545
 msgid "Failed to resume broadcast"
 msgstr "Η συνέχιση της εκπομπής απέτυχε"
 
-#: src/pages/BroadcastsPage.tsx:1528
+#: src/pages/BroadcastsPage.tsx:1529
 msgid "Failed to retry the recipients"
 msgstr "Αποτυχία επανάληψης δοκιμής των παραληπτών"
 
@@ -6462,7 +6462,7 @@ msgstr "Από Όνομα"
 msgid "From Name (override)"
 msgstr "Από το όνομα (παράκαμψη)"
 
-#: src/pages/BroadcastsPage.tsx:898
+#: src/pages/BroadcastsPage.tsx:899
 msgid "From:"
 msgstr "Από:"
 
@@ -6744,7 +6744,7 @@ msgstr "Βοηθά τους αναγνώστες οθόνης να περιγρ�
 msgid "Hide"
 msgstr "Απόκρυψη"
 
-#: src/pages/BroadcastsPage.tsx:802
+#: src/pages/BroadcastsPage.tsx:803
 msgid "Hide Details"
 msgstr "Απόκρυψη λεπτομερειών"
 
@@ -6899,7 +6899,7 @@ msgstr "Το αναγνωριστικό μπορεί να περιέχει μό�
 msgid "ID can only contain lowercase letters, numbers, and underscores"
 msgstr "Το αναγνωριστικό μπορεί να περιέχει μόνο πεζά γράμματα, αριθμούς και κάτω παύλες"
 
-#: src/pages/BroadcastsPage.tsx:1834
+#: src/pages/BroadcastsPage.tsx:1835
 #: src/pages/ListsPage.tsx:346
 msgid "ID doesn't match"
 msgstr "Η ταυτότητα δεν ταιριάζει"
@@ -7101,7 +7101,7 @@ msgid "in"
 msgstr "σε"
 
 #. placeholder {0}: broadcast.schedule.timezone
-#: src/pages/BroadcastsPage.tsx:1160
+#: src/pages/BroadcastsPage.tsx:1161
 msgid "in {0}"
 msgstr "σε {0}"
 
@@ -7110,7 +7110,7 @@ msgstr "σε {0}"
 msgid "in date range"
 msgstr "στο εύρος ημερομηνιών"
 
-#: src/pages/BroadcastsPage.tsx:1159
+#: src/pages/BroadcastsPage.tsx:1160
 msgid "in recipients timezone"
 msgstr "στη ζώνη ώρας των παραληπτών"
 
@@ -7158,7 +7158,7 @@ msgstr "Ευρετηρίαση, αλλά μην ακολουθείτε συνδ�
 msgid "Inflight"
 msgstr "Εν πτήσει"
 
-#: src/pages/BroadcastsPage.tsx:893
+#: src/pages/BroadcastsPage.tsx:894
 msgid "Info"
 msgstr "Πληροφορίες"
 
@@ -7733,7 +7733,7 @@ msgstr "Liquid block - Κάντε κλικ για να προσθέσετε MJML
 #: src/components/messages/MessageHistoryTable.tsx:291
 #: src/components/web_analytics/goals/GoalDashboardDrawer.tsx:231
 #: src/components/web_analytics/tabs/DashboardTab.tsx:220
-#: src/pages/BroadcastsPage.tsx:1126
+#: src/pages/BroadcastsPage.tsx:1127
 #: src/pages/ContactsPage.tsx:379
 msgid "List"
 msgstr "Λίστα"
@@ -8475,9 +8475,9 @@ msgstr "η τάξη μου"
 msgid "my-tenant"
 msgstr "ενοικιαστής μου"
 
-#: src/pages/BroadcastsPage.tsx:851
-#: src/pages/BroadcastsPage.tsx:922
-#: src/pages/BroadcastsPage.tsx:957
+#: src/pages/BroadcastsPage.tsx:852
+#: src/pages/BroadcastsPage.tsx:923
+#: src/pages/BroadcastsPage.tsx:958
 msgid "N/A"
 msgstr "N/A"
 
@@ -8663,11 +8663,11 @@ msgstr "Δεν υπάρχουν ακόμη αυτοματισμοί"
 msgid "No backfill has run yet. Run one to apply these rules to historical sessions and goals."
 msgstr ""
 
-#: src/pages/BroadcastsPage.tsx:1745
+#: src/pages/BroadcastsPage.tsx:1746
 msgid "No broadcasts found"
 msgstr "Δεν βρέθηκαν εκπομπές"
 
-#: src/pages/BroadcastsPage.tsx:1733
+#: src/pages/BroadcastsPage.tsx:1734
 msgid "No broadcasts match your filters"
 msgstr "Καμία εκπομπή δεν ταιριάζει με τα φίλτρα σας"
 
@@ -9353,14 +9353,14 @@ msgstr "Άνοιξε"
 #~ msgid "Opened the {section} section"
 #~ msgstr "Opened the {section} section"
 
-#: src/pages/BroadcastsPage.tsx:1253
+#: src/pages/BroadcastsPage.tsx:1254
 msgid "opens"
 msgstr "ανοίγει"
 
 #: src/components/analytics/EmailMetricsChart.tsx:268
 #: src/components/analytics/EmailMetricsChart.tsx:375
-#: src/components/broadcasts/BroadcastStats.tsx:229
-#: src/pages/BroadcastsPage.tsx:912
+#: src/components/broadcasts/BroadcastStats.tsx:248
+#: src/pages/BroadcastsPage.tsx:913
 msgid "Opens"
 msgstr "Ανοίγει"
 
@@ -9597,7 +9597,7 @@ msgstr "Παύση εκπομπής;"
 #: src/components/automations/AutomationCard.tsx:67
 #: src/pages/BroadcastsPage.tsx:203
 #: src/pages/BroadcastsPage.tsx:451
-#: src/pages/BroadcastsPage.tsx:1179
+#: src/pages/BroadcastsPage.tsx:1180
 msgid "Paused"
 msgstr "Σε παύση"
 
@@ -10158,7 +10158,7 @@ msgstr "Προεπισκόπηση αποτελεσμάτων"
 msgid "Preview template"
 msgstr "Πρότυπο προεπισκόπησης"
 
-#: src/pages/BroadcastsPage.tsx:1022
+#: src/pages/BroadcastsPage.tsx:1023
 #: src/pages/TemplatesPage.tsx:403
 msgid "Preview Template"
 msgstr "Πρότυπο προεπισκόπησης"
@@ -10591,7 +10591,7 @@ msgstr "Έτοιμο για αποστολή"
 msgid "Ready to use"
 msgstr "Έτοιμο για χρήση"
 
-#: src/pages/BroadcastsPage.tsx:1184
+#: src/pages/BroadcastsPage.tsx:1185
 msgid "Reason:"
 msgstr "Λόγος:"
 
@@ -10638,11 +10638,11 @@ msgid "recipient@example.com"
 msgstr "recipient@example.com"
 
 #: src/components/email_builder/ui/tiptap/components/TiptapToolbar.tsx:98
-#: src/pages/BroadcastsPage.tsx:1262
+#: src/pages/BroadcastsPage.tsx:1263
 msgid "Recommended"
 msgstr "Συνιστάται"
 
-#: src/pages/BroadcastsPage.tsx:1260
+#: src/pages/BroadcastsPage.tsx:1261
 msgid "Recommended Winner"
 msgstr "Προτεινόμενος Νικητής"
 
@@ -10911,7 +10911,7 @@ msgstr ""
 msgid "Reply to"
 msgstr "Απάντηση σε"
 
-#: src/pages/BroadcastsPage.tsx:902
+#: src/pages/BroadcastsPage.tsx:903
 msgid "Reply To:"
 msgstr "Απάντηση σε:"
 
@@ -10930,6 +10930,18 @@ msgstr "Αναφορά προβλήματος"
 #: src/components/web_analytics/WebAnalyticsAIAssistant.tsx:337
 #~ msgid "Report grouped by {dimensions}"
 #~ msgstr "Report grouped by {dimensions}"
+
+#: src/components/broadcasts/BroadcastStats.tsx:259
+msgid "Reported by Mailchimp: {clickedValue} unique clicks"
+msgstr ""
+
+#: src/components/broadcasts/BroadcastStats.tsx:235
+msgid "Reported by Mailchimp: {openedValue} unique opens"
+msgstr ""
+
+#: src/components/broadcasts/BroadcastStats.tsx:177
+msgid "Reported by Mailchimp: {sentValue} emails sent"
+msgstr ""
 
 #: src/components/settings/Integrations.tsx:2513
 msgid "Reputation"
@@ -11282,7 +11294,7 @@ msgstr "μυστικό κλειδί S3"
 msgid "Same Window"
 msgstr "Ίδιο παράθυρο"
 
-#: src/pages/BroadcastsPage.tsx:1237
+#: src/pages/BroadcastsPage.tsx:1238
 msgid "Sample Percentage"
 msgstr "Ποσοστό δείγματος"
 
@@ -11408,8 +11420,8 @@ msgstr "Προγραμματίστε ή στείλτε αμέσως μια εκ�
 
 #: src/components/blog/PostStatusTag.tsx:20
 #: src/pages/BroadcastsPage.tsx:185
-#: src/pages/BroadcastsPage.tsx:1153
-#: src/pages/BroadcastsPage.tsx:1642
+#: src/pages/BroadcastsPage.tsx:1154
+#: src/pages/BroadcastsPage.tsx:1643
 msgid "Scheduled"
 msgstr "Προγραμματισμένο"
 
@@ -11438,7 +11450,7 @@ msgstr ""
 msgid "Search"
 msgstr "Αναζήτηση"
 
-#: src/pages/BroadcastsPage.tsx:1650
+#: src/pages/BroadcastsPage.tsx:1651
 #: src/pages/TemplatesPage.tsx:452
 msgid "Search by name"
 msgstr "Αναζήτηση με όνομα"
@@ -11575,7 +11587,7 @@ msgstr "Επαναφορά δέντρου τμήματος"
 
 #: src/components/contacts/SegmentsFilter.tsx:230
 #: src/components/settings/PermissionsMatrix.tsx:132
-#: src/pages/BroadcastsPage.tsx:1107
+#: src/pages/BroadcastsPage.tsx:1108
 #: src/pages/ContactsPage.tsx:425
 #: src/pages/ContactsPage.tsx:625
 #: src/services/api/errors.ts:71
@@ -11588,7 +11600,7 @@ msgstr "Τμήματα"
 #: src/components/settings/BlogSettings.tsx:376
 #: src/components/templates/TemplateSelectorInput.tsx:238
 #: src/components/web_analytics/explore/ExploreTemplates.tsx:153
-#: src/pages/BroadcastsPage.tsx:1065
+#: src/pages/BroadcastsPage.tsx:1066
 msgid "Select"
 msgstr "Επιλέξτε"
 
@@ -11885,7 +11897,7 @@ msgstr "Επιλέξτε από ποια λίστα θα αφαιρέσετε τ
 msgid "Select which segment this trigger applies to"
 msgstr "Επιλέξτε σε ποιο τμήμα ισχύει αυτός ο κανόνας ετικέτας"
 
-#: src/pages/BroadcastsPage.tsx:1054
+#: src/pages/BroadcastsPage.tsx:1055
 msgid "Select Winner"
 msgstr "Επιλέξτε Νικητής"
 
@@ -11902,7 +11914,7 @@ msgstr "Επιλέξτε τον πάροχο αποθηκευτικού χώρο
 msgid "Selected dimensions, in order:"
 msgstr "Επιλεγμένες διαστάσεις, με τη σειρά:"
 
-#: src/pages/BroadcastsPage.tsx:1271
+#: src/pages/BroadcastsPage.tsx:1272
 msgid "Selected Winner"
 msgstr "Επιλεγμένος Νικητής"
 
@@ -11981,7 +11993,7 @@ msgstr "Αποστολή δοκιμής"
 #: src/components/settings/Integrations.tsx:2810
 #: src/components/templates/SendTemplateModal.tsx:263
 #: src/components/templates/SendTemplateModal.tsx:277
-#: src/pages/BroadcastsPage.tsx:1006
+#: src/pages/BroadcastsPage.tsx:1007
 #: src/pages/TemplatesPage.tsx:393
 msgid "Send Test Email"
 msgstr "Αποστολή δοκιμαστικού email"
@@ -12006,7 +12018,7 @@ msgstr "Όνομα αποστολέα"
 msgid "Senders"
 msgstr "Αποστολείς"
 
-#: src/pages/BroadcastsPage.tsx:1643
+#: src/pages/BroadcastsPage.tsx:1644
 msgid "Sending"
 msgstr "Αποστολή"
 
@@ -12037,11 +12049,11 @@ msgstr "έστειλε"
 
 #: src/components/analytics/EmailMetricsChart.tsx:266
 #: src/components/analytics/EmailMetricsChart.tsx:321
-#: src/components/broadcasts/BroadcastStats.tsx:171
+#: src/components/broadcasts/BroadcastStats.tsx:190
 #: src/components/messages/MessageHistoryTab.tsx:99
 #: src/components/messages/MessageHistoryTab.tsx:101
 #: src/components/messages/MessageHistoryTable.tsx:320
-#: src/pages/BroadcastsPage.tsx:1644
+#: src/pages/BroadcastsPage.tsx:1645
 #: src/pages/TransactionalNotificationsPage.tsx:200
 msgid "Sent"
 msgstr "Στάλθηκε"
@@ -12316,7 +12328,7 @@ msgstr "Εμφάνιση"
 msgid "Show Controls"
 msgstr "Εμφάνιση στοιχείων ελέγχου"
 
-#: src/pages/BroadcastsPage.tsx:807
+#: src/pages/BroadcastsPage.tsx:808
 msgid "Show Details"
 msgstr "Εμφάνιση λεπτομερειών"
 
@@ -12511,15 +12523,15 @@ msgstr "Θύρα SMTP"
 msgid "SMTP port is required"
 msgstr "Απαιτείται θύρα SMTP"
 
-#: src/components/broadcasts/BroadcastStats.tsx:298
+#: src/components/broadcasts/BroadcastStats.tsx:317
 msgid "SMTP provider doesn't support bounce webhooks, so bounce status cannot be tracked"
 msgstr "Ο πάροχος SMTP δεν υποστηρίζει bounce webhook, επομένως η κατάσταση εγκατάλειψης δεν μπορεί να παρακολουθηθεί"
 
-#: src/components/broadcasts/BroadcastStats.tsx:332
+#: src/components/broadcasts/BroadcastStats.tsx:351
 msgid "SMTP provider doesn't support complaint webhooks, so spam complaints cannot be tracked"
 msgstr "Ο πάροχος SMTP δεν υποστηρίζει webhook παραπόνων, επομένως δεν είναι δυνατή η παρακολούθηση των καταγγελιών ανεπιθύμητων μηνυμάτων"
 
-#: src/components/broadcasts/BroadcastStats.tsx:185
+#: src/components/broadcasts/BroadcastStats.tsx:204
 msgid "SMTP provider doesn't support delivery webhooks, so delivery status cannot be tracked"
 msgstr "Ο πάροχος SMTP δεν υποστηρίζει webhook παράδοσης, επομένως δεν είναι δυνατή η παρακολούθηση της κατάστασης παράδοσης"
 
@@ -12682,7 +12694,7 @@ msgstr "Ξεκινήστε να γράφετε..."
 msgid "started"
 msgstr "ξεκίνησε"
 
-#: src/pages/BroadcastsPage.tsx:1167
+#: src/pages/BroadcastsPage.tsx:1168
 msgid "Started"
 msgstr "Ξεκίνησε"
 
@@ -12773,7 +12785,7 @@ msgstr "Χαρακτηριστικά στυλ"
 
 #: src/components/templates/TemplatePreviewDrawer.tsx:340
 #: src/components/templates/TemplateTranslationsTab.tsx:226
-#: src/pages/BroadcastsPage.tsx:880
+#: src/pages/BroadcastsPage.tsx:881
 #: src/pages/TemplatesPage.tsx:272
 msgid "Subject"
 msgstr "Θέμα"
@@ -13009,8 +13021,8 @@ msgstr "πρότυπο"
 #: src/components/broadcasts/UpsertBroadcastDrawer.tsx:819
 #: src/components/messages/MessageHistoryTable.tsx:148
 #: src/components/messages/MessageHistoryTable.tsx:234
-#: src/pages/BroadcastsPage.tsx:875
-#: src/pages/BroadcastsPage.tsx:877
+#: src/pages/BroadcastsPage.tsx:876
+#: src/pages/BroadcastsPage.tsx:878
 #: src/pages/TemplatesPage.tsx:222
 msgid "Template"
 msgstr "Πρότυπο"
@@ -13561,7 +13573,7 @@ msgstr "Αυτός ο λογαριασμός είναι ήδη συνδεδεμ�
 msgid "This action cannot be undone."
 msgstr "Αυτή η ενέργεια δεν μπορεί να αναιρεθεί."
 
-#: src/pages/BroadcastsPage.tsx:1811
+#: src/pages/BroadcastsPage.tsx:1812
 msgid "This action cannot be undone. To confirm, please enter the broadcast ID:"
 msgstr ""
 
@@ -14216,7 +14228,7 @@ msgstr "Έναρξη συμβάντος"
 msgid "Trigger on specific field changes"
 msgstr "Ενεργοποίηση σε συγκεκριμένες αλλαγές πεδίου"
 
-#: src/pages/BroadcastsPage.tsx:1736
+#: src/pages/BroadcastsPage.tsx:1737
 msgid "Try adjusting your search or status filter"
 msgstr "Δοκιμάστε να προσαρμόσετε το φίλτρο αναζήτησης ή κατάστασης"
 
@@ -14326,8 +14338,8 @@ msgstr "Τα μοναδικά κλικ μετρούν κάθε παραλήπτ�
 #: src/components/contacts/SegmentsFilter.tsx:89
 #: src/components/timeline/ContactTimeline.tsx:969
 #: src/components/web_analytics/LiveSessionMap.tsx:49
-#: src/pages/BroadcastsPage.tsx:1265
-#: src/pages/BroadcastsPage.tsx:1276
+#: src/pages/BroadcastsPage.tsx:1266
+#: src/pages/BroadcastsPage.tsx:1277
 msgid "Unknown"
 msgstr "Άγνωστο"
 
@@ -14343,7 +14355,7 @@ msgstr "Άγνωστο σφάλμα"
 
 #: src/components/automations/nodes/AddToListNode.tsx:57
 #: src/components/automations/nodes/RemoveFromListNode.tsx:54
-#: src/pages/BroadcastsPage.tsx:1129
+#: src/pages/BroadcastsPage.tsx:1130
 msgid "Unknown list"
 msgstr "Άγνωστη λίστα"
 
@@ -14355,7 +14367,7 @@ msgstr "Άγνωστη λίστα"
 msgid "Unknown page"
 msgstr "Άγνωστη σελίδα"
 
-#: src/pages/BroadcastsPage.tsx:1117
+#: src/pages/BroadcastsPage.tsx:1118
 msgid "Unknown segment"
 msgstr "Άγνωστο τμήμα"
 
@@ -14404,7 +14416,7 @@ msgid "Unsub"
 msgstr "Κατάργηση υπο"
 
 #: src/components/analytics/EmailMetricsChart.tsx:483
-#: src/components/broadcasts/BroadcastStats.tsx:376
+#: src/components/broadcasts/BroadcastStats.tsx:395
 msgid "Unsub."
 msgstr "Κατάργηση υπο."
 
@@ -14444,7 +14456,7 @@ msgstr "Καταργήθηκε η εγγραφή από τη λίστα"
 msgid "Unsubscribes"
 msgstr "Καταργεί την εγγραφή"
 
-#: src/pages/BroadcastsPage.tsx:846
+#: src/pages/BroadcastsPage.tsx:847
 msgid "Untitled"
 msgstr "Χωρίς τίτλο"
 
@@ -14703,7 +14715,7 @@ msgstr "UTM"
 msgid "UTM campaign"
 msgstr "καμπάνια UTM"
 
-#: src/pages/BroadcastsPage.tsx:1214
+#: src/pages/BroadcastsPage.tsx:1215
 msgid "UTM Campaign"
 msgstr "Εκστρατεία UTM"
 
@@ -14715,7 +14727,7 @@ msgstr "καμπάνιες UTM"
 msgid "UTM content"
 msgstr "Περιεχόμενο UTM"
 
-#: src/pages/BroadcastsPage.tsx:1226
+#: src/pages/BroadcastsPage.tsx:1227
 msgid "UTM Content"
 msgstr "Περιεχόμενο UTM"
 
@@ -14723,7 +14735,7 @@ msgstr "Περιεχόμενο UTM"
 msgid "UTM medium"
 msgstr "UTM μέσο"
 
-#: src/pages/BroadcastsPage.tsx:1208
+#: src/pages/BroadcastsPage.tsx:1209
 msgid "UTM Medium"
 msgstr "UTM Medium"
 
@@ -14731,11 +14743,11 @@ msgstr "UTM Medium"
 msgid "UTM source"
 msgstr "Πηγή UTM"
 
-#: src/pages/BroadcastsPage.tsx:1202
+#: src/pages/BroadcastsPage.tsx:1203
 msgid "UTM Source"
 msgstr "Πηγή UTM"
 
-#: src/pages/BroadcastsPage.tsx:1220
+#: src/pages/BroadcastsPage.tsx:1221
 msgid "UTM Term"
 msgstr "Όρος UTM"
 
@@ -14772,7 +14784,7 @@ msgid "Variant name"
 msgstr "Όνομα παραλλαγής"
 
 #: src/components/broadcasts/UpsertBroadcastDrawer.tsx:715
-#: src/pages/BroadcastsPage.tsx:816
+#: src/pages/BroadcastsPage.tsx:817
 msgid "Variations"
 msgstr "Παραλλαγές"
 
@@ -14931,7 +14943,7 @@ msgstr "Θα εντοπίσουμε και θα χρησιμοποιήσουμε
 #: src/components/settings/WebAnalyticsSettings.tsx:291
 #: src/components/web_analytics/WebAnalyticsAIAssistant.tsx:370
 #: src/layouts/WorkspaceLayout.tsx:293
-#: src/pages/BroadcastsPage.tsx:1199
+#: src/pages/BroadcastsPage.tsx:1200
 #: src/pages/WebAnalyticsPage.tsx:94
 #: src/services/api/errors.ts:70
 msgid "Web Analytics"
@@ -15198,7 +15210,7 @@ msgstr "Θα αφαιρεθεί"
 msgid "Will resume from row {0}"
 msgstr "Θα συνεχιστεί από τη σειρά {0}"
 
-#: src/pages/BroadcastsPage.tsx:1273
+#: src/pages/BroadcastsPage.tsx:1274
 msgid "Winner"
 msgstr "Νικητής"
 
@@ -15416,7 +15428,7 @@ msgstr "Ναι, συνέχιση"
 msgid "Yes, retry"
 msgstr "Ναι, δοκιμάστε ξανά"
 
-#: src/pages/BroadcastsPage.tsx:1057
+#: src/pages/BroadcastsPage.tsx:1058
 msgid "Yes, Select Winner"
 msgstr "Ναι, επιλέξτε Νικητής"
 
@@ -15437,7 +15449,7 @@ msgid "You do not have write access to {resource}."
 msgstr "Δεν έχετε πρόσβαση εγγραφής στο {resource}."
 
 #: src/components/broadcasts/SendOrScheduleModal.tsx:177
-#: src/pages/BroadcastsPage.tsx:1667
+#: src/pages/BroadcastsPage.tsx:1668
 msgid "You don't have a marketing email provider configured. Please set up an email provider in your workspace settings to send broadcasts."
 msgstr ""
 
@@ -15461,9 +15473,9 @@ msgstr "Δεν έχετε άδεια εγγραφής για αυτοματισ�
 #: src/pages/BroadcastsPage.tsx:706
 #: src/pages/BroadcastsPage.tsx:729
 #: src/pages/BroadcastsPage.tsx:745
-#: src/pages/BroadcastsPage.tsx:1049
-#: src/pages/BroadcastsPage.tsx:1614
-#: src/pages/BroadcastsPage.tsx:1753
+#: src/pages/BroadcastsPage.tsx:1050
+#: src/pages/BroadcastsPage.tsx:1615
+#: src/pages/BroadcastsPage.tsx:1754
 msgid "You don't have write permission for broadcasts"
 msgstr "Δεν έχετε άδεια εγγραφής για εκπομπές"
 
@@ -15515,7 +15527,7 @@ msgstr ""
 msgid "You must configure a Custom Endpoint URL in General Settings above before enabling the blog."
 msgstr "Πρέπει να διαμορφώσετε μια προσαρμοσμένη διεύθυνση URL τελικού σημείου στις Γενικές ρυθμίσεις παραπάνω πριν ενεργοποιήσετε το ιστολόγιο."
 
-#: src/pages/BroadcastsPage.tsx:1005
+#: src/pages/BroadcastsPage.tsx:1006
 #: src/pages/TemplatesPage.tsx:392
 msgid "You need read template and write contact permissions to send test emails"
 msgstr "Χρειάζεστε δικαιώματα ανάγνωσης προτύπου και εγγραφής επαφών για να στείλετε δοκιμαστικά μηνύματα ηλεκτρονικού ταχυδρομείου"

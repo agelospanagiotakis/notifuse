@@ -787,6 +787,7 @@ const BroadcastCard: React.FC<BroadcastCardProps> = ({
           enqueuedCount={enqueuedCount}
           broadcastStatus={broadcast.status}
           onStatsUpdate={setProgressStats}
+          imported={(broadcast.metadata as { mailchimp?: ImportedStats } | undefined)?.mailchimp}
         />
         <ImportedMailchimpStats
           stats={(broadcast.metadata as { mailchimp?: ImportedStats } | undefined)?.mailchimp}

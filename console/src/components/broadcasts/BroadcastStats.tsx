@@ -31,6 +31,13 @@ export interface ProgressStats {
   failedTerminal?: number
 }
 
+interface ImportedFigures {
+  source?: string
+  sent?: number
+  unique_opens?: number
+  unique_clicks?: number
+}
+
 interface BroadcastStatsProps {
   workspaceId: string
   broadcastId: string
@@ -38,6 +45,8 @@ interface BroadcastStatsProps {
   enqueuedCount?: number
   broadcastStatus?: string
   onStatsUpdate?: (stats: ProgressStats) => void
+  /** Figures reported by the platform that actually sent this campaign. */
+  imported?: ImportedFigures | null
 }
 
 export function BroadcastStats({
@@ -46,7 +55,8 @@ export function BroadcastStats({
   workspace,
   enqueuedCount,
   broadcastStatus,
-  onStatsUpdate
+  onStatsUpdate,
+  imported
 }: BroadcastStatsProps) {
   const { t } = useLingui()
   const navigate = useNavigate()
@@ -152,10 +162,19 @@ export function BroadcastStats({
     return value
   }
 
+  // Reported figures, when this campaign was sent elsewhere and the native counters
+  // are therefore empty. Nothing is written to the event tables: the numbers are
+  // displayed as reported, under a label that says so.
+  const reported = imported?.source === 'mailchimp' && (imported?.sent ?? 0) > 0 ? imported : null
+  const sentValue = reported ? reported.sent! : stats.total_sent
+  const openedValue = reported ? (reported.unique_opens ?? 0) : stats.total_opened
+  const clickedValue = reported ? (reported.unique_clicks ?? 0) : stats.total_clicked
+  const sourceTag = reported ? ' · imported' : ''
+
   return (
     <Row gutter={[16, 16]} wrap className="flex-nowrap overflow-x-auto">
       <Col span={3}>
-        <Tooltip title={t`${stats.total_sent} total emails sent - Click to view details`}>
+        <Tooltip title={reported ? t`Reported by Mailchimp: ${sentValue} emails sent` : t`${stats.total_sent} total emails sent - Click to view details`}>
           <div
             className="cursor-pointer hover:bg-gray-50 p-2 rounded transition-colors"
             onClick={() => navigateToLogs('sent')}
@@ -168,10 +187,10 @@ export function BroadcastStats({
                     style={{ opacity: 0.7 }}
                     className="text-blue-500"
                   />{' '}
-                  {t`Sent`}
+                  {t`Sent`}{sourceTag}
                 </Space>
               }
-              value={stats.total_sent}
+              value={sentValue}
               styles={{ content: { fontSize: '16px' } }}
               formatter={formatStat}
             />
@@ -213,7 +232,7 @@ export function BroadcastStats({
         </Tooltip>
       </Col>
       <Col span={3}>
-        <Tooltip title={t`${stats.total_opened} total opens - Click to view details`}>
+        <Tooltip title={reported ? t`Reported by Mailchimp: ${openedValue} unique opens` : t`${stats.total_opened} total opens - Click to view details`}>
           <div
             className="cursor-pointer hover:bg-gray-50 p-2 rounded transition-colors"
             onClick={() => navigateToLogs('is_opened')}
@@ -226,7 +245,7 @@ export function BroadcastStats({
                     style={{ opacity: 0.7 }}
                     className="text-purple-500"
                   />{' '}
-                  {t`Opens`}
+                  {t`Opens`}{sourceTag}
                 </Space>
               }
               value={getRate(stats.total_opened, stats.total_sent)}
@@ -237,7 +256,7 @@ export function BroadcastStats({
         </Tooltip>
       </Col>
       <Col span={3}>
-        <Tooltip title={t`${stats.total_clicked} total clicks - Click to view details`}>
+        <Tooltip title={reported ? t`Reported by Mailchimp: ${clickedValue} unique clicks` : t`${stats.total_clicked} total clicks - Click to view details`}>
           <div
             className="cursor-pointer hover:bg-gray-50 p-2 rounded transition-colors"
             onClick={() => navigateToLogs('is_clicked')}
@@ -250,7 +269,7 @@ export function BroadcastStats({
                     style={{ opacity: 0.7 }}
                     className="text-cyan-500 mr-1"
                   />{' '}
-                  {t`Clicks`}
+                  {t`Clicks`}{sourceTag}
                 </Space>
               }
               value={getRate(stats.total_clicked, stats.total_sent)}
