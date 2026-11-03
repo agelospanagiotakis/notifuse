@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,8 +20,9 @@ import (
 // fakeArchiveRepo is a small in-memory stand-in: the archive repository is three
 // queries, and a generated mock would not make these tests clearer.
 type fakeArchiveRepo struct {
-	entries []*domain.ArchiveEntry
-	schema  int
+	entries   []*domain.ArchiveEntry
+	audiences []*domain.ArchiveAudience
+	schema    int
 }
 
 func (f *fakeArchiveRepo) EnsureSchema(context.Context, string) error { f.schema++; return nil }
@@ -46,6 +48,55 @@ func (f *fakeArchiveRepo) Get(_ context.Context, _ string, slug string) (*domain
 		}
 	}
 	return nil, domain.ErrArchiveEntryNotFound
+}
+
+func (f *fakeArchiveRepo) ListAudiences(context.Context, string) ([]*domain.ArchiveAudience, error) {
+	if len(f.audiences) > 0 {
+		return f.audiences, nil
+	}
+	// Derived from the entries, so a test that only seeds campaigns still gets a nav: the
+	// real repository groups the same way.
+	counts := map[string]int{}
+	var order []string
+	for _, e := range f.entries {
+		if e.ListID == "" {
+			continue
+		}
+		if _, seen := counts[e.ListID]; !seen {
+			order = append(order, e.ListID)
+		}
+		counts[e.ListID]++
+	}
+	out := make([]*domain.ArchiveAudience, 0, len(order))
+	for _, id := range order {
+		out = append(out, &domain.ArchiveAudience{ListID: id, Slug: id, Name: id, Campaigns: counts[id]})
+	}
+	return out, nil
+}
+
+func (f *fakeArchiveRepo) ListByListID(_ context.Context, _ string, listID string) ([]*domain.ArchiveEntry, error) {
+	out := make([]*domain.ArchiveEntry, 0, len(f.entries))
+	for _, e := range f.entries {
+		if e.ListID == listID {
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeArchiveRepo) GetAudience(_ context.Context, _ string, slug string) (*domain.ArchiveAudience, error) {
+	audiences, _ := f.ListAudiences(context.Background(), "")
+	for _, a := range audiences {
+		if a.Slug == slug || a.ListID == slug {
+			return a, nil
+		}
+	}
+	return nil, domain.ErrArchiveAudienceNotFound
+}
+
+func (f *fakeArchiveRepo) UpsertAudience(_ context.Context, _ string, a *domain.ArchiveAudience) error {
+	f.audiences = append(f.audiences, a)
+	return nil
 }
 
 func archiveWorkspace(settings *domain.ArchiveSettings) *domain.Workspace {
@@ -287,4 +338,81 @@ func TestArchive_SubscribeFormTakesBothNames(t *testing.T) {
 	// Mailchimp collects first and last; one field was a simplification, not a choice.
 	assert.Contains(t, body, `name="first_name"`)
 	assert.Contains(t, body, `name="last_name"`)
+}
+
+// A campaign and an audience are both one segment under the workspace, so the two must be told
+// apart by what exists rather than by the shape of the path.
+func TestArchive_AudiencePages(t *testing.T) {
+	ws := archiveWorkspace(&domain.ArchiveSettings{Enabled: true, Title: "Kois archive"})
+	repo := &fakeArchiveRepo{
+		entries: []*domain.ArchiveEntry{
+			{Slug: "2021-06-05-june", Title: "June 2021", SentAt: time.Date(2021, 6, 5, 0, 0, 0, 0, time.UTC), ListID: "kois"},
+			{Slug: "2021-07-01-syros", Title: "Syros July", SentAt: time.Date(2021, 7, 1, 0, 0, 0, 0, time.UTC), ListID: "syros"},
+			{Slug: "2022-01-01-june", Title: "January 2022", SentAt: time.Date(2022, 1, 1, 0, 0, 0, 0, time.UTC), ListID: "kois"},
+		},
+		audiences: []*domain.ArchiveAudience{
+			{ListID: "kois", Slug: "kois", Name: "Kois Optics", Campaigns: 2},
+			{ListID: "syros", Slug: "syros", Name: "SYROS", Campaigns: 1},
+		},
+	}
+	h := archiveHandler(t, ws, repo)
+
+	t.Run("one audience's home lists only its campaigns", func(t *testing.T) {
+		rec := get(h, "/archive/koisoptics/syros/", nil)
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		body := rec.Body.String()
+		assert.Contains(t, body, "Syros July")
+		assert.NotContains(t, body, "June 2021")
+		assert.NotContains(t, body, "January 2022")
+		// The heading names the audience, not the workspace's generic archive title.
+		assert.Contains(t, body, "SYROS")
+	})
+
+	t.Run("the audience feed carries only its campaigns", func(t *testing.T) {
+		rec := get(h, "/archive/koisoptics/syros/feed.xml", nil)
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		body := rec.Body.String()
+		// Campaign pages are not duplicated per audience, so an item links to the campaign's
+		// own URL; what makes this the audience's feed is which campaigns it contains.
+		assert.Contains(t, body, "/archive/kois-optics/2021-07-01-syros")
+		assert.NotContains(t, body, "2021-06-05-june")
+		// Its own self link, so a copied feed URL is re-discovered as the audience's feed.
+		assert.Contains(t, body, "/archive/kois-optics/syros/feed.xml")
+	})
+
+	t.Run("a campaign slug is not shadowed by an audience", func(t *testing.T) {
+		// One segment under the workspace can be either. The campaign is tried first: this
+		// request names a real entry, and its template is reported missing, so 410 proves the
+		// campaign branch ran rather than an audience page being rendered instead.
+		ctrl := gomock.NewController(t)
+		workspaceRepo := mocks.NewMockWorkspaceRepository(ctrl)
+		workspaceRepo.EXPECT().GetByID(gomock.Any(), gomock.Any()).Return(ws, nil).AnyTimes()
+		templateRepo := mocks.NewMockTemplateRepository(ctrl)
+		templateRepo.EXPECT().GetTemplateByID(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil, errors.New("template gone")).AnyTimes()
+
+		rec := get(NewArchiveHandler(workspaceRepo, templateRepo, repo, nil, logger.NewLogger()),
+			"/archive/koisoptics/2021-06-05-june", nil)
+
+		assert.Equal(t, http.StatusGone, rec.Code)
+	})
+
+	t.Run("the nav lists every audience with its count", func(t *testing.T) {
+		rec := get(h, "/archive/koisoptics/", nil)
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		body := rec.Body.String()
+		assert.Contains(t, body, `class="audiences"`)
+		assert.Contains(t, body, `href="/archive/kois-optics/kois/"`)
+		assert.Contains(t, body, `href="/archive/kois-optics/syros/"`)
+		assert.Contains(t, body, "All issues")
+	})
+
+	t.Run("an unknown audience is a 404, not an empty page", func(t *testing.T) {
+		rec := get(h, "/archive/koisoptics/no-such-list/", nil)
+
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
 }

@@ -26,11 +26,32 @@ type ArchiveEntry struct {
 	Subject         string    `json:"subject,omitempty"`
 	SentAt          time.Time `json:"sent_at"`
 	ArchivedAt      time.Time `json:"archived_at"`
+	// ListID is the audience the campaign was sent to, as the sending platform named it.
+	// Empty means "not recorded" — every campaign imported before audiences were captured,
+	// and every campaign this platform sent without one. An empty value is never treated as
+	// an audience of its own.
+	ListID string `json:"list_id,omitempty"`
 	// SentCount and UniqueOpens are reported figures for a campaign sent elsewhere.
 	// Zero means "not known", never "nobody opened": an imported campaign that has no
 	// report must not be displayed as a failure.
 	SentCount   int `json:"sent_count"`
 	UniqueOpens int `json:"unique_opens"`
+}
+
+// ArchiveAudience is one audience's home in the archive.
+//
+// Mailchimp's campaign archive is per audience: each list has its own page and its own feed.
+// Ours was one page for the workspace, which answers "what was sent" but not "what was sent to
+// THIS list" — a question the client's history makes real, because the same campaign was rarely
+// sent to every audience (105 of 182 went to one list, 69 to a different one).
+//
+// The slug is stored rather than derived so a URL can be chosen once and stay stable: the
+// display name is whatever the sending platform called the list, and that name changes.
+type ArchiveAudience struct {
+	ListID    string `json:"list_id"`
+	Slug      string `json:"slug"`
+	Name      string `json:"name"`
+	Campaigns int    `json:"campaigns"`
 }
 
 // ArchiveSettings is stored in the workspace settings blob under "archive".
@@ -66,4 +87,18 @@ type CampaignArchiveRepository interface {
 	Get(ctx context.Context, workspaceID, slug string) (*ArchiveEntry, error)
 	Upsert(ctx context.Context, workspaceID string, entry *ArchiveEntry) error
 	Remove(ctx context.Context, workspaceID, slug string) error
+
+	// ListAudiences returns every audience that actually received a campaign, with its
+	// count. Audiences with no campaigns are not listed: an archive page for a list
+	// nothing was ever sent to is a page nobody should land on.
+	ListAudiences(ctx context.Context, workspaceID string) ([]*ArchiveAudience, error)
+	// ListByListID returns the campaigns sent to one audience, newest first.
+	ListByListID(ctx context.Context, workspaceID, listID string) ([]*ArchiveEntry, error)
+	// GetAudience resolves an audience by its URL slug.
+	GetAudience(ctx context.Context, workspaceID, slug string) (*ArchiveAudience, error)
+	// UpsertAudience records an audience's slug and display name.
+	UpsertAudience(ctx context.Context, workspaceID string, audience *ArchiveAudience) error
 }
+
+// ErrArchiveAudienceNotFound is returned when a slug is not a registered audience.
+var ErrArchiveAudienceNotFound = fmt.Errorf("campaign archive audience not found")

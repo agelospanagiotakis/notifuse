@@ -103,11 +103,32 @@ func (h *ArchiveHandler) handle(w http.ResponseWriter, r *http.Request) {
 		h.handleSubscribePage(w, r, workspace, settings)
 		return
 	case len(parts) == 2 && (parts[1] == "feed.xml" || parts[1] == "feed"):
-		h.renderFeed(w, r, workspace, settings)
+		h.renderFeed(w, r, workspace, settings, nil)
 	case len(parts) == 1:
-		h.renderList(w, r, workspace, settings)
+		h.renderList(w, r, workspace, settings, nil)
+	case len(parts) == 3 && (parts[2] == "feed.xml" || parts[2] == "feed"):
+		// An audience's own feed, mirroring its page.
+		audience, err := h.archiveRepo.GetAudience(r.Context(), workspace.ID, parts[1])
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		h.renderFeed(w, r, workspace, settings, audience)
 	case len(parts) == 2:
-		h.renderCampaign(w, r, workspace, settings, parts[1])
+		// A campaign and an audience are addressed the same way: one segment under the
+		// workspace. The campaign is tried first and is unambiguous in practice — every slug
+		// it produces begins with the send date — so an audience slug can never shadow one.
+		entry, err := h.archiveRepo.Get(r.Context(), workspace.ID, parts[1])
+		if err == nil {
+			h.renderCampaign(w, r, workspace, settings, entry)
+			return
+		}
+		audience, err := h.archiveRepo.GetAudience(r.Context(), workspace.ID, parts[1])
+		if err == nil {
+			h.renderList(w, r, workspace, settings, audience)
+			return
+		}
+		http.NotFound(w, r)
 	default:
 		http.NotFound(w, r)
 	}
@@ -182,8 +203,75 @@ func (h *ArchiveHandler) authorized(w http.ResponseWriter, r *http.Request, sett
 	return false
 }
 
-func (h *ArchiveHandler) renderList(w http.ResponseWriter, r *http.Request, workspace *domain.Workspace, settings *domain.ArchiveSettings) {
-	entries, err := h.archiveRepo.List(r.Context(), workspace.ID)
+// audienceNav renders the switch between the workspace's audiences, or nothing when there is
+// only one. It exists because the campaigns are not one stream: 105 of the 182 imported issues
+// went to one list and 69 to a different one, so "everything" and "this list" are genuinely
+// different pages, and a reader who lands on the wrong one needs a way across.
+func (h *ArchiveHandler) audienceNav(r *http.Request, workspace *domain.Workspace, current *domain.ArchiveAudience) string {
+	audiences, err := h.archiveRepo.ListAudiences(r.Context(), workspace.ID)
+	if err != nil {
+		// The nav is a convenience; the page behind it is the product. A failure here renders
+		// nothing rather than failing the archive.
+		h.logger.WithField("workspace_id", workspace.ID).WithField("error", err.Error()).Warn("Failed to list archive audiences")
+		return ""
+	}
+	if len(audiences) < 2 {
+		return ""
+	}
+
+	wsSlug := html.EscapeString(slugify(workspace.Name))
+	var b strings.Builder
+	b.WriteString(`<nav class="audiences"><span class="audiences-label">Audiences</span>`)
+	allClass := "audience"
+	if current == nil {
+		allClass = "audience current"
+	}
+	b.WriteString(`<a class="` + allClass + `" href="/archive/` + wsSlug + `/">All issues</a>`)
+
+	for _, a := range audiences {
+		slug := a.Slug
+		if slug == "" {
+			// No registry row: address it by its list id rather than hiding it. GetAudience
+			// accepts either, so this link resolves.
+			slug = a.ListID
+		}
+		name := a.Name
+		if name == "" {
+			name = a.ListID
+		}
+		class := "audience"
+		if current != nil && current.ListID == a.ListID {
+			class = "audience current"
+		}
+		b.WriteString(`<a class="` + class + `" href="/archive/` + wsSlug + `/` + html.EscapeString(slug) + `/">`)
+		b.WriteString(html.EscapeString(name))
+		b.WriteString(fmt.Sprintf(` <span class="audience-count">%d</span></a>`, a.Campaigns))
+	}
+	b.WriteString(`</nav>`)
+	return b.String()
+}
+
+// audienceCSS styles the audience switch. Inline for the same reason the rest of the archive's
+// styling is: these pages are compiled campaign documents with their own stylesheets.
+const audienceCSS = `<style>
+.archive-nav{max-width:760px;margin:0 auto 18px;padding:0 20px}
+.audiences{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.audiences-label{color:#6b7280;font-size:12px;text-transform:uppercase;letter-spacing:.06em;margin-right:4px}
+.audience{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border:1px solid #dcdfe8;border-radius:999px;color:#2b2f45;text-decoration:none;background:#fff}
+.audience:hover{border-color:#12132e}
+.audience.current{background:#12132e;border-color:#12132e;color:#fff}
+.audience-count{font-size:11px;opacity:.65}
+</style>`
+
+// renderList serves the archive's home, or one audience's home when audience is set.
+func (h *ArchiveHandler) renderList(w http.ResponseWriter, r *http.Request, workspace *domain.Workspace, settings *domain.ArchiveSettings, audience *domain.ArchiveAudience) {
+	var entries []*domain.ArchiveEntry
+	var err error
+	if audience != nil {
+		entries, err = h.archiveRepo.ListByListID(r.Context(), workspace.ID, audience.ListID)
+	} else {
+		entries, err = h.archiveRepo.List(r.Context(), workspace.ID)
+	}
 	if err != nil {
 		h.logger.WithField("workspace_id", workspace.ID).WithField("error", err.Error()).Error("Failed to list campaign archive")
 		http.Error(w, "archive unavailable", http.StatusInternalServerError)
@@ -195,6 +283,11 @@ func (h *ArchiveHandler) renderList(w http.ResponseWriter, r *http.Request, work
 	if title == "" {
 		title = workspace.Name + " · Newsletter archive"
 	}
+	if audience != nil {
+		// The audience's name first: a reader who followed a link to one list should see which
+		// list they are looking at, not the workspace's generic archive heading.
+		title = audience.Name + " · " + title
+	}
 
 	var b strings.Builder
 	b.WriteString("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">")
@@ -203,6 +296,7 @@ func (h *ArchiveHandler) renderList(w http.ResponseWriter, r *http.Request, work
 	b.WriteString("<title>" + html.EscapeString(title) + "</title>")
 	b.WriteString(archiveCSS)
 	b.WriteString(archiveBarCSS)
+	b.WriteString(audienceCSS)
 	b.WriteString(signupCSS)
 	b.WriteString("</head><body>")
 	b.WriteString(toolbarHTML(archiveBarOptions{
@@ -216,6 +310,10 @@ func (h *ArchiveHandler) renderList(w http.ResponseWriter, r *http.Request, work
 	b.WriteString("<header><h1>" + html.EscapeString(title) + "</h1>")
 	b.WriteString(fmt.Sprintf("<p class=\"count\">%d campaign%s</p></header>",
 		len(entries), plural(len(entries))))
+
+	if nav := h.audienceNav(r, workspace, audience); nav != "" {
+		b.WriteString(`<div class="archive-nav">` + nav + `</div>`)
+	}
 
 	if len(settings.SubscribeListIDs) > 0 {
 		b.WriteString(inlineSignupForm(slugify(workspace.Name)))
@@ -249,6 +347,9 @@ func (h *ArchiveHandler) renderList(w http.ResponseWriter, r *http.Request, work
 
 	b.WriteString("<footer>Generated by the newsletter platform · <a href=\"/archive/")
 	b.WriteString(html.EscapeString(slugify(workspace.Name)))
+	if audience != nil {
+		b.WriteString("/" + html.EscapeString(audience.Slug))
+	}
 	b.WriteString("/\">permanent link</a></footer></main></body></html>")
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -256,13 +357,8 @@ func (h *ArchiveHandler) renderList(w http.ResponseWriter, r *http.Request, work
 	_, _ = w.Write([]byte(b.String()))
 }
 
-func (h *ArchiveHandler) renderCampaign(w http.ResponseWriter, r *http.Request, workspace *domain.Workspace, settings *domain.ArchiveSettings, slug string) {
-	entry, err := h.archiveRepo.Get(r.Context(), workspace.ID, slug)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-
+func (h *ArchiveHandler) renderCampaign(w http.ResponseWriter, r *http.Request, workspace *domain.Workspace, settings *domain.ArchiveSettings, entry *domain.ArchiveEntry) {
+	slug := entry.Slug
 	tpl, err := h.templateRepo.GetTemplateByID(r.Context(), workspace.ID, entry.TemplateID, entry.TemplateVersion)
 	if err != nil || tpl == nil {
 		h.logger.WithField("workspace_id", workspace.ID).WithField("slug", slug).Error("Archived campaign has no template")
@@ -487,8 +583,14 @@ func withToolbar(page, bar string) string {
 
 // renderFeed serves the archive as RSS 2.0, which is how Mailchimp-style archives
 // are followed without an account.
-func (h *ArchiveHandler) renderFeed(w http.ResponseWriter, r *http.Request, workspace *domain.Workspace, settings *domain.ArchiveSettings) {
-	entries, err := h.archiveRepo.List(r.Context(), workspace.ID)
+func (h *ArchiveHandler) renderFeed(w http.ResponseWriter, r *http.Request, workspace *domain.Workspace, settings *domain.ArchiveSettings, audience *domain.ArchiveAudience) {
+	var entries []*domain.ArchiveEntry
+	var err error
+	if audience != nil {
+		entries, err = h.archiveRepo.ListByListID(r.Context(), workspace.ID, audience.ListID)
+	} else {
+		entries, err = h.archiveRepo.List(r.Context(), workspace.ID)
+	}
 	if err != nil {
 		http.Error(w, "archive unavailable", http.StatusInternalServerError)
 		return
@@ -496,17 +598,22 @@ func (h *ArchiveHandler) renderFeed(w http.ResponseWriter, r *http.Request, work
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].SentAt.After(entries[j].SentAt) })
 
 	slug := slugify(workspace.Name)
-	home := absoluteURL(r, "/archive/"+slug+"/")
+	audiencePath := ""
 	title := settings.Title
 	if title == "" {
 		title = workspace.Name + " · Newsletter archive"
 	}
+	if audience != nil {
+		audiencePath = "/" + audience.Slug
+		title = audience.Name + " · " + title
+	}
+	home := absoluteURL(r, "/archive/"+slug+audiencePath+"/")
 
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	b.WriteString(`<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel>`)
 	// Readers like a self link: it is how a copied feed URL is re-discovered.
-	b.WriteString(`<atom:link href="` + xmlEscape(absoluteURL(r, "/archive/"+slug+"/feed.xml")) +
+	b.WriteString(`<atom:link href="` + xmlEscape(absoluteURL(r, "/archive/"+slug+audiencePath+"/feed.xml")) +
 		`" rel="self" type="application/rss+xml"/>`)
 	b.WriteString("<title>" + xmlEscape(title) + "</title>")
 	b.WriteString("<link>" + xmlEscape(home) + "</link>")
