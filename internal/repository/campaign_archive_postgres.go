@@ -61,6 +61,11 @@ CREATE TABLE IF NOT EXISTS campaign_audience (
 -- script (seed_audiences.sql) is visible unless someone deliberately unticks it; the
 -- console is where the decision is made.
 ALTER TABLE campaign_audience ADD COLUMN IF NOT EXISTS is_listed BOOLEAN NOT NULL DEFAULT TRUE;
+-- The Notifuse list this audience corresponds to, when it does. The imported campaigns carry
+-- MAILCHIMP list ids (d545c36792), while this platform's own lists are called koisopticsmain —
+-- two id spaces for one audience. This column is the join, so the Lists screen can link a list to
+-- its archive without anyone matching names by eye.
+ALTER TABLE campaign_audience ADD COLUMN IF NOT EXISTS notifuse_list_id TEXT NOT NULL DEFAULT '';
 `
 
 func (r *campaignArchiveRepository) connection(ctx context.Context, workspaceID string) (*sql.DB, error) {
@@ -196,7 +201,8 @@ func (r *campaignArchiveRepository) ListAudiences(ctx context.Context, workspace
 		       COALESCE(u.slug, ''),
 		       COALESCE(u.name, ''),
 		       a.campaigns,
-		       COALESCE(u.is_listed, TRUE)
+		       COALESCE(u.is_listed, TRUE),
+		       COALESCE(u.notifuse_list_id, '')
 		FROM (SELECT list_id, COUNT(*) AS campaigns
 		      FROM campaign_archive
 		      WHERE list_id <> ''
@@ -211,7 +217,7 @@ func (r *campaignArchiveRepository) ListAudiences(ctx context.Context, workspace
 	audiences := make([]*domain.ArchiveAudience, 0, 8)
 	for rows.Next() {
 		var a domain.ArchiveAudience
-		if err := rows.Scan(&a.ListID, &a.Slug, &a.Name, &a.Campaigns, &a.Listed); err != nil {
+		if err := rows.Scan(&a.ListID, &a.Slug, &a.Name, &a.Campaigns, &a.Listed, &a.NotifuseListID); err != nil {
 			return nil, fmt.Errorf("failed to scan archive audience row: %w", err)
 		}
 		audiences = append(audiences, &a)
@@ -263,11 +269,11 @@ func (r *campaignArchiveRepository) GetAudience(ctx context.Context, workspaceID
 
 	var a domain.ArchiveAudience
 	err = db.QueryRowContext(ctx, `
-		SELECT u.list_id, u.slug, u.name, u.is_listed,
+		SELECT u.list_id, u.slug, u.name, u.is_listed, u.notifuse_list_id,
 		       (SELECT COUNT(*) FROM campaign_archive c WHERE c.list_id = u.list_id)
 		FROM campaign_audience u
 		WHERE u.slug = $1 OR u.list_id = $1`, slug).
-		Scan(&a.ListID, &a.Slug, &a.Name, &a.Listed, &a.Campaigns)
+		Scan(&a.ListID, &a.Slug, &a.Name, &a.Listed, &a.NotifuseListID, &a.Campaigns)
 	if err == sql.ErrNoRows {
 		return nil, domain.ErrArchiveAudienceNotFound
 	}
@@ -286,10 +292,11 @@ func (r *campaignArchiveRepository) UpsertAudience(ctx context.Context, workspac
 	// is_listed is written as true on insert and left alone on update: re-running an import
 	// must not silently re-list an audience the operator unticked.
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO campaign_audience (list_id, slug, name, is_listed)
-		VALUES ($1, $2, $3, TRUE)
-		ON CONFLICT (list_id) DO UPDATE SET slug = EXCLUDED.slug, name = EXCLUDED.name`,
-		a.ListID, a.Slug, a.Name)
+		INSERT INTO campaign_audience (list_id, slug, name, is_listed, notifuse_list_id)
+		VALUES ($1, $2, $3, TRUE, $4)
+		ON CONFLICT (list_id) DO UPDATE SET slug = EXCLUDED.slug, name = EXCLUDED.name,
+			notifuse_list_id = NULLIF(EXCLUDED.notifuse_list_id, '')`,
+		a.ListID, a.Slug, a.Name, a.NotifuseListID)
 	if err != nil {
 		return fmt.Errorf("failed to upsert archive audience: %w", err)
 	}

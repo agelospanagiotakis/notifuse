@@ -16,17 +16,18 @@ import {
 } from 'antd'
 import { useParams } from '@tanstack/react-router'
 import { listsApi } from '../services/api/list'
+import { api } from '../services/api/client'
 import { templatesApi } from '../services/api/template'
 import type { List, TemplateReference, Workspace } from '../services/api/types'
 import { CreateListDrawer } from '../components/lists/ListDrawer'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPenToSquare, faTrashCan } from '@fortawesome/free-regular-svg-icons'
-import { faRefresh } from '@fortawesome/free-solid-svg-icons'
+import { faRefresh, faArrowUpRightFromSquare } from '@fortawesome/free-solid-svg-icons'
 import { Check, X } from 'lucide-react'
 import TemplatePreviewDrawer from '../components/templates/TemplatePreviewDrawer'
 import { CreateTemplateDrawer } from '../components/templates/CreateTemplateDrawer'
 import { useAuth, useWorkspacePermissions } from '../contexts/AuthContext'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { ImportContactsToListButton } from '../components/lists/ImportContactsToListButton'
 import { ListStats } from '../components/lists/ListStats'
@@ -85,6 +86,34 @@ const TemplatePreviewButton = ({
   )
 }
 
+/**
+ * Which archive page belongs to which list.
+ *
+ * The imported campaigns carry Mailchimp audience ids while the Lists screen shows platform list
+ * ids, so the mapping comes from the archive registry rather than from guessing at names. A list
+ * with no archive (or an audience that is unticked) simply has no link.
+ */
+function useListArchiveUrls(workspaceId: string) {
+  const { data } = useQuery({
+    queryKey: ['archive-audiences', workspaceId],
+    queryFn: async () => {
+      const response = await api.get<{
+        audiences: { notifuse_list_id?: string; url: string; name: string }[]
+      }>(`/api/archive.listAudiences?workspace_id=${workspaceId}`)
+      return response.audiences
+    },
+    staleTime: 60_000
+  })
+
+  return useMemo(() => {
+    const byList = new Map<string, { url: string; name: string }>()
+    for (const a of data ?? []) {
+      if (a.notifuse_list_id) byList.set(a.notifuse_list_id, { url: a.url, name: a.name })
+    }
+    return byList
+  }, [data])
+}
+
 export function ListsPage() {
   const { t } = useLingui()
   const { workspaceId } = useParams({ from: '/console/workspace/$workspaceId/lists' })
@@ -103,6 +132,8 @@ export function ListsPage() {
       return listsApi.list({ workspace_id: workspaceId })
     }
   })
+
+  const archiveUrls = useListArchiveUrls(workspaceId)
 
   const handleDelete = async () => {
     if (!listToDelete) return
@@ -201,6 +232,22 @@ export function ListsPage() {
               }
               extra={
                 <Space>
+                  {/* Opens the public archive for this list in a new tab. The archive is behind
+                      basic auth today, so the browser will ask once; that is the archive's
+                      business, not this button's. */}
+                  {archiveUrls.get(list.id) && (
+                    <Tooltip title={t`Open this list's archive`}>
+                      <Button
+                        type="text"
+                        size="small"
+                        href={archiveUrls.get(list.id)!.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <FontAwesomeIcon icon={faArrowUpRightFromSquare} style={{ opacity: 0.7 }} />
+                      </Button>
+                    </Tooltip>
+                  )}
                   <Tooltip
                     title={
                       !permissions?.lists?.write

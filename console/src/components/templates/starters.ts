@@ -28,11 +28,26 @@ import type { EmailBlock, MJMLComponentType } from '../email_builder/types'
 
 /** Kois Optics brand constants, in one place so the four starters cannot drift apart. */
 export const KOIS_BRAND = {
-  logo: 'https://www.kois-optics.gr/themes/custom/twbase/img/logo.png',
-  site: 'https://www.kois-optics.gr',
+  // The wordmark the campaigns actually use. The site's logo.png is a different lock-up
+  // (browner, tighter) — this is the one on every newsletter since 2024, so it is the one that
+  // goes in the defaults.
+  logo: 'https://minio-api.e-pragma.gr/koisnewsletters/newsletters/2026-09-14_12d870f495/7aca8995-7f05b7d3-6ba2-ff2b-33ad-1e412079cf8e.png',
+  site: 'https://kois-optics.gr/',
   instagram: 'https://www.instagram.com/koisoptics/',
   facebook: 'https://www.facebook.com/koisopticsgr',
   youtube: 'https://www.youtube.com/user/STAVROS1960KOIS',
+  // The brand's own 24px icons, as the campaigns carry them. MJML's built-in social icons are
+  // monochrome squares and would not match the mail the list already receives.
+  socialIcons: {
+    instagram:
+      'https://minio-api.e-pragma.gr/koisnewsletters/newsletters/2026-09-14_12d870f495/3bfa0724-color-instagram-48.png',
+    website:
+      'https://minio-api.e-pragma.gr/koisnewsletters/newsletters/2026-09-14_12d870f495/cd01f2b1-color-link-48.png',
+    facebook:
+      'https://minio-api.e-pragma.gr/koisnewsletters/newsletters/2026-09-14_12d870f495/19f0a438-color-facebook-48.png',
+    youtube:
+      'https://minio-api.e-pragma.gr/koisnewsletters/newsletters/2026-09-14_12d870f495/1031d992-color-youtube-48.png'
+  },
   phone: '22810 83810',
   email: 'info@kois-optics.com',
   colors: {
@@ -191,16 +206,44 @@ const inkBand = (eyebrow: string, headline: string, sub?: string) =>
     ])
   ])
 
-/** Social row: the four icons every campaign carries. */
+/** Social row: the four brand icons, exactly as the campaigns carry them (24px, centred). */
 const socialRow = () =>
-  section('sec-social', { backgroundColor: C.body, paddingTop: '18px', paddingBottom: '18px' }, [
+  section('sec-social', { backgroundColor: C.body, paddingTop: '14px', paddingBottom: '22px' }, [
     column('col-social', {}, [
-      block('mj-social', 'social', { align: 'center', iconSize: '22px', iconHeight: '22px', mode: 'horizontal' }, [
-        block('mj-social-element', 'soc-ig', { name: 'instagram', href: KOIS_BRAND.instagram }),
-        block('mj-social-element', 'soc-fb', { name: 'facebook-noshare', href: KOIS_BRAND.facebook }),
-        block('mj-social-element', 'soc-yt', { name: 'youtube', href: KOIS_BRAND.youtube }),
-        block('mj-social-element', 'soc-web', { name: 'web', href: KOIS_BRAND.site })
-      ])
+      block(
+        'mj-social',
+        'social',
+        {
+          align: 'center',
+          mode: 'horizontal',
+          iconSize: '24px',
+          iconHeight: '24px',
+          innerPadding: '9px',
+          tableLayout: 'auto'
+        },
+        [
+          block('mj-social-element', 'soc-ig', {
+            href: KOIS_BRAND.instagram,
+            src: KOIS_BRAND.socialIcons.instagram,
+            alt: 'Kois Optics on Instagram'
+          }),
+          block('mj-social-element', 'soc-web', {
+            href: KOIS_BRAND.site,
+            src: KOIS_BRAND.socialIcons.website,
+            alt: 'Kois Optics Website'
+          }),
+          block('mj-social-element', 'soc-fb', {
+            href: KOIS_BRAND.facebook,
+            src: KOIS_BRAND.socialIcons.facebook,
+            alt: 'Kois Optics in Facebook'
+          }),
+          block('mj-social-element', 'soc-yt', {
+            href: KOIS_BRAND.youtube,
+            src: KOIS_BRAND.socialIcons.youtube,
+            alt: 'Kois Optics on YouTube'
+          })
+        ]
+      )
     ])
   ])
 
@@ -244,6 +287,62 @@ const legalFooter = () =>
 const body = (children: EmailBlock[]) =>
   block('mj-body', 'body', { backgroundColor: C.paper, width: '600px' }, children)
 
+/** A full-width hero photo at the very top — how the 2026-09-14 issue opens. */
+const heroImage = (alt: string) =>
+  section('sec-hero-top', { backgroundColor: C.body }, [
+    column(
+      'col-hero-top',
+      {},
+      [image('img-hero-top', 'https://placehold.co/600x340/F2F2F2/9A9A9A?text=%CE%95%CE%B9%CE%BA%CF%8C%CE%BD%CE%B1', alt)]
+    )
+  ])
+
+/**
+ * Text beside an image: the layout the flagship issue uses to carry a story without a wall of
+ * prose. Two columns, text first on desktop; MJML stacks them on mobile in the same order, so the
+ * sentence still introduces the photograph.
+ */
+const splitTextImage = (headingText: string, bodyHtml: string, imageAlt: string) =>
+  section('sec-split', { backgroundColor: C.body, paddingTop: '10px', paddingBottom: '10px' }, [
+    column('col-split-text', { width: '58%', verticalAlign: 'middle' }, [
+      text('txt-split-heading', headingText, {
+        fontSize: '19px',
+        fontWeight: 'bold',
+        lineHeight: '1.4',
+        paddingBottom: '8px'
+      }),
+      text('txt-split-body', bodyHtml)
+    ]),
+    column('col-split-image', { width: '42%', verticalAlign: 'middle' }, [
+      image(
+        'img-split',
+        'https://placehold.co/360x300/F2F2F2/9A9A9A?text=%CE%95%CE%B9%CE%BA%CF%8C%CE%BD%CE%B1',
+        imageAlt
+      )
+    ])
+  ])
+
+/** A story block: eyebrow, heading, paragraph, inline link. Repeated for each item. */
+const storyBlock = (eyebrow: string, heading: string, bodyHtml: string, linkLabel: string) =>
+  section('sec-story', { backgroundColor: C.body, paddingTop: '18px', paddingBottom: '10px' }, [
+    column('col-story', { paddingLeft: '24px', paddingRight: '24px' }, [
+      text('txt-story-eyebrow', eyebrow, {
+        fontSize: '12px',
+        color: C.muted,
+        paddingBottom: '2px'
+      }),
+      text('txt-story-heading', heading, {
+        fontSize: '20px',
+        fontWeight: 'bold',
+        lineHeight: '1.4',
+        paddingTop: '0px',
+        paddingBottom: '8px'
+      }),
+      text('txt-story-body', bodyHtml),
+      text('txt-story-link', linkLabel, { paddingTop: '4px', paddingBottom: '4px' })
+    ])
+  ])
+
 /** A product card: image above caption above a "Δείτε το" link, as the campaigns arrange them. */
 const productCard = (title: string, note: string) =>
   column('col-product', { paddingLeft: '8px', paddingRight: '8px' }, [
@@ -279,15 +378,12 @@ const offerStarter = (): EmailBlock => {
   return block('mjml', 'mjml', {}, [
     head('Προσφορά · Kois Optics'),
     body([
-      // The wordmark leads every campaign this client sends, so it leads the offer too; the
-      // black band underneath is what makes an offer read as an offer.
+      // Opening photograph, then the wordmark, then the social icons — the order every recent
+      // issue uses. The black band underneath is what makes an offer read as an offer.
+      heroImage('Προσφορά'),
       logoSection(),
+      socialRow(),
       inkBand('ΠΡΟΣΦΟΡΑ', 'Τίτλος προσφοράς σε δύο γραμμές', 'Μία σύντομη γραμμή που εξηγεί την προσφορά'),
-      section('sec-hero', { backgroundColor: C.body, paddingTop: '0px', paddingBottom: '0px' }, [
-        column('col-hero', {}, [
-          image('img-hero', 'https://placehold.co/560x340/F2F2F2/9A9A9A?text=%CE%95%CE%B9%CE%BA%CF%8C%CE%BD%CE%B1', 'Προσφορά')
-        ])
-      ]),
       section('sec-intro', { backgroundColor: C.body, paddingTop: '26px', paddingBottom: '8px' }, [
         column('col-intro', { paddingLeft: '24px', paddingRight: '24px' }, [
           text(
@@ -302,10 +398,9 @@ const offerStarter = (): EmailBlock => {
       ]),
       section('sec-cta', { backgroundColor: C.body, paddingTop: '14px', paddingBottom: '26px' }, [
         column('col-cta', {}, [
-          button('btn-cta', 'ΔΕΙΤΕ ΤΗΝ ΠΡΟΣΦΟΡΑ', `${KOIS_BRAND.site}/el/prosfores`)
+          button('btn-cta', 'ΔΕΙΤΕ ΤΗΝ ΠΡΟΣΦΟΡΑ', `${KOIS_BRAND.site}el/prosfores`)
         ])
       ]),
-      socialRow(),
       contactSection(),
       legalFooter()
     ])
@@ -317,12 +412,9 @@ const collectionStarter = (): EmailBlock => {
   return block('mjml', 'mjml', {}, [
     head('Νέα συλλογή · Kois Optics'),
     body([
+      heroImage('Νέα συλλογή'),
       logoSection(),
-      section('sec-hero', { backgroundColor: C.body }, [
-        column('col-hero', {}, [
-          image('img-hero', 'https://placehold.co/600x380/F2F2F2/9A9A9A?text=%CE%9D%CE%AD%CE%B1+%CF%83%CF%85%CE%BB%CE%BB%CE%BF%CE%B3%CE%AE', 'Νέα συλλογή')
-        ])
-      ]),
+      socialRow(),
       section('sec-title', { backgroundColor: C.body, paddingTop: '24px', paddingBottom: '4px' }, [
         column('col-title', { paddingLeft: '24px', paddingRight: '24px' }, [
           text('txt-kicker', 'ΝΕΑ ΣΥΛΛΟΓΗ', { fontSize: '12px', color: C.muted, align: 'center' }),
@@ -346,7 +438,6 @@ const collectionStarter = (): EmailBlock => {
       section('sec-cta', { backgroundColor: C.body, paddingTop: '16px', paddingBottom: '26px' }, [
         column('col-cta', {}, [button('btn-cta', 'ΔΕΙΤΕ ΤΗ ΣΥΛΛΟΓΗ', KOIS_BRAND.site)])
       ]),
-      socialRow(),
       contactSection(),
       legalFooter()
     ])
@@ -358,7 +449,9 @@ const storyStarter = (): EmailBlock => {
   return block('mjml', 'mjml', {}, [
     head('Ενημερωτικό · Kois Optics'),
     body([
+      heroImage('Ιστορία'),
       logoSection(),
+      socialRow(),
       inkBand('ΤΟ ΘΕΜΑ', 'Ο τίτλος της ιστορίας'),
       section('sec-lead', { backgroundColor: C.body, paddingTop: '26px' }, [
         column('col-lead', { paddingLeft: '24px', paddingRight: '24px' }, [
@@ -368,11 +461,13 @@ const storyStarter = (): EmailBlock => {
           )
         ])
       ]),
-      section('sec-image', { backgroundColor: C.body }, [
-        column('col-image', {}, [
-          image('img-story', 'https://placehold.co/560x340/F2F2F2/9A9A9A?text=%CE%A6%CF%89%CF%84%CE%BF%CE%B3%CF%81%CE%B1%CF%86%CE%AF%CE%B1', 'Ιστορία')
-        ])
-      ]),
+      // The flagship issue's workhorse: text beside a photograph, rather than a full-width
+      // image with the copy underneath.
+      splitTextImage(
+        'Όταν η ιστορία γίνεται design',
+        `<p>Γράψτε εδώ το πρώτο μισό της ιστορίας. Δύο έως τρεις προτάσεις δίπλα στη φωτογραφία διαβάζονται· δέκα δεν διαβάζονται.</p>`,
+        'Ιστορία'
+      ),
       section('sec-copy', { backgroundColor: C.body, paddingTop: '18px', paddingBottom: '6px' }, [
         column('col-copy', { paddingLeft: '24px', paddingRight: '24px' }, [
           text(
@@ -394,6 +489,12 @@ const storyStarter = (): EmailBlock => {
           )
         ])
       ]),
+      storyBlock(
+        'ΕΠΟΜΕΝΟ ΘΕΜΑ',
+        'Μια δεύτερη ιστορία, με δικό της τίτλο',
+        `<p>Κάθε θέμα παίρνει τη δική του ενότητα: ένας μικρός τίτλος, μία παράγραφος, ένας σύνδεσμος. Έτσι το newsletter διαβάζεται και σε κινητό, και κάθε θέμα μπορεί να αφαιρεθεί χωρίς να ξαναστηθεί η διάταξη.</p>`,
+        `<p><a href="${KOIS_BRAND.site}" style="color:${C.text};text-decoration:underline;">Διαβάστε περισσότερα →</a></p>`
+      ),
       section('sec-cta', { backgroundColor: C.body, paddingTop: '20px', paddingBottom: '24px' }, [
         column('col-cta', {}, [button('btn-cta', 'ΔΙΑΒΑΣΤΕ ΠΕΡΙΣΣΟΤΕΡΑ', KOIS_BRAND.site)])
       ]),
@@ -403,7 +504,6 @@ const storyStarter = (): EmailBlock => {
           text('txt-sign', '<p>Με εκτίμηση,<br /><strong>Ομάδα Kois Optics</strong></p>')
         ])
       ]),
-      socialRow(),
       contactSection(),
       legalFooter()
     ])
@@ -416,6 +516,7 @@ const welcomeStarter = (): EmailBlock => {
     head('Καλώς ήρθατε · Kois Optics'),
     body([
       logoSection(),
+      socialRow(),
       section('sec-welcome', { backgroundColor: C.body, paddingTop: '16px', paddingBottom: '6px' }, [
         column('col-welcome', { paddingLeft: '28px', paddingRight: '28px' }, [
           text('txt-hi', 'Καλώς ήρθατε, {{ contact.first_name }}', {
@@ -438,7 +539,6 @@ const welcomeStarter = (): EmailBlock => {
       section('sec-cta', { backgroundColor: C.body, paddingTop: '18px', paddingBottom: '22px' }, [
         column('col-cta', {}, [button('btn-cta', 'ΕΠΙΣΚΕΦΘΕΙΤΕ ΤΟ ΚΑΤΑΣΤΗΜΑ', KOIS_BRAND.site)])
       ]),
-      socialRow(),
       contactSection(),
       legalFooter()
     ])

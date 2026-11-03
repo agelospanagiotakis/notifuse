@@ -56,6 +56,9 @@ func (h *ArchiveAdminHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/archive.remove", requireAuth(http.HandlerFunc(h.handleRemove)))
 	mux.Handle("/api/archive.publish", requireAuth(http.HandlerFunc(h.handlePublish)))
 	mux.Handle("/api/archive.setAudienceListed", requireAuth(http.HandlerFunc(h.handleSetAudienceListed)))
+	// The Lists screen needs the mapping from a platform list to its archive page, and nothing
+	// else. archive.get would hand it 182 entries to answer that.
+	mux.Handle("/api/archive.listAudiences", requireAuth(http.HandlerFunc(h.handleListAudiences)))
 }
 
 func (h *ArchiveAdminHandler) workspace(w http.ResponseWriter, r *http.Request) *domain.Workspace {
@@ -131,12 +134,13 @@ func (h *ArchiveAdminHandler) handleGet(w http.ResponseWriter, r *http.Request) 
 					name = a.ListID
 				}
 				audiences = append(audiences, map[string]any{
-					"list_id":   a.ListID,
-					"slug":      slug,
-					"name":      name,
-					"listed":    a.Listed,
-					"campaigns": a.Campaigns,
-					"url":       "/archive/" + slugify(ws.Name) + "/" + slug + "/",
+					"list_id":          a.ListID,
+					"notifuse_list_id": a.NotifuseListID,
+					"slug":             slug,
+					"name":             name,
+					"listed":           a.Listed,
+					"campaigns":        a.Campaigns,
+					"url":              "/archive/" + slugify(ws.Name) + "/" + slug + "/",
 				})
 			}
 		}
@@ -358,4 +362,52 @@ func (h *ArchiveAdminHandler) handleSetAudienceListed(w http.ResponseWriter, r *
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+// handleListAudiences returns the audience registry alone: id, Notifuse list, slug, name,
+// listing state and public URL. Used by the Lists screen to link each list to its archive.
+func (h *ArchiveAdminHandler) handleListAudiences(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		WriteJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	workspaceID := r.URL.Query().Get("workspace_id")
+	if workspaceID == "" {
+		WriteJSONError(w, "workspace_id is required", http.StatusBadRequest)
+		return
+	}
+	ws, err := h.workspaceRepo.GetByID(r.Context(), workspaceID)
+	if err != nil || ws == nil {
+		WriteJSONError(w, "workspace not found", http.StatusNotFound)
+		return
+	}
+	audiences := []map[string]any{}
+	if err := h.archiveRepo.EnsureSchema(r.Context(), ws.ID); err == nil {
+		if list, err := h.archiveRepo.ListAudiences(r.Context(), ws.ID); err == nil {
+			for _, a := range list {
+				slug := a.Slug
+				if slug == "" {
+					slug = a.ListID
+				}
+				audiences = append(audiences, map[string]any{
+					"list_id":          a.ListID,
+					"notifuse_list_id": a.NotifuseListID,
+					"slug":             slug,
+					"name":             nameOr(a.Name, a.ListID),
+					"listed":           a.Listed,
+					"campaigns":        a.Campaigns,
+					"url":              "/archive/" + slugify(ws.Name) + "/" + slug + "/",
+				})
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"audiences": audiences})
+}
+
+// nameOr keeps the caller readable: an audience without a registry row is named by its id.
+func nameOr(name, fallback string) string {
+	if strings.TrimSpace(name) == "" {
+		return fallback
+	}
+	return name
 }

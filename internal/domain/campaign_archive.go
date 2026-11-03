@@ -54,8 +54,12 @@ type ArchiveAudience struct {
 	// Listed is whether this audience is offered publicly: in the archive's audience switch
 	// and at its own URL. Unticked, the page answers 404 — "not listed" is a visibility
 	// decision, and a page that still resolves is not hidden.
-	Listed    bool `json:"listed"`
-	Campaigns int  `json:"campaigns"`
+	Listed bool `json:"listed"`
+	// NotifuseListID is the platform list this audience corresponds to, when one does. Imported
+	// campaigns carry the Mailchimp list id, so without this the console cannot tell that
+	// `koisopticsmain` and `d545c36792` are the same audience.
+	NotifuseListID string `json:"notifuse_list_id,omitempty"`
+	Campaigns      int    `json:"campaigns"`
 }
 
 // ArchiveSettings is stored in the workspace settings blob under "archive".
