@@ -23,10 +23,22 @@ import type { FileManagerProps, StorageObject } from './interfaces'
 import { useLingui } from '@lingui/react/macro'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
-import { Copy, Folder, Trash2, ExternalLink, Settings, RefreshCw, Plus, Download } from 'lucide-react'
+import {
+  Box,
+  Copy,
+  Folder,
+  Trash2,
+  ExternalLink,
+  Settings,
+  RefreshCw,
+  Plus,
+  Download
+} from 'lucide-react'
 import { filesize } from 'filesize'
 import { zipSync } from 'fflate'
 import ButtonFilesSettings from './buttonSettings'
+import { Model3DViewer } from './Model3DViewer'
+import { is3DModel } from './model3d'
 import {
   S3Client,
   ListObjectsV2Command,
@@ -114,6 +126,8 @@ export const FileManager = (props: FileManagerProps) => {
   const [isDeleting, setIsDeleting] = useState(false)
   const [uploadFileStatuses, setUploadFileStatuses] = useState<UploadFileStatus[]>([])
   const [isDragging, setIsDragging] = useState(false)
+  // The 3D model open in the viewer, if any: the file name for the title, the URL to load.
+  const [model3D, setModel3D] = useState<{ url: string; name: string } | null>(null)
   const dragCounterRef = useRef(0)
   const abortControllerRef = useRef<AbortController | null>(null)
   const [form] = Form.useForm()
@@ -898,6 +912,17 @@ export const FileManager = (props: FileManagerProps) => {
                   if (item.is_folder) return
                   return (
                     <Space>
+                      {is3DModel(item.name) && (
+                        <Tooltip title={t`View in 3D`}>
+                          <Button
+                            type="text"
+                            size="small"
+                            onClick={() => setModel3D({ url: item.file_info.url, name: item.name })}
+                          >
+                            <Box size={16} />
+                          </Button>
+                        </Tooltip>
+                      )}
                       <Tooltip title={t`Copy URL`}>
                         <Button
                           type="text"
@@ -1131,6 +1156,13 @@ export const FileManager = (props: FileManagerProps) => {
           </Button>
         </div>
       )}
+
+      <Model3DViewer
+        open={model3D !== null}
+        url={model3D?.url ?? ''}
+        name={model3D?.name}
+        onClose={() => setModel3D(null)}
+      />
     </div>
   )
 }

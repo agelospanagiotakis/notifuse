@@ -34,6 +34,7 @@
     "@fortawesome/free-regular-svg-icons": "^6.7.2",
     "@fortawesome/free-solid-svg-icons": "^6.7.2",
     "@fortawesome/react-fontawesome": "^0.2.2",
+    "@google/model-viewer": "4.4.0",
     "@lingui/core": "^5.9.0",
     "@lingui/react": "^5.9.0",
     "@monaco-editor/react": "^4.7.0",
