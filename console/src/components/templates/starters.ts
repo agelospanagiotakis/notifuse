@@ -49,6 +49,9 @@ export const KOIS_BRAND = {
       'https://minio-api.e-pragma.gr/koisnewsletters/newsletters/2026-09-14_12d870f495/1031d992-color-youtube-48.png'
   },
   phone: '22810 83810',
+  // E.164 for the tel: link. A printed number in a footer is not tappable, and most of this
+  // list reads the mail on a phone — the number exists to be called.
+  phoneE164: '+302281083810',
   email: 'info@kois-optics.com',
   colors: {
     ink: '#111111',
@@ -260,7 +263,7 @@ const contactSection = () =>
       text(
         'txt-contact-body',
         `<p style="margin:0;line-height:1.9;">Σταύρος Κόης · Σύρος<br />
-        ☎️ ${KOIS_BRAND.phone}<br />
+        ☎️ <a href="tel:${KOIS_BRAND.phoneE164}" style="color:${C.text};text-decoration:none;">${KOIS_BRAND.phone}</a><br />
         ✉️ <a href="mailto:${KOIS_BRAND.email}" style="color:${C.text};">${KOIS_BRAND.email}</a><br />
         <a href="${KOIS_BRAND.site}" style="color:${C.text};">kois-optics.gr</a></p>`,
         { align: 'center', fontSize: '15px' }
@@ -398,7 +401,9 @@ const offerStarter = (): EmailBlock => {
       ]),
       section('sec-cta', { backgroundColor: C.body, paddingTop: '14px', paddingBottom: '26px' }, [
         column('col-cta', {}, [
-          button('btn-cta', 'ΔΕΙΤΕ ΤΗΝ ΠΡΟΣΦΟΡΑ', `${KOIS_BRAND.site}el/prosfores`)
+          // The site root, not a guessed offers path: /el/prosfores answers 404, and a broken
+          // CTA in a starter is a broken CTA in every campaign built from it.
+          button('btn-cta', 'ΔΕΙΤΕ ΤΗΝ ΠΡΟΣΦΟΡΑ', KOIS_BRAND.site)
         ])
       ]),
       contactSection(),

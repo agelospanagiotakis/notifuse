@@ -49,6 +49,16 @@ describe('brand starters', () => {
     }
   })
 
+  it('makes the footer phone dialable', () => {
+    // A printed number in a footer is not tappable, and most of this list reads on a phone.
+    for (const s of TEMPLATE_STARTERS) {
+      const json = serialise(s.tree)
+      // JSON.stringify escapes the quotes inside the HTML content, so match the scheme.
+      expect(json, `${s.id} has no tel: link`).toContain('tel:+302281083810')
+      expect(json).toContain('mailto:info@kois-optics.com')
+    }
+  })
+
   it('is JSON-cloneable, because the drawer deep-clones it per use', () => {
     // The editor must not share one object between templates opened in the same session.
     for (const s of TEMPLATE_STARTERS) {
