@@ -49,6 +49,7 @@ type TelemetryMetrics struct {
 	Anthropic bool `json:"anthropic"`
 	OpenAI    bool `json:"openai"`
 	Gemini    bool `json:"gemini"`
+	DeepSeek  bool `json:"deepseek"`
 	Supabase  bool `json:"supabase"`
 	Firecrawl bool `json:"firecrawl"`
 
@@ -312,6 +313,8 @@ func (t *TelemetryService) setIntegrationFlagsFromWorkspace(workspace *domain.Wo
 				metrics.OpenAI = true
 			case domain.LLMProviderKindGemini:
 				metrics.Gemini = true
+			case domain.LLMProviderKindDeepSeek:
+				metrics.DeepSeek = true
 			}
 
 		case domain.IntegrationTypeSupabase:

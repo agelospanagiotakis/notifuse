@@ -48,10 +48,14 @@ type ArchiveEntry struct {
 // The slug is stored rather than derived so a URL can be chosen once and stay stable: the
 // display name is whatever the sending platform called the list, and that name changes.
 type ArchiveAudience struct {
-	ListID    string `json:"list_id"`
-	Slug      string `json:"slug"`
-	Name      string `json:"name"`
-	Campaigns int    `json:"campaigns"`
+	ListID string `json:"list_id"`
+	Slug   string `json:"slug"`
+	Name   string `json:"name"`
+	// Listed is whether this audience is offered publicly: in the archive's audience switch
+	// and at its own URL. Unticked, the page answers 404 — "not listed" is a visibility
+	// decision, and a page that still resolves is not hidden.
+	Listed    bool `json:"listed"`
+	Campaigns int  `json:"campaigns"`
 }
 
 // ArchiveSettings is stored in the workspace settings blob under "archive".
@@ -102,6 +106,8 @@ type CampaignArchiveRepository interface {
 	ListByListID(ctx context.Context, workspaceID, listID string) ([]*ArchiveEntry, error)
 	// GetAudience resolves an audience by its URL slug.
 	GetAudience(ctx context.Context, workspaceID, slug string) (*ArchiveAudience, error)
+	// SetAudienceListed ticks or unticks an audience in the public archive.
+	SetAudienceListed(ctx context.Context, workspaceID, listID string, listed bool) error
 	// UpsertAudience records an audience's slug and display name.
 	UpsertAudience(ctx context.Context, workspaceID string, audience *ArchiveAudience) error
 }

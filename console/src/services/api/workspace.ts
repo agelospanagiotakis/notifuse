@@ -206,7 +206,11 @@ export type IntegrationType =
   | 'zapier'
 
 // LLM Provider types
-export type LLMProviderKind = 'anthropic' | 'openai' | 'gemini'
+/**
+ * `deepseek` is its own kind rather than "openai with a base URL": it has its own host,
+ * model names and key, and an integration card should say which provider it calls.
+ */
+export type LLMProviderKind = 'anthropic' | 'openai' | 'gemini' | 'deepseek'
 
 export interface AnthropicSettings {
   api_key?: string
@@ -228,11 +232,18 @@ export interface GeminiSettings {
   model: string
 }
 
+/**
+ * DeepSeek's API is OpenAI-compatible, so its settings are the same five fields. Sending them
+ * under their own key keeps the two integations distinguishable in the stored JSON.
+ */
+export type DeepSeekSettings = OpenAISettings
+
 export interface LLMProvider {
   kind: LLMProviderKind
   anthropic?: AnthropicSettings
   openai?: OpenAISettings
   gemini?: GeminiSettings
+  deepseek?: DeepSeekSettings
 }
 
 // Firecrawl settings for web scraping and search

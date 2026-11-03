@@ -9,6 +9,10 @@ const (
 	LLMProviderKindAnthropic LLMProviderKind = "anthropic"
 	LLMProviderKindOpenAI    LLMProviderKind = "openai"
 	LLMProviderKindGemini    LLMProviderKind = "gemini"
+	// DeepSeek speaks the OpenAI wire format but is a separate provider in the UI: it has its
+	// own host, its own model names and its own key, and folding it into "OpenAI with a custom
+	// base URL" made every operator read release notes to discover that.
+	LLMProviderKindDeepSeek LLMProviderKind = "deepseek"
 )
 
 // LLMProvider contains configuration for an LLM service provider
@@ -17,6 +21,7 @@ type LLMProvider struct {
 	Anthropic *AnthropicSettings `json:"anthropic,omitempty"`
 	OpenAI    *OpenAISettings    `json:"openai,omitempty"`
 	Gemini    *GeminiSettings    `json:"gemini,omitempty"`
+	DeepSeek  *DeepSeekSettings  `json:"deepseek,omitempty"`
 }
 
 // Validate validates the LLM provider settings
@@ -41,6 +46,11 @@ func (l *LLMProvider) Validate(passphrase string) error {
 			return fmt.Errorf("Gemini settings required when LLM provider kind is gemini")
 		}
 		return l.Gemini.Validate(passphrase)
+	case LLMProviderKindDeepSeek:
+		if l.DeepSeek == nil {
+			return fmt.Errorf("DeepSeek settings required when LLM provider kind is deepseek")
+		}
+		return l.DeepSeek.Validate(passphrase)
 	default:
 		return fmt.Errorf("invalid LLM provider kind: %s", l.Kind)
 	}
@@ -69,6 +79,13 @@ func (l *LLMProvider) EncryptSecretKeys(passphrase string) error {
 		l.Gemini.APIKey = ""
 	}
 
+	if l.Kind == LLMProviderKindDeepSeek && l.DeepSeek != nil && l.DeepSeek.APIKey != "" {
+		if err := l.DeepSeek.EncryptAPIKey(passphrase); err != nil {
+			return err
+		}
+		l.DeepSeek.APIKey = ""
+	}
+
 	return nil
 }
 
@@ -88,6 +105,12 @@ func (l *LLMProvider) DecryptSecretKeys(passphrase string) error {
 
 	if l.Kind == LLMProviderKindGemini && l.Gemini != nil && l.Gemini.EncryptedAPIKey != "" {
 		if err := l.Gemini.DecryptAPIKey(passphrase); err != nil {
+			return err
+		}
+	}
+
+	if l.Kind == LLMProviderKindDeepSeek && l.DeepSeek != nil && l.DeepSeek.EncryptedAPIKey != "" {
+		if err := l.DeepSeek.DecryptAPIKey(passphrase); err != nil {
 			return err
 		}
 	}

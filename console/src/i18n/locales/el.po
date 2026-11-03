@@ -511,7 +511,7 @@ msgstr "2. Web Analytics"
 msgid "200 - Extra Light"
 msgstr "200 - Extra Light"
 
-#: src/components/settings/Integrations.tsx:2214
+#: src/components/settings/Integrations.tsx:2219
 msgid "2587 uses STARTTLS. 465 is implicit TLS and 587 is blocked on DigitalOcean."
 msgstr "Η 2587 χρησιμοποιεί STARTTLS. Η 465 είναι implicit TLS και η 587 είναι μπλοκαρισμένη στο DigitalOcean."
 
@@ -635,7 +635,7 @@ msgstr "Δοκιμή A/B"
 msgid "Accept Invitation"
 msgstr "Αποδεχτείτε την πρόσκληση"
 
-#: src/components/settings/Integrations.tsx:1867
+#: src/components/settings/Integrations.tsx:1872
 msgid "Access Key"
 msgstr "Κλειδί πρόσβασης"
 
@@ -827,7 +827,7 @@ msgstr "Προσθήκη φίλτρου"
 msgid "Add filter conditions"
 msgstr "Προσθήκη συνθηκών φίλτρου"
 
-#: src/components/settings/Integrations.tsx:2717
+#: src/components/settings/Integrations.tsx:2722
 msgid "Add Integration"
 msgstr "Προσθήκη ενοποίησης"
 
@@ -848,7 +848,7 @@ msgstr "Προσθήκη κόμβου"
 msgid "Add notes about this version..."
 msgstr "Προσθήκη σημειώσεων για αυτήν την έκδοση..."
 
-#: src/components/settings/Integrations.tsx:2431
+#: src/components/settings/Integrations.tsx:2436
 msgid "Add one or more email senders. The first sender will be used as the default."
 msgstr ""
 
@@ -864,9 +864,9 @@ msgstr "Προσθήκη διαδρομής"
 #~ msgid "Add rule"
 #~ msgstr "Add rule"
 
-#: src/components/settings/Integrations.tsx:2390
-#: src/components/settings/Integrations.tsx:2446
-#: src/components/settings/Integrations.tsx:2761
+#: src/components/settings/Integrations.tsx:2395
+#: src/components/settings/Integrations.tsx:2451
+#: src/components/settings/Integrations.tsx:2766
 msgid "Add Sender"
 msgstr "Προσθήκη αποστολέα"
 
@@ -1235,8 +1235,8 @@ msgstr "οποιαδήποτε στιγμή"
 msgid "API Command"
 msgstr "Εντολή API"
 
-#: src/components/settings/Integrations.tsx:2099
-#: src/components/settings/Integrations.tsx:2534
+#: src/components/settings/Integrations.tsx:2104
+#: src/components/settings/Integrations.tsx:2539
 #: src/components/settings/SystemSettingsDrawer.tsx:278
 #: src/pages/SetupWizard.tsx:379
 msgid "API Endpoint"
@@ -1255,24 +1255,24 @@ msgid "API key"
 msgstr "Κλειδί API"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:84
-#: src/components/integrations/LLMIntegration.tsx:175
-#: src/components/settings/Integrations.tsx:1652
-#: src/components/settings/Integrations.tsx:1703
-#: src/components/settings/Integrations.tsx:2112
-#: src/components/settings/Integrations.tsx:2150
-#: src/components/settings/Integrations.tsx:2151
-#: src/components/settings/Integrations.tsx:2168
-#: src/components/settings/Integrations.tsx:2169
-#: src/components/settings/Integrations.tsx:2190
+#: src/components/integrations/LLMIntegration.tsx:209
+#: src/components/settings/Integrations.tsx:1657
+#: src/components/settings/Integrations.tsx:1708
+#: src/components/settings/Integrations.tsx:2117
+#: src/components/settings/Integrations.tsx:2155
+#: src/components/settings/Integrations.tsx:2156
+#: src/components/settings/Integrations.tsx:2173
+#: src/components/settings/Integrations.tsx:2174
+#: src/components/settings/Integrations.tsx:2195
 #: src/components/settings/WorkspaceMembers.tsx:126
 msgid "API Key"
 msgstr "Κλειδί API"
 
-#: src/components/settings/Integrations.tsx:2191
+#: src/components/settings/Integrations.tsx:2196
 msgid "API Key (starts with SG.)"
 msgstr "Κλειδί API (ξεκινά με SG.)"
 
-#: src/components/settings/Integrations.tsx:1770
+#: src/components/settings/Integrations.tsx:1775
 msgid "API key address"
 msgstr "Διεύθυνση κλειδιού API"
 
@@ -1526,7 +1526,7 @@ msgstr "Auth Email Hook"
 msgid "Auth Email Hook Secret"
 msgstr "Auth Email Hook Secret"
 
-#: src/components/settings/Integrations.tsx:2472
+#: src/components/settings/Integrations.tsx:2477
 msgid "Authentication"
 msgstr "Έλεγχος ταυτότητας"
 
@@ -1534,7 +1534,7 @@ msgstr "Έλεγχος ταυτότητας"
 msgid "Authentication email sent via Supabase"
 msgstr "Email ελέγχου ταυτότητας που αποστέλλεται μέσω του Supabase"
 
-#: src/components/settings/Integrations.tsx:1907
+#: src/components/settings/Integrations.tsx:1912
 msgid "Authentication Type"
 msgstr "Τύπος ελέγχου ταυτότητας"
 
@@ -1662,16 +1662,16 @@ msgstr "URL Avatar"
 msgid "Avoid special characters that might not display properly"
 msgstr "Αποφύγετε τους ειδικούς χαρακτήρες που ενδέχεται να μην εμφανίζονται σωστά"
 
-#: src/components/settings/Integrations.tsx:1864
+#: src/components/settings/Integrations.tsx:1869
 msgid "AWS Access Key"
 msgstr "Κλειδί πρόσβασης AWS"
 
-#: src/components/settings/Integrations.tsx:1805
-#: src/components/settings/Integrations.tsx:2495
+#: src/components/settings/Integrations.tsx:1810
+#: src/components/settings/Integrations.tsx:2500
 msgid "AWS Region"
 msgstr "Περιφέρεια AWS"
 
-#: src/components/settings/Integrations.tsx:1869
+#: src/components/settings/Integrations.tsx:1874
 msgid "AWS Secret Key"
 msgstr "Μυστικό κλειδί AWS"
 
@@ -1740,8 +1740,9 @@ msgstr "Μέγεθος φόντου"
 msgid "Background Type"
 msgstr "Τύπος φόντου"
 
-#: src/components/integrations/LLMIntegration.tsx:214
-#: src/components/settings/Integrations.tsx:1646
+#: src/components/integrations/LLMIntegration.tsx:250
+#: src/components/integrations/LLMIntegration.tsx:294
+#: src/components/settings/Integrations.tsx:1651
 msgid "Base URL"
 msgstr "Βασική διεύθυνση URL"
 
@@ -1765,7 +1766,7 @@ msgstr "Ιδιωτικό κλειδί TLS με κωδικοποίηση Base64"
 msgid "Base64 encoded TLS private key. Run: cat privkey.pem | base64 -w 0"
 msgstr ""
 
-#: src/components/settings/Integrations.tsx:1912
+#: src/components/settings/Integrations.tsx:1917
 msgid "Basic Authentication (Username/Password)"
 msgstr "Βασικός έλεγχος ταυτότητας (Όνομα χρήστη/Κωδικός πρόσβασης)"
 
@@ -2308,13 +2309,13 @@ msgstr "καμπάνιες"
 #: src/components/settings/BlogSettings.tsx:206
 #: src/components/settings/CustomFieldsConfiguration.tsx:291
 #: src/components/settings/EditPermissionsDrawer.tsx:96
-#: src/components/settings/Integrations.tsx:2635
-#: src/components/settings/Integrations.tsx:2766
-#: src/components/settings/Integrations.tsx:2801
-#: src/components/settings/Integrations.tsx:2848
-#: src/components/settings/Integrations.tsx:2896
-#: src/components/settings/Integrations.tsx:2943
-#: src/components/settings/Integrations.tsx:2980
+#: src/components/settings/Integrations.tsx:2640
+#: src/components/settings/Integrations.tsx:2771
+#: src/components/settings/Integrations.tsx:2806
+#: src/components/settings/Integrations.tsx:2853
+#: src/components/settings/Integrations.tsx:2901
+#: src/components/settings/Integrations.tsx:2948
+#: src/components/settings/Integrations.tsx:2985
 #: src/components/settings/SystemSettingsDrawer.tsx:171
 #: src/components/settings/WebhookCard.tsx:430
 #: src/components/settings/WebhookCard.tsx:450
@@ -2679,7 +2680,7 @@ msgstr "Αναγνωριστικό πελάτη"
 msgid "Client ID is required"
 msgstr "Απαιτείται αναγνωριστικό πελάτη"
 
-#: src/components/settings/Integrations.tsx:2039
+#: src/components/settings/Integrations.tsx:2044
 #: src/components/settings/SystemSettingsDrawer.tsx:584
 #: src/pages/SetupWizard.tsx:733
 msgid "Client Secret"
@@ -2689,7 +2690,7 @@ msgstr "Μυστικό πελάτη"
 msgid "Client Secret is required"
 msgstr "Απαιτείται Client Secret"
 
-#: src/components/settings/Integrations.tsx:2005
+#: src/components/settings/Integrations.tsx:2010
 msgid "Client Secret Value"
 msgstr "Μυστική αξία πελάτη"
 
@@ -2787,7 +2788,7 @@ msgstr "Τιμές διαχωρισμένες με κόμμα"
 msgid "Comma-separated. Only these domains may auto-create accounts."
 msgstr ""
 
-#: src/components/settings/Integrations.tsx:1888
+#: src/components/settings/Integrations.tsx:1893
 #: src/components/settings/SystemSettingsDrawer.tsx:342
 #: src/pages/SetupWizard.tsx:466
 msgid "Common ports: 587 (TLS), 465 (SSL), 25 (unencrypted)"
@@ -2922,8 +2923,8 @@ msgstr "Συνθήκες"
 msgid "Configuration for {nodeType} is not available in Phase 2"
 msgstr "Η διαμόρφωση για το {nodeType} δεν είναι διαθέσιμη στη Φάση 2"
 
-#: src/components/settings/Integrations.tsx:2287
-#: src/components/settings/Integrations.tsx:2498
+#: src/components/settings/Integrations.tsx:2292
+#: src/components/settings/Integrations.tsx:2503
 msgid "Configuration set"
 msgstr "Σύνολο διαμόρφωσης"
 
@@ -2976,9 +2977,9 @@ msgstr ""
 
 #: src/components/settings/Integrations.tsx:1481
 #: src/components/settings/Integrations.tsx:1518
-#: src/components/settings/Integrations.tsx:1654
-#: src/components/settings/Integrations.tsx:1705
-#: src/components/settings/Integrations.tsx:2561
+#: src/components/settings/Integrations.tsx:1659
+#: src/components/settings/Integrations.tsx:1710
+#: src/components/settings/Integrations.tsx:2566
 msgid "Configured"
 msgstr "Διαμόρφωση"
 
@@ -3016,7 +3017,7 @@ msgstr "Επιβεβαιώθηκε"
 msgid "Connect"
 msgstr "Συνδεθείτε"
 
-#: src/components/settings/Integrations.tsx:2710
+#: src/components/settings/Integrations.tsx:2715
 msgid "Connect and manage external services"
 msgstr "Σύνδεση και διαχείριση εξωτερικών υπηρεσιών"
 
@@ -3024,12 +3025,12 @@ msgstr "Σύνδεση και διαχείριση εξωτερικών υπηρ
 #~ msgid "Connect Notifuse to more than 8,000 apps with Zapier"
 #~ msgstr "Connect Notifuse to more than 8,000 apps with Zapier"
 
-#: src/components/settings/Integrations.tsx:2969
+#: src/components/settings/Integrations.tsx:2974
 #: src/components/settings/ZapierSettings.tsx:288
 msgid "Connect Zapier"
 msgstr "Συνδέστε το Zapier"
 
-#: src/components/settings/Integrations.tsx:1775
+#: src/components/settings/Integrations.tsx:1780
 msgid "Connected"
 msgstr "Συνδεδεμένος"
 
@@ -3049,11 +3050,11 @@ msgstr "Στοιχεία σύνδεσης"
 msgid "Consecutive delivery failures: {consecutiveFailures}"
 msgstr "Διαδοχικές αποτυχίες παράδοσης: {consecutiveFailures}"
 
-#: src/components/settings/Integrations.tsx:2739
+#: src/components/settings/Integrations.tsx:2744
 msgid "Consider connecting a marketing email provider to send newsletters, promotional campaigns, and announcements to engage with your audience."
 msgstr "Εξετάστε το ενδεχόμενο να συνδέσετε έναν πάροχο ηλεκτρονικού ταχυδρομείου μάρκετινγκ για να στείλετε ενημερωτικά δελτία, διαφημιστικές καμπάνιες και ανακοινώσεις για να αλληλεπιδράσετε με το κοινό σας."
 
-#: src/components/settings/Integrations.tsx:2734
+#: src/components/settings/Integrations.tsx:2739
 msgid "Consider connecting a transactional email provider to be able to use transactional emails for account notifications, password resets, and other important system messages."
 msgstr "Εξετάστε το ενδεχόμενο να συνδέσετε έναν πάροχο ηλεκτρονικού ταχυδρομείου συναλλαγών για να μπορεί να χρησιμοποιεί μηνύματα ηλεκτρονικού ταχυδρομείου συναλλαγών για ειδοποιήσεις λογαριασμού, επαναφορά κωδικού πρόσβασης και άλλα σημαντικά μηνύματα συστήματος."
 
@@ -3530,7 +3531,7 @@ msgstr "Δημιουργία προτύπου"
 msgid "Create tenant"
 msgstr "Δημιουργία μισθωτή"
 
-#: src/components/settings/Integrations.tsx:2000
+#: src/components/settings/Integrations.tsx:2005
 msgid "Create this in Azure Portal > App registrations > Your App > Certificates & secrets"
 msgstr "Δημιουργήστε το στο Azure Portal > Εγγραφές εφαρμογών > Η εφαρμογή σας > Πιστοποιητικά και μυστικά"
 
@@ -3654,7 +3655,7 @@ msgstr ""
 msgid "Current Segment Tree JSON"
 msgstr "Τρέχον δενδρικό τμήμα JSON"
 
-#: src/components/settings/Integrations.tsx:2503
+#: src/components/settings/Integrations.tsx:2508
 msgid "custom"
 msgstr "έθιμο"
 
@@ -3941,13 +3942,17 @@ msgstr "Διακόσμηση"
 msgid "Deduplication:"
 msgstr "Αποδιπλασιασμός:"
 
+#: src/components/integrations/LLMIntegration.tsx:286
+msgid "deepseek-chat or a custom model id"
+msgstr "deepseek-chat ή ένα προσαρμοσμένο αναγνωριστικό μοντέλου"
+
 #: src/components/templates/SendTemplateModal.tsx:66
 #: src/pages/TemplatesPage.tsx:266
 msgid "default"
 msgstr "προεπιλογή"
 
 #: src/components/email_builder/ui/FontStyleInput.tsx:232
-#: src/components/integrations/LLMIntegration.tsx:228
+#: src/components/integrations/LLMIntegration.tsx:264
 #: src/components/settings/Integrations.tsx:398
 msgid "Default"
 msgstr "Προεπιλογή"
@@ -3986,7 +3991,7 @@ msgstr "Προεπιλογές σε μετα-περιγραφή"
 msgid "Defaults to meta title"
 msgstr "Προεπιλογές σε μετα τίτλο"
 
-#: src/components/settings/Integrations.tsx:2090
+#: src/components/settings/Integrations.tsx:2095
 #: src/pages/SetupWizard.tsx:526
 msgid "Defaults to SMTP host"
 msgstr "Προεπιλογές στον κεντρικό υπολογιστή SMTP"
@@ -4016,8 +4021,8 @@ msgstr "Καθυστέρηση"
 #: src/components/settings/Integrations.tsx:368
 #: src/components/settings/Integrations.tsx:1460
 #: src/components/settings/Integrations.tsx:1619
-#: src/components/settings/Integrations.tsx:1688
-#: src/components/settings/Integrations.tsx:1752
+#: src/components/settings/Integrations.tsx:1693
+#: src/components/settings/Integrations.tsx:1757
 #: src/components/settings/WebhookCard.tsx:263
 #: src/components/settings/WebhookCard.tsx:276
 #: src/components/web_analytics/annotations/AnnotationTable.tsx:83
@@ -4208,14 +4213,14 @@ msgstr "Διαγραφή της ειδοποίησης;"
 msgid "Delete this condition?"
 msgstr "Διαγραφή αυτής της συνθήκης;"
 
-#: src/components/settings/Integrations.tsx:1746
+#: src/components/settings/Integrations.tsx:1751
 msgid "Delete this connection?"
 msgstr "Διαγραφή αυτής της σύνδεσης;"
 
 #: src/components/settings/Integrations.tsx:362
 #: src/components/settings/Integrations.tsx:1454
 #: src/components/settings/Integrations.tsx:1613
-#: src/components/settings/Integrations.tsx:1682
+#: src/components/settings/Integrations.tsx:1687
 msgid "Delete this integration?"
 msgstr "Διαγραφή αυτής της ενσωμάτωσης;"
 
@@ -4228,7 +4233,7 @@ msgstr "Διαγραφή αυτής της λειτουργίας;"
 msgid "Delete this rule?"
 msgstr "Διαγραφή αυτού του κανόνα;"
 
-#: src/components/settings/Integrations.tsx:2410
+#: src/components/settings/Integrations.tsx:2415
 msgid "Delete this sender?"
 msgstr "Διαγραφή αυτού του αποστολέα;"
 
@@ -4261,7 +4266,7 @@ msgstr "Διαγράφηκαν στοιχεία {deletedCount}"
 msgid "Deleted {deletedCount}, failed {failedCount}"
 msgstr "Διαγράφηκε {deletedCount}, απέτυχε {failedCount}"
 
-#: src/components/settings/Integrations.tsx:1747
+#: src/components/settings/Integrations.tsx:1752
 msgid "Deleting revokes the API key this connection minted, so any Zap still using it stops working. This action cannot be undone."
 msgstr ""
 
@@ -4474,8 +4479,8 @@ msgstr "Θέλετε να στείλετε το \"{0}\" αμέσως ή να τ�
 msgid "Documentation"
 msgstr "Τεκμηρίωση"
 
-#: src/components/settings/Integrations.tsx:2147
-#: src/components/settings/Integrations.tsx:2543
+#: src/components/settings/Integrations.tsx:2152
+#: src/components/settings/Integrations.tsx:2548
 #: src/pages/SetupWizard.tsx:605
 msgid "Domain"
 msgstr "Τομέας"
@@ -4619,19 +4624,23 @@ msgstr ""
 msgid "e.g., Company Name, Industry, etc."
 msgstr "π.χ. Επωνυμία εταιρείας, Βιομηχανία κ.λπ."
 
-#: src/components/integrations/LLMIntegration.tsx:169
+#: src/components/integrations/LLMIntegration.tsx:203
 msgid "e.g., My Anthropic Integration"
 msgstr "π.χ., My Anthropic Integration"
+
+#: src/components/integrations/LLMIntegration.tsx:200
+msgid "e.g., My DeepSeek Integration"
+msgstr "π.χ. Η ενσωμάτωση DeepSeek μου"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:80
 msgid "e.g., My Firecrawl Integration"
 msgstr "π.χ. My Firecrawl Integration"
 
-#: src/components/integrations/LLMIntegration.tsx:168
+#: src/components/integrations/LLMIntegration.tsx:202
 msgid "e.g., My Google Gemini Integration"
 msgstr "π.χ. My Google Gemini Integration"
 
-#: src/components/integrations/LLMIntegration.tsx:166
+#: src/components/integrations/LLMIntegration.tsx:198
 msgid "e.g., My OpenAI Integration"
 msgstr "π.χ. My OpenAI Integration"
 
@@ -4678,8 +4687,8 @@ msgstr "επεξεργασία"
 #: src/components/settings/Integrations.tsx:352
 #: src/components/settings/Integrations.tsx:1444
 #: src/components/settings/Integrations.tsx:1603
-#: src/components/settings/Integrations.tsx:1672
-#: src/components/settings/Integrations.tsx:1736
+#: src/components/settings/Integrations.tsx:1677
+#: src/components/settings/Integrations.tsx:1741
 #: src/components/settings/WebhookCard.tsx:283
 #: src/components/web_analytics/annotations/AnnotationTable.tsx:91
 #: src/components/web_analytics/annotations/AnnotationTable.tsx:154
@@ -4811,7 +4820,7 @@ msgstr "Επεξεργασία κανόνα"
 msgid "Edit segment"
 msgstr "Επεξεργασία τμήματος"
 
-#: src/components/settings/Integrations.tsx:2761
+#: src/components/settings/Integrations.tsx:2766
 msgid "Edit Sender"
 msgstr "Επεξεργασία αποστολέα"
 
@@ -4846,7 +4855,7 @@ msgstr "Επεξεργασία τιμής"
 msgid "Edit Webhook"
 msgstr "Επεξεργασία Webhook"
 
-#: src/components/settings/Integrations.tsx:2969
+#: src/components/settings/Integrations.tsx:2974
 msgid "Edit Zapier connection"
 msgstr "Επεξεργασία σύνδεσης Zapier"
 
@@ -4858,8 +4867,8 @@ msgstr "Επεξεργάσιμη σήμανση"
 msgid "Editor mode"
 msgstr "Λειτουργία επεξεργασίας"
 
-#: src/components/settings/Integrations.tsx:2087
-#: src/components/settings/Integrations.tsx:2484
+#: src/components/settings/Integrations.tsx:2092
+#: src/components/settings/Integrations.tsx:2489
 #: src/components/settings/SystemSettingsDrawer.tsx:433
 #: src/pages/SetupWizard.tsx:523
 msgid "EHLO Hostname"
@@ -4891,7 +4900,7 @@ msgstr "email"
 #: src/components/contacts/ExportContactsModal.tsx:50
 #: src/components/email_builder/ui/tiptap/components/TiptapToolbar.tsx:338
 #: src/components/messages/MessageHistoryTab.tsx:217
-#: src/components/settings/Integrations.tsx:2776
+#: src/components/settings/Integrations.tsx:2781
 #: src/components/settings/WorkspaceMembers.tsx:111
 #: src/components/timeline/ContactTimeline.tsx:584
 #: src/pages/ContactsPage.tsx:369
@@ -4906,12 +4915,12 @@ msgid "Email (Required)"
 msgstr "Email (Απαιτείται)"
 
 #: src/components/email_builder/ui/tiptap/components/TiptapToolbar.tsx:383
-#: src/components/settings/Integrations.tsx:1943
+#: src/components/settings/Integrations.tsx:1948
 #: src/components/settings/WorkspaceMembers.tsx:542
 msgid "Email Address"
 msgstr "Διεύθυνση Email"
 
-#: src/components/settings/Integrations.tsx:1945
+#: src/components/settings/Integrations.tsx:1950
 msgid "Email address is required for OAuth2"
 msgstr "Απαιτείται διεύθυνση email για το OAuth2"
 
@@ -4975,7 +4984,7 @@ msgstr "Επιλογές email:"
 msgid "Email Preview"
 msgstr "Προεπισκόπηση email"
 
-#: src/components/settings/Integrations.tsx:2729
+#: src/components/settings/Integrations.tsx:2734
 msgid "Email Provider Configuration Needed"
 msgstr "Απαιτείται διαμόρφωση παρόχου email"
 
@@ -5028,13 +5037,13 @@ msgstr "Email:"
 msgid "Emails are being delivered. {0} still to go."
 msgstr ""
 
-#: src/components/settings/Integrations.tsx:2260
-#: src/components/settings/Integrations.tsx:2590
+#: src/components/settings/Integrations.tsx:2265
+#: src/components/settings/Integrations.tsx:2595
 msgid "emails per day"
 msgstr "email ανά ημέρα"
 
-#: src/components/settings/Integrations.tsx:2259
-#: src/components/settings/Integrations.tsx:2589
+#: src/components/settings/Integrations.tsx:2264
+#: src/components/settings/Integrations.tsx:2594
 msgid "emails per hour"
 msgstr "email ανά ώρα"
 
@@ -5160,7 +5169,7 @@ msgstr "Εισαγάγετε ένα κλειδί άδειας χρήσης"
 msgid "Enter a name for this block"
 msgstr "Εισαγάγετε ένα όνομα για αυτό το μπλοκ"
 
-#: src/components/settings/Integrations.tsx:1800
+#: src/components/settings/Integrations.tsx:1805
 msgid "Enter a name for this integration"
 msgstr "Εισαγάγετε ένα όνομα για αυτήν την ενσωμάτωση"
 
@@ -5172,7 +5181,7 @@ msgstr "Εισαγάγετε ένα όνομα για τον χώρο εργασ
 msgid "Enter a unique alphanumeric ID"
 msgstr "Εισαγάγετε ένα μοναδικό αλφαριθμητικό αναγνωριστικό"
 
-#: src/components/settings/Integrations.tsx:2814
+#: src/components/settings/Integrations.tsx:2819
 msgid "Enter an email address to receive a test email:"
 msgstr "Εισαγάγετε μια διεύθυνση email για να λάβετε ένα δοκιμαστικό email:"
 
@@ -5605,7 +5614,7 @@ msgstr "Εξαγωγή όλων των επαφών"
 msgid "External ID"
 msgstr "Εξωτερική ταυτότητα"
 
-#: src/components/integrations/LLMIntegration.tsx:234
+#: src/components/integrations/LLMIntegration.tsx:270
 msgid "Extra high"
 msgstr "Εξαιρετικά ψηλά"
 
@@ -5978,7 +5987,7 @@ msgid "Failed to save Firecrawl integration"
 msgstr "Αποτυχία αποθήκευσης της ενσωμάτωσης Firecrawl"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:69
-#: src/components/integrations/LLMIntegration.tsx:152
+#: src/components/integrations/LLMIntegration.tsx:184
 #: src/components/integrations/SupabaseIntegration.tsx:123
 #: src/components/settings/Integrations.tsx:1181
 msgid "Failed to save integration"
@@ -6305,16 +6314,16 @@ msgstr "Φίλτρα — διαγράφηκαν"
 msgid "Filters:"
 msgstr "Φίλτρα:"
 
-#: src/components/settings/Integrations.tsx:1984
+#: src/components/settings/Integrations.tsx:1989
 msgid "Find this in Azure Portal > App registrations > Your App > Overview"
 msgstr "Βρείτε το στο Azure Portal > Εγγραφές εφαρμογών > Η εφαρμογή σας > Επισκόπηση"
 
-#: src/components/settings/Integrations.tsx:1973
+#: src/components/settings/Integrations.tsx:1978
 msgid "Find this in Azure Portal > Azure Active Directory > Overview"
 msgstr "Βρείτε το στο Azure Portal > Azure Active Directory > Επισκόπηση"
 
-#: src/components/settings/Integrations.tsx:2021
-#: src/components/settings/Integrations.tsx:2034
+#: src/components/settings/Integrations.tsx:2026
+#: src/components/settings/Integrations.tsx:2039
 msgid "Find this in Google Cloud Console > APIs & Services > Credentials"
 msgstr "Βρείτε το στο Google Cloud Console > API και υπηρεσίες > Διαπιστευτήρια"
 
@@ -6521,7 +6530,7 @@ msgstr "Πλήρης οθόνη"
 #~ msgid "gemini-2.5-flash, gemini-3.1-pro-preview, or a custom model ID"
 #~ msgstr "gemini-2.5-flash, gemini-3.1-pro-preview, or a custom model ID"
 
-#: src/components/integrations/LLMIntegration.tsx:249
+#: src/components/integrations/LLMIntegration.tsx:311
 msgid "gemini-3.1-pro-preview or a custom model ID"
 msgstr "gemini-3.1-pro-preview ή προσαρμοσμένο αναγνωριστικό μοντέλου"
 
@@ -6584,7 +6593,7 @@ msgstr "Γεωγραφία"
 #~ msgid "Geolocation privacy"
 #~ msgstr "Geolocation privacy"
 
-#: src/components/settings/Integrations.tsx:2273
+#: src/components/settings/Integrations.tsx:2278
 msgid "Gives this integration its own SES reputation profile and its own suppression list, so another workspace's bounces can't pause or suppress this one. AWS bills per tenant per month, based on volume."
 msgstr ""
 
@@ -6662,11 +6671,11 @@ msgstr "Στόχοι"
 msgid "Goals by day and hour"
 msgstr "Στόχοι ανά ημέρα και ώρα"
 
-#: src/components/settings/Integrations.tsx:1937
+#: src/components/settings/Integrations.tsx:1942
 msgid "Google Workspace / Gmail"
 msgstr "Google Workspace / Gmail"
 
-#: src/components/integrations/LLMIntegration.tsx:210
+#: src/components/integrations/LLMIntegration.tsx:246
 msgid "gpt-4.1, gpt-5.4, o4-mini, or custom model name"
 msgstr "gpt-4.1, gpt-5.4, o4-mini ή όνομα προσαρμοσμένου μοντέλου"
 
@@ -6775,7 +6784,7 @@ msgstr "Απόκρυψη"
 msgid "Hide Details"
 msgstr "Απόκρυψη λεπτομερειών"
 
-#: src/components/integrations/LLMIntegration.tsx:233
+#: src/components/integrations/LLMIntegration.tsx:269
 msgid "High"
 msgstr "Ψηλά"
 
@@ -7257,9 +7266,9 @@ msgid "Integration ID:"
 msgstr "Αναγνωριστικό ενσωμάτωσης:"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:76
-#: src/components/integrations/LLMIntegration.tsx:159
+#: src/components/integrations/LLMIntegration.tsx:191
 #: src/components/integrations/SupabaseIntegration.tsx:130
-#: src/components/settings/Integrations.tsx:1799
+#: src/components/settings/Integrations.tsx:1804
 msgid "Integration Name"
 msgstr "Όνομα ενσωμάτωσης"
 
@@ -7272,7 +7281,7 @@ msgstr "Η ενσωμάτωση δεν βρέθηκε ή δεν είναι πά�
 msgid "Integration updated successfully"
 msgstr "Η ενσωμάτωση ενημερώθηκε με επιτυχία"
 
-#: src/components/settings/Integrations.tsx:2709
+#: src/components/settings/Integrations.tsx:2714
 #: src/components/settings/SettingsSidebar.tsx:92
 msgid "Integrations"
 msgstr "Ενσωματώσεις"
@@ -7413,11 +7422,11 @@ msgstr "δεν είναι κενό"
 msgid "is not in"
 msgstr "δεν είναι μέσα"
 
-#: src/components/settings/Integrations.tsx:2517
+#: src/components/settings/Integrations.tsx:2522
 msgid "isolated"
 msgstr "απομονωμένος"
 
-#: src/components/settings/Integrations.tsx:2525
+#: src/components/settings/Integrations.tsx:2530
 msgid "isolation requested but not provisioned"
 msgstr "απομόνωση που ζητείται αλλά δεν παρέχεται"
 
@@ -7598,7 +7607,7 @@ msgid "Leave blank to keep the current value"
 msgstr "Αφήστε το κενό για να διατηρήσετε την τρέχουσα τιμή"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:86
-#: src/components/integrations/LLMIntegration.tsx:177
+#: src/components/integrations/LLMIntegration.tsx:211
 msgid "Leave blank to keep the existing API key"
 msgstr "Αφήστε το κενό για να διατηρήσετε το υπάρχον κλειδί API"
 
@@ -7626,7 +7635,7 @@ msgstr "Αφήστε κενό για να ενεργοποιηθεί σε οπο
 msgid "Leave empty to use a random contact from the broadcast audience."
 msgstr "Αφήστε το κενό για να χρησιμοποιήσετε μια τυχαία επαφή από το κοινό της εκπομπής."
 
-#: src/components/settings/Integrations.tsx:2290
+#: src/components/settings/Integrations.tsx:2295
 msgid "Leave empty to use the one Notifuse manages for this integration."
 msgstr "Αφήστε το κενό για να χρησιμοποιήσετε αυτό που διαχειρίζεται το Notifuse για αυτήν την ενσωμάτωση."
 
@@ -8045,7 +8054,7 @@ msgstr "Αναζητήστε την πλήρη εγγραφή μιας επαφ�
 msgid "Loop"
 msgstr "Βρόχος"
 
-#: src/components/integrations/LLMIntegration.tsx:231
+#: src/components/integrations/LLMIntegration.tsx:267
 msgid "Low"
 msgstr "Χαμηλό"
 
@@ -8097,7 +8106,7 @@ msgstr ""
 msgid "Manage your workspace members"
 msgstr "Διαχειριστείτε τα μέλη του χώρου εργασίας σας"
 
-#: src/components/settings/Integrations.tsx:2503
+#: src/components/settings/Integrations.tsx:2508
 msgid "managed"
 msgstr "διαχειρίζεται"
 
@@ -8234,7 +8243,7 @@ msgstr "Διάμεσος Χρονοσκορ"
 msgid "Median Value"
 msgstr "Διάμεση Αξία"
 
-#: src/components/integrations/LLMIntegration.tsx:232
+#: src/components/integrations/LLMIntegration.tsx:268
 msgid "Medium"
 msgstr "Μεσαίο"
 
@@ -8269,8 +8278,8 @@ msgstr "Το ιστορικό μηνυμάτων και τα συμβάντα we
 msgid "Message ID"
 msgstr "Αναγνωριστικό μηνύματος"
 
-#: src/components/settings/Integrations.tsx:2136
-#: src/components/settings/Integrations.tsx:2572
+#: src/components/settings/Integrations.tsx:2141
+#: src/components/settings/Integrations.tsx:2577
 msgid "Message Stream"
 msgstr "Ροή μηνυμάτων"
 
@@ -8305,7 +8314,7 @@ msgstr "Μετρήσεις"
 msgid "Metrics and dimensions"
 msgstr "Μετρήσεις και διαστάσεις"
 
-#: src/components/settings/Integrations.tsx:1935
+#: src/components/settings/Integrations.tsx:1940
 msgid "Microsoft 365 / Office 365"
 msgstr "Microsoft 365 / Office 365"
 
@@ -8319,7 +8328,7 @@ msgstr "Μέση"
 msgid "min"
 msgstr "ελάχ"
 
-#: src/components/integrations/LLMIntegration.tsx:230
+#: src/components/integrations/LLMIntegration.tsx:266
 msgid "Minimal"
 msgstr "Minimal"
 
@@ -8339,7 +8348,7 @@ msgstr "Ελάχιστες συνεδρίες"
 msgid "Minutes"
 msgstr "Λεπτά"
 
-#: src/components/settings/Integrations.tsx:2565
+#: src/components/settings/Integrations.tsx:2570
 msgid "Missing — bounce events will be refused"
 msgstr "Λείπει — τα συμβάντα απόρριψης θα απορρίπτονται"
 
@@ -8430,9 +8439,10 @@ msgstr "Σημείο διακοπής κινητού"
 msgid "Mobile view (400px)"
 msgstr "Προβολή για κινητά (400 pixel)"
 
-#: src/components/integrations/LLMIntegration.tsx:195
-#: src/components/integrations/LLMIntegration.tsx:206
-#: src/components/integrations/LLMIntegration.tsx:243
+#: src/components/integrations/LLMIntegration.tsx:231
+#: src/components/integrations/LLMIntegration.tsx:242
+#: src/components/integrations/LLMIntegration.tsx:280
+#: src/components/integrations/LLMIntegration.tsx:305
 #: src/components/settings/Integrations.tsx:1636
 msgid "Model"
 msgstr "Μοντέλο"
@@ -8498,7 +8508,7 @@ msgstr "Το Webhook μου"
 msgid "my-custom-class"
 msgstr "η τάξη μου"
 
-#: src/components/settings/Integrations.tsx:2343
+#: src/components/settings/Integrations.tsx:2348
 msgid "my-tenant"
 msgstr "ενοικιαστής μου"
 
@@ -8518,9 +8528,9 @@ msgstr "N/A"
 #: src/components/settings/Integrations.tsx:389
 #: src/components/settings/Integrations.tsx:1476
 #: src/components/settings/Integrations.tsx:1635
-#: src/components/settings/Integrations.tsx:1702
-#: src/components/settings/Integrations.tsx:1766
-#: src/components/settings/Integrations.tsx:2786
+#: src/components/settings/Integrations.tsx:1707
+#: src/components/settings/Integrations.tsx:1771
+#: src/components/settings/Integrations.tsx:2791
 #: src/components/settings/WebhooksSettings.tsx:272
 #: src/components/web_analytics/filters/FilterFormDrawer.tsx:119
 #: src/components/web_analytics/filters/FilterTable.tsx:192
@@ -8549,7 +8559,7 @@ msgstr "Ονομάζει αυτήν τη σύνδεση στο Notifuse και �
 msgid "Naming a slot renames it everywhere it appears: dashboards, the explore picker and attribution rules."
 msgstr "Η ονομασία μιας υποδοχής τη μετονομάζει οπουδήποτε εμφανίζεται: πίνακες εργαλείων, το εργαλείο επιλογής εξερεύνησης και κανόνες απόδοσης."
 
-#: src/components/settings/Integrations.tsx:2276
+#: src/components/settings/Integrations.tsx:2281
 msgid "Needs these extra IAM permissions: ses:CreateTenant, ses:CreateTenantResourceAssociation, ses:GetTenant, ses:PutTenantSuppressionAttributes, ses:ListEmailIdentities. Add ses:ListTenants and ses:ListTenantResources for the pickers below, and ses:DeleteTenant plus ses:DeleteTenantResourceAssociation so the tenant is removed with the integration instead of billing forever."
 msgstr ""
 
@@ -8646,8 +8656,8 @@ msgstr "Επόμενο Εκτέλεση"
 #: src/components/settings/Integrations.tsx:461
 #: src/components/settings/Integrations.tsx:1458
 #: src/components/settings/Integrations.tsx:1617
-#: src/components/settings/Integrations.tsx:1686
-#: src/components/settings/Integrations.tsx:1750
+#: src/components/settings/Integrations.tsx:1691
+#: src/components/settings/Integrations.tsx:1755
 #: src/components/settings/PermissionsMatrix.tsx:189
 #: src/components/settings/WebhookCard.tsx:218
 #: src/components/settings/WebhookCard.tsx:274
@@ -9054,7 +9064,7 @@ msgstr "Μη ενεργό"
 #: src/components/email_builder/ui/ColorPickerWithPresets.tsx:31
 #: src/components/email_builder/ui/FontStyleInput.tsx:129
 #: src/components/email_builder/ui/FontStyleInput.tsx:136
-#: src/components/integrations/LLMIntegration.tsx:229
+#: src/components/integrations/LLMIntegration.tsx:265
 #: src/components/web_analytics/explore/BreakdownDrawer.tsx:114
 msgid "None"
 msgstr "Κανένα"
@@ -9091,7 +9101,7 @@ msgstr "Δεν είναι συνδεδεμένο"
 msgid "not contains"
 msgstr "δεν περιέχει"
 
-#: src/components/settings/Integrations.tsx:2509
+#: src/components/settings/Integrations.tsx:2514
 msgid "not created yet — register webhooks"
 msgstr "δεν έχει δημιουργηθεί ακόμη — καταχωρήστε webhook"
 
@@ -9178,7 +9188,7 @@ msgstr "Το Notifuse απενεργοποίησε αυτόματα αυτό τ�
 msgid "Notifuse will create a tenant in your AWS account, give it its own suppression list, and associate this integration's configuration set and sender identities with it. AWS bills per tenant per month, based on volume."
 msgstr ""
 
-#: src/components/settings/Integrations.tsx:2302
+#: src/components/settings/Integrations.tsx:2307
 msgid "notifuse-…"
 msgstr "ειδοποίηση-…"
 
@@ -9213,11 +9223,11 @@ msgstr "Αριθμός αναρτήσεων προς εμφάνιση ανά σ�
 msgid "Number of posts to display per page on the homepage"
 msgstr "Αριθμός αναρτήσεων προς εμφάνιση ανά σελίδα στην αρχική σελίδα"
 
-#: src/components/settings/Integrations.tsx:1914
+#: src/components/settings/Integrations.tsx:1919
 msgid "OAuth2 (Microsoft 365 / Google)"
 msgstr "OAuth2 (Microsoft 365 / Google)"
 
-#: src/components/settings/Integrations.tsx:1930
+#: src/components/settings/Integrations.tsx:1935
 msgid "OAuth2 Provider"
 msgstr "Πάροχος OAuth2"
 
@@ -9230,7 +9240,7 @@ msgstr "Κλειδί αντικειμένου: {segment}"
 msgid "Oblique"
 msgstr "Πλάγια"
 
-#: src/components/settings/Integrations.tsx:2053
+#: src/components/settings/Integrations.tsx:2058
 msgid "Obtain this using the OAuth2 playground or your own OAuth flow"
 msgstr "Αποκτήστε αυτό χρησιμοποιώντας την παιδική χαρά OAuth2 ή τη δική σας ροή OAuth"
 
@@ -9312,7 +9322,7 @@ msgid "Only one breakpoint per email template is allowed"
 msgstr "Επιτρέπεται μόνο ένα σημείο διακοπής ανά πρότυπο email"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:47
-#: src/components/integrations/LLMIntegration.tsx:103
+#: src/components/integrations/LLMIntegration.tsx:125
 #: src/components/integrations/SupabaseIntegration.tsx:77
 msgid "Only workspace owners can modify integrations"
 msgstr "Μόνο οι κάτοχοι χώρων εργασίας μπορούν να τροποποιήσουν τις ενσωματώσεις"
@@ -9429,17 +9439,21 @@ msgstr "Προαιρετικό"
 msgid "Optional bearer token"
 msgstr "Προαιρετικό κουπόνι φορέα"
 
-#: src/components/integrations/LLMIntegration.tsx:224
+#: src/components/integrations/LLMIntegration.tsx:260
 msgid "Optional. Controls how much reasoning models think. Leave as Default for non-reasoning models; some providers ignore it."
 msgstr ""
 
-#: src/components/integrations/LLMIntegration.tsx:216
+#: src/components/integrations/LLMIntegration.tsx:252
 msgid "Optional. For OpenAI-compatible providers (Ollama, vLLM, LiteLLM, Azure, etc.). Leave empty for the default OpenAI endpoint."
 msgstr ""
 
 #: src/components/automations/config/WebhookConfigForm.tsx:48
 msgid "Optional. If provided, sent as Authorization: Bearer <secret>"
 msgstr ""
+
+#: src/components/integrations/LLMIntegration.tsx:296
+msgid "Optional. Leave empty for https://api.deepseek.com. Change it only for a proxy or a regional endpoint."
+msgstr "Προαιρετικό. Αφήστε το κενό για https://api.deepseek.com. Αλλάξτε το μόνο για proxy ή περιφερειακό endpoint."
 
 #: src/components/broadcasts/UpsertBroadcastDrawer.tsx:538
 msgid "Optionally filter contacts by segments within the selected lists"
@@ -9556,7 +9570,7 @@ msgstr "Τα διαμερίσματα που έχουν ήδη ξαναγραφ�
 msgid "Password"
 msgstr "Κωδικός πρόσβασης"
 
-#: src/components/settings/Integrations.tsx:2078
+#: src/components/settings/Integrations.tsx:2083
 msgid "Password (optional)"
 msgstr "Κωδικός πρόσβασης (προαιρετικό)"
 
@@ -9815,7 +9829,7 @@ msgstr "Εισαγάγετε ένα αναγνωριστικό λίστας"
 msgid "Please enter a list name"
 msgstr "Εισαγάγετε ένα όνομα λίστας"
 
-#: src/components/integrations/LLMIntegration.tsx:208
+#: src/components/integrations/LLMIntegration.tsx:244
 msgid "Please enter a model name"
 msgstr "Εισαγάγετε ένα όνομα μοντέλου"
 
@@ -9912,7 +9926,7 @@ msgid "Please enter an email address"
 msgstr "Εισαγάγετε μια διεύθυνση email"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:78
-#: src/components/integrations/LLMIntegration.tsx:161
+#: src/components/integrations/LLMIntegration.tsx:193
 #: src/components/integrations/SupabaseIntegration.tsx:132
 msgid "Please enter integration name"
 msgstr "Εισαγάγετε το όνομα ενσωμάτωσης"
@@ -9926,7 +9940,7 @@ msgid "Please enter workspace name"
 msgstr "Εισαγάγετε όνομα χώρου εργασίας"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:87
-#: src/components/integrations/LLMIntegration.tsx:179
+#: src/components/integrations/LLMIntegration.tsx:213
 msgid "Please enter your API key"
 msgstr "Εισαγάγετε το κλειδί API σας"
 
@@ -9977,7 +9991,7 @@ msgstr "Επιλέξτε μια λίστα"
 msgid "Please select a list for unsubscribe operation"
 msgstr "Επιλέξτε μια λίστα για λειτουργία κατάργησης εγγραφής"
 
-#: src/components/integrations/LLMIntegration.tsx:197
+#: src/components/integrations/LLMIntegration.tsx:233
 msgid "Please select a model"
 msgstr "Επιλέξτε ένα μοντέλο"
 
@@ -10026,7 +10040,7 @@ msgstr "Επιλέξτε έναν τύπο συμβάντος"
 msgid "Please select an MJML file"
 msgstr "Επιλέξτε ένα αρχείο MJML"
 
-#: src/components/settings/Integrations.tsx:1931
+#: src/components/settings/Integrations.tsx:1936
 msgid "Please select an OAuth2 provider"
 msgstr "Επιλέξτε έναν πάροχο OAuth2"
 
@@ -10042,7 +10056,8 @@ msgstr "Επιλέξτε τουλάχιστον έναν τύπο συμβάντ
 msgid "Please select operator"
 msgstr "Επιλέξτε χειριστή"
 
-#: src/components/integrations/LLMIntegration.tsx:245
+#: src/components/integrations/LLMIntegration.tsx:282
+#: src/components/integrations/LLMIntegration.tsx:307
 msgid "Please select or enter a model"
 msgstr "Επιλέξτε ή εισαγάγετε ένα μοντέλο"
 
@@ -10050,7 +10065,7 @@ msgstr "Επιλέξτε ή εισαγάγετε ένα μοντέλο"
 msgid "Please upload a CSV file with email addresses"
 msgstr "Ανεβάστε ένα αρχείο CSV με διευθύνσεις email"
 
-#: src/components/settings/Integrations.tsx:2211
+#: src/components/settings/Integrations.tsx:2216
 #: src/components/transactional/ApiCommandModal.tsx:533
 #: src/pages/SetupWizard.tsx:619
 msgid "Port"
@@ -10100,7 +10115,7 @@ msgstr "Η ανάρτηση ενημερώθηκε με επιτυχία"
 msgid "Postcode"
 msgstr "Ταχυδρομικός κώδικας"
 
-#: src/components/settings/Integrations.tsx:2138
+#: src/components/settings/Integrations.tsx:2143
 msgid "Postmark Message Stream ID (e.g. \"outbound\" for transactional, \"broadcast\" for marketing)"
 msgstr "Αναγνωριστικό ροής μηνυμάτων ταχυδρομικής σφραγίδας (π.χ. \"εξερχόμενο\" για συναλλαγές, \"μετάδοση\" για μάρκετινγκ)"
 
@@ -10421,11 +10436,11 @@ msgstr "Σπρώξτε"
 msgid "Queued emails will not be sent. In-flight sends will complete."
 msgstr ""
 
-#: src/components/settings/Integrations.tsx:2586
+#: src/components/settings/Integrations.tsx:2591
 msgid "Rate Limit for Marketing"
 msgstr "Όριο τιμών για μάρκετινγκ"
 
-#: src/components/settings/Integrations.tsx:2247
+#: src/components/settings/Integrations.tsx:2252
 msgid "Rate limit for marketing emails (emails per minute)"
 msgstr "Όριο τιμών για μηνύματα ηλεκτρονικού ταχυδρομείου μάρκετινγκ (email ανά λεπτό)"
 
@@ -10449,7 +10464,7 @@ msgstr "Ακατέργαστο JSON"
 msgid "Raw Payload:"
 msgstr "Ακατέργαστο ωφέλιμο φορτίο:"
 
-#: src/components/settings/Integrations.tsx:2229
+#: src/components/settings/Integrations.tsx:2234
 msgid "re_…"
 msgstr ""
 
@@ -10623,7 +10638,7 @@ msgstr "Έτοιμο για χρήση"
 msgid "Reason:"
 msgstr "Λόγος:"
 
-#: src/components/integrations/LLMIntegration.tsx:222
+#: src/components/integrations/LLMIntegration.tsx:258
 msgid "Reasoning effort"
 msgstr "Προσπάθεια συλλογισμού"
 
@@ -10776,8 +10791,8 @@ msgstr "Αναγέννηση"
 msgid "Regenerate secret?"
 msgstr "Αναγέννηση μυστικού;"
 
-#: src/components/settings/Integrations.tsx:2153
-#: src/components/settings/Integrations.tsx:2546
+#: src/components/settings/Integrations.tsx:2158
+#: src/components/settings/Integrations.tsx:2551
 msgid "Region"
 msgstr "Περιφέρεια"
 
@@ -10963,7 +10978,7 @@ msgstr "Αναφορά προβλήματος"
 #~ msgid "Report grouped by {dimensions}"
 #~ msgstr "Report grouped by {dimensions}"
 
-#: src/components/settings/Integrations.tsx:2513
+#: src/components/settings/Integrations.tsx:2518
 msgid "Reputation"
 msgstr "Φήμη"
 
@@ -11007,7 +11022,7 @@ msgstr "Απαιτείται όταν είναι ενεργοποιημένο τ
 msgid "Requires a padding"
 msgstr "Απαιτεί γέμισμα"
 
-#: src/components/settings/Integrations.tsx:2225
+#: src/components/settings/Integrations.tsx:2230
 msgid "Resend API Key"
 msgstr "Κλειδί API του Resend"
 
@@ -11328,10 +11343,10 @@ msgstr "Ποσοστό δείγματος"
 msgid "Sample values"
 msgstr "Δείγματα τιμών"
 
-#: src/components/settings/Integrations.tsx:2117
-#: src/components/settings/Integrations.tsx:2181
-#: src/components/settings/Integrations.tsx:2537
-#: src/components/settings/Integrations.tsx:2578
+#: src/components/settings/Integrations.tsx:2122
+#: src/components/settings/Integrations.tsx:2186
+#: src/components/settings/Integrations.tsx:2542
+#: src/components/settings/Integrations.tsx:2583
 msgid "Sandbox Mode"
 msgstr "Λειτουργία Sandbox"
 
@@ -11349,12 +11364,12 @@ msgstr "Λειτουργία Sandbox"
 #: src/components/file_manager/buttonSettings.tsx:312
 #: src/components/lists/ListDrawer.tsx:170
 #: src/components/settings/CustomFieldsConfiguration.tsx:293
-#: src/components/settings/Integrations.tsx:2638
-#: src/components/settings/Integrations.tsx:2769
-#: src/components/settings/Integrations.tsx:2856
-#: src/components/settings/Integrations.tsx:2904
-#: src/components/settings/Integrations.tsx:2951
-#: src/components/settings/Integrations.tsx:2987
+#: src/components/settings/Integrations.tsx:2643
+#: src/components/settings/Integrations.tsx:2774
+#: src/components/settings/Integrations.tsx:2861
+#: src/components/settings/Integrations.tsx:2909
+#: src/components/settings/Integrations.tsx:2956
+#: src/components/settings/Integrations.tsx:2992
 #: src/components/settings/SystemSettingsDrawer.tsx:240
 #: src/components/settings/WebhooksSettings.tsx:253
 #: src/components/templates/CreateTemplateDrawer.tsx:679
@@ -11515,9 +11530,9 @@ msgstr "Η δεύτερη τιμή πρέπει να είναι μεγαλύτε
 msgid "Secret"
 msgstr "Μυστικό"
 
-#: src/components/settings/Integrations.tsx:1870
-#: src/components/settings/Integrations.tsx:2173
-#: src/components/settings/Integrations.tsx:2176
+#: src/components/settings/Integrations.tsx:1875
+#: src/components/settings/Integrations.tsx:2178
+#: src/components/settings/Integrations.tsx:2181
 msgid "Secret Key"
 msgstr "Μυστικό κλειδί"
 
@@ -11677,7 +11692,7 @@ msgstr "Επιλέξτε μια λίστα για να ενεργοποιήσε�
 msgid "Select a list..."
 msgstr "Επιλέξτε μια λίστα..."
 
-#: src/components/integrations/LLMIntegration.tsx:199
+#: src/components/integrations/LLMIntegration.tsx:235
 msgid "Select a model"
 msgstr "Επιλέξτε ένα μοντέλο"
 
@@ -11725,7 +11740,7 @@ msgstr "Επιλέξτε μια άλλη μέτρηση για προβολή γ
 msgid "Select Avatar"
 msgstr "Επιλέξτε Avatar"
 
-#: src/components/settings/Integrations.tsx:1806
+#: src/components/settings/Integrations.tsx:1811
 msgid "Select AWS Region"
 msgstr "Επιλέξτε Περιοχή AWS"
 
@@ -11840,7 +11855,7 @@ msgstr "Επιλογή λιστών (προαιρετικό)"
 msgid "Select lists to add contacts to"
 msgstr "Επιλέξτε λίστες για να προσθέσετε επαφές"
 
-#: src/components/settings/Integrations.tsx:1933
+#: src/components/settings/Integrations.tsx:1938
 msgid "Select OAuth2 Provider"
 msgstr "Επιλέξτε Πάροχος OAuth2"
 
@@ -12016,7 +12031,7 @@ msgstr "Αποστολή ή Προγραμματισμός εκπομπής"
 msgid "Send Test"
 msgstr "Αποστολή δοκιμής"
 
-#: src/components/settings/Integrations.tsx:2810
+#: src/components/settings/Integrations.tsx:2815
 #: src/components/templates/SendTemplateModal.tsx:263
 #: src/components/templates/SendTemplateModal.tsx:277
 #: src/pages/BroadcastsPage.tsx:1025
@@ -12040,7 +12055,7 @@ msgid "Sender Name"
 msgstr "Όνομα αποστολέα"
 
 #: src/components/settings/Integrations.tsx:390
-#: src/components/settings/Integrations.tsx:2429
+#: src/components/settings/Integrations.tsx:2434
 msgid "Senders"
 msgstr "Αποστολείς"
 
@@ -12135,16 +12150,16 @@ msgstr "Ο διακομιστής επανεκκινήθηκε με επιτυχ
 msgid "Server restarted successfully! You can now sign in."
 msgstr ""
 
-#: src/components/settings/Integrations.tsx:2129
-#: src/components/settings/Integrations.tsx:2132
+#: src/components/settings/Integrations.tsx:2134
+#: src/components/settings/Integrations.tsx:2137
 msgid "Server Token"
 msgstr "Token διακομιστή"
 
-#: src/components/settings/Integrations.tsx:2313
+#: src/components/settings/Integrations.tsx:2318
 msgid "SES tenant"
 msgstr "Μισθωτής SES"
 
-#: src/components/settings/Integrations.tsx:2271
+#: src/components/settings/Integrations.tsx:2276
 #: src/components/settings/LicenseSettings.tsx:115
 #: src/services/api/licenseErrors.ts:50
 msgid "SES tenant isolation"
@@ -12197,7 +12212,7 @@ msgstr ""
 msgid "Set as default marketing email provider"
 msgstr "Ορισμός ως προεπιλεγμένος πάροχος email μάρκετινγκ"
 
-#: src/components/settings/Integrations.tsx:2399
+#: src/components/settings/Integrations.tsx:2404
 msgid "Set as default sender"
 msgstr "Ορισμός ως προεπιλεγμένος αποστολέας"
 
@@ -12347,7 +12362,7 @@ msgstr "Η εγκατάσταση ολοκληρώθηκε!"
 msgid "Share link"
 msgstr "Κοινή χρήση συνδέσμου"
 
-#: src/components/settings/Integrations.tsx:2528
+#: src/components/settings/Integrations.tsx:2533
 msgid "shared with the rest of this AWS account"
 msgstr "κοινόχρηστο με τον υπόλοιπο λογαριασμό AWS"
 
@@ -12388,7 +12403,7 @@ msgstr "Εμφάνιση περισσότερων (απομένει {0})"
 msgid "Showing the top 200 links by unique clicks."
 msgstr "Εμφάνιση των κορυφαίων 200 συνδέσμων με μοναδικά κλικ."
 
-#: src/components/settings/Integrations.tsx:2235
+#: src/components/settings/Integrations.tsx:2240
 msgid "Shown by Resend when the webhook is created (whsec_…). Without it bounce and complaint events cannot be verified, so they are refused."
 msgstr "Εμφανίζεται από το Resend κατά τη δημιουργία του webhook (whsec_…). Χωρίς αυτό, τα συμβάντα απόρριψης και καταγγελίας δεν μπορούν να επαληθευτούν και απορρίπτονται."
 
@@ -12525,10 +12540,10 @@ msgstr "Επιτυχής δοκιμή σύνδεσης SMTP"
 msgid "SMTP domain"
 msgstr "Τομέας SMTP"
 
-#: src/components/settings/Integrations.tsx:1879
-#: src/components/settings/Integrations.tsx:2201
-#: src/components/settings/Integrations.tsx:2463
-#: src/components/settings/Integrations.tsx:2552
+#: src/components/settings/Integrations.tsx:1884
+#: src/components/settings/Integrations.tsx:2206
+#: src/components/settings/Integrations.tsx:2468
+#: src/components/settings/Integrations.tsx:2557
 #: src/components/settings/SystemSettingsDrawer.tsx:317
 #: src/pages/SetupWizard.tsx:454
 msgid "SMTP Host"
@@ -12538,7 +12553,7 @@ msgstr "Κεντρικός υπολογιστής SMTP"
 msgid "SMTP host is required"
 msgstr "Απαιτείται κεντρικός υπολογιστής SMTP"
 
-#: src/components/settings/Integrations.tsx:2077
+#: src/components/settings/Integrations.tsx:2082
 #: src/components/settings/SystemSettingsDrawer.tsx:385
 #: src/pages/SetupWizard.tsx:495
 msgid "SMTP Password"
@@ -12548,7 +12563,7 @@ msgstr "Κωδικός πρόσβασης SMTP"
 msgid "SMTP port"
 msgstr "Θύρα SMTP"
 
-#: src/components/settings/Integrations.tsx:1886
+#: src/components/settings/Integrations.tsx:1891
 #: src/components/settings/SystemSettingsDrawer.tsx:330
 #: src/pages/SetupWizard.tsx:463
 msgid "SMTP Port"
@@ -12570,13 +12585,13 @@ msgstr "Ο πάροχος SMTP δεν υποστηρίζει webhook παραπ�
 msgid "SMTP provider doesn't support delivery webhooks, so delivery status cannot be tracked"
 msgstr "Ο πάροχος SMTP δεν υποστηρίζει webhook παράδοσης, επομένως δεν είναι δυνατή η παρακολούθηση της κατάστασης παράδοσης"
 
-#: src/components/settings/Integrations.tsx:2220
-#: src/components/settings/Integrations.tsx:2466
-#: src/components/settings/Integrations.tsx:2555
+#: src/components/settings/Integrations.tsx:2225
+#: src/components/settings/Integrations.tsx:2471
+#: src/components/settings/Integrations.tsx:2560
 msgid "SMTP User"
 msgstr "Χρήστης SMTP"
 
-#: src/components/settings/Integrations.tsx:2072
+#: src/components/settings/Integrations.tsx:2077
 #: src/components/settings/SystemSettingsDrawer.tsx:372
 #: src/pages/SetupWizard.tsx:490
 msgid "SMTP Username"
@@ -12659,7 +12674,7 @@ msgstr "Διάστημα"
 msgid "Spacer Attributes"
 msgstr "Χαρακτηριστικά Spacer"
 
-#: src/components/settings/Integrations.tsx:2111
+#: src/components/settings/Integrations.tsx:2116
 msgid "SparkPost API Key"
 msgstr "Κλειδί API SparkPost"
 
@@ -13171,7 +13186,7 @@ msgstr "Πρότυπο:"
 msgid "Templates"
 msgstr "Πρότυπα"
 
-#: src/components/settings/Integrations.tsx:2411
+#: src/components/settings/Integrations.tsx:2416
 msgid "Templates using this sender will need to be updated to use a different sender."
 msgstr "Τα πρότυπα που χρησιμοποιούν αυτόν τον αποστολέα θα πρέπει να ενημερωθούν για να χρησιμοποιούν διαφορετικό αποστολέα."
 
@@ -13237,7 +13252,7 @@ msgstr "Οι δοκιμαστικές παραδόσεις δεν είναι δ�
 msgid "Test duration (hours)"
 msgstr "Διάρκεια δοκιμής (ώρες)"
 
-#: src/components/settings/Integrations.tsx:2796
+#: src/components/settings/Integrations.tsx:2801
 msgid "Test Email Provider"
 msgstr "Δοκιμαστικός πάροχος email"
 
@@ -13259,7 +13274,7 @@ msgstr "Η δοκιμή απέτυχε: {0}"
 msgid "Test in different email clients as support varies"
 msgstr "Δοκιμή σε διαφορετικά προγράμματα-πελάτες email καθώς η υποστήριξη ποικίλλει"
 
-#: src/components/settings/Integrations.tsx:2636
+#: src/components/settings/Integrations.tsx:2641
 msgid "Test Integration"
 msgstr "Ενσωμάτωση δοκιμής"
 
@@ -13408,7 +13423,7 @@ msgstr "Το τρέχον εύρος ημερομηνιών, τα φίλτρα �
 msgid "The currently published theme will be unpublished automatically."
 msgstr "Το τρέχον δημοσιευμένο θέμα θα καταργηθεί αυτόματα."
 
-#: src/components/settings/Integrations.tsx:1947
+#: src/components/settings/Integrations.tsx:1952
 msgid "The email address that will be used as the SMTP user for authentication"
 msgstr "Η διεύθυνση email που θα χρησιμοποιηθεί ως χρήστης SMTP για έλεγχο ταυτότητας"
 
@@ -13432,7 +13447,7 @@ msgstr "Τα ακόλουθα σφάλματα επικύρωσης εντοπί
 msgid "The generated email has issues that prevent it from rendering:"
 msgstr "Το μήνυμα ηλεκτρονικού ταχυδρομείου που δημιουργήθηκε έχει προβλήματα που εμποδίζουν την απόδοσή του:"
 
-#: src/components/settings/Integrations.tsx:2088
+#: src/components/settings/Integrations.tsx:2093
 #: src/pages/SetupWizard.tsx:524
 msgid "The hostname your server identifies itself as when connecting to the SMTP server. Defaults to the SMTP host value if empty."
 msgstr ""
@@ -13567,7 +13582,7 @@ msgstr "Το θέμα ενημερώθηκε με επιτυχία"
 msgid "Theme Versions"
 msgstr "Εκδόσεις θεμάτων"
 
-#: src/components/settings/Integrations.tsx:2354
+#: src/components/settings/Integrations.tsx:2359
 msgid "These AWS credentials can't list tenants or configuration sets (needs ses:ListTenants). Type the names instead."
 msgstr ""
 
@@ -13610,7 +13625,7 @@ msgstr "Αυτός ο λογαριασμός είναι ήδη συνδεδεμ�
 #: src/components/settings/Integrations.tsx:363
 #: src/components/settings/Integrations.tsx:1455
 #: src/components/settings/Integrations.tsx:1614
-#: src/components/settings/Integrations.tsx:1683
+#: src/components/settings/Integrations.tsx:1688
 #: src/components/settings/WebhookCard.tsx:271
 #: src/components/web_analytics/annotations/AnnotationTable.tsx:29
 msgid "This action cannot be undone."
@@ -13877,7 +13892,7 @@ msgstr "Αυτό θα καταχωρήσει ή θα ενημερώσει τα �
 msgid "This will replace all content with the default language template. Continue?"
 msgstr ""
 
-#: src/components/settings/Integrations.tsx:2822
+#: src/components/settings/Integrations.tsx:2827
 msgid "This will send a real test email to the address provided."
 msgstr "Αυτό θα στείλει ένα πραγματικό δοκιμαστικό email στη διεύθυνση που παρέχεται."
 
@@ -14038,7 +14053,7 @@ msgstr "Πιστοποιητικό TLS (Base64)"
 msgid "TLS certificate is required"
 msgstr "Απαιτείται πιστοποιητικό TLS"
 
-#: src/components/settings/Integrations.tsx:2469
+#: src/components/settings/Integrations.tsx:2474
 msgid "TLS Enabled"
 msgstr "Το TLS ενεργοποιήθηκε"
 
@@ -14101,7 +14116,7 @@ msgstr "Εναλλαγή λεζάντας"
 msgid "Too many sign-in attempts. Please wait a moment and try again."
 msgstr ""
 
-#: src/components/settings/Integrations.tsx:1708
+#: src/components/settings/Integrations.tsx:1713
 msgid "Tools"
 msgstr "Εργαλεία"
 
@@ -14297,7 +14312,7 @@ msgstr "Μετατρέψτε σε"
 msgid "Turn Into"
 msgstr "Μετατρέψτε σε"
 
-#: src/components/settings/Integrations.tsx:2332
+#: src/components/settings/Integrations.tsx:2337
 msgid "Turn off SES tenant isolation to use your own tenant, or clear this field."
 msgstr "Απενεργοποιήστε την απομόνωση ενοικιαστή SES για να χρησιμοποιήσετε τον δικό σας μισθωτή ή καθαρίστε αυτό το πεδίο."
 
@@ -14512,8 +14527,8 @@ msgstr "Καταργεί την εγγραφή"
 msgid "Untitled"
 msgstr "Χωρίς τίτλο"
 
-#: src/components/settings/Integrations.tsx:2294
-#: src/components/settings/Integrations.tsx:2321
+#: src/components/settings/Integrations.tsx:2299
+#: src/components/settings/Integrations.tsx:2326
 msgid "Up to 64 letters, numbers, hyphens or underscores."
 msgstr "Έως 64 γράμματα, αριθμούς, παύλες ή κάτω παύλες."
 
@@ -14643,7 +14658,7 @@ msgstr "Χρήση"
 msgid "Use a different email"
 msgstr "Χρησιμοποιήστε διαφορετικό email"
 
-#: src/components/settings/Integrations.tsx:2317
+#: src/components/settings/Integrations.tsx:2322
 msgid "Use a tenant you manage yourself. Requires a configuration set associated with it in AWS."
 msgstr ""
 
@@ -14699,7 +14714,7 @@ msgstr "Χρησιμοποιήστε αυτήν την εντολή curl για 
 msgid "Use This Theme"
 msgstr "Χρησιμοποιήστε αυτό το θέμα"
 
-#: src/components/settings/Integrations.tsx:1897
+#: src/components/settings/Integrations.tsx:1902
 #: src/components/settings/SystemSettingsDrawer.tsx:355
 #: src/pages/SetupWizard.tsx:480
 msgid "Use TLS"
@@ -14709,7 +14724,7 @@ msgstr "Χρησιμοποιήστε TLS"
 msgid "Use workspace default"
 msgstr "Χρήση προεπιλεγμένου χώρου εργασίας"
 
-#: src/components/settings/Integrations.tsx:2227
+#: src/components/settings/Integrations.tsx:2232
 msgid "Used as the SMTP password. Starts with re_."
 msgstr "Χρησιμοποιείται ως κωδικός SMTP. Ξεκινά με re_."
 
@@ -15063,7 +15078,7 @@ msgstr "Τελικό σημείο Webhook:"
 msgid "Webhook Events"
 msgstr "Εκδηλώσεις Webhook"
 
-#: src/components/settings/Integrations.tsx:2558
+#: src/components/settings/Integrations.tsx:2563
 msgid "Webhook Secret"
 msgstr "Μυστικό webhook"
 
@@ -15071,7 +15086,7 @@ msgstr "Μυστικό webhook"
 msgid "Webhook secret regenerated"
 msgstr "Το μυστικό του Webhook αναδημιουργήθηκε"
 
-#: src/components/settings/Integrations.tsx:2233
+#: src/components/settings/Integrations.tsx:2238
 msgid "Webhook Signing Secret"
 msgstr "Μυστικό υπογραφής webhook"
 
@@ -15236,7 +15251,7 @@ msgstr "Ποια κανάλια και καμπάνιες απόκτησης α�
 msgid "Which landing pages bring the most sessions, and which ones have the worst bounce rate or engagement?"
 msgstr "Ποιες σελίδες προορισμού προσφέρουν τις περισσότερες περιόδους σύνδεσης και ποιες έχουν το χειρότερο ποσοστό εγκατάλειψης ή αφοσίωσης;"
 
-#: src/components/settings/Integrations.tsx:2238
+#: src/components/settings/Integrations.tsx:2243
 msgid "whsec_…"
 msgstr ""
 
@@ -15433,8 +15448,8 @@ msgstr "Ετήσιο"
 #: src/components/settings/Integrations.tsx:460
 #: src/components/settings/Integrations.tsx:1457
 #: src/components/settings/Integrations.tsx:1616
-#: src/components/settings/Integrations.tsx:1685
-#: src/components/settings/Integrations.tsx:1749
+#: src/components/settings/Integrations.tsx:1690
+#: src/components/settings/Integrations.tsx:1754
 #: src/components/settings/WebhookCard.tsx:217
 #: src/components/settings/WebhookCard.tsx:273
 #: src/components/settings/WebhookCard.tsx:360

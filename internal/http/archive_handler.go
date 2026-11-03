@@ -109,7 +109,7 @@ func (h *ArchiveHandler) handle(w http.ResponseWriter, r *http.Request) {
 	case len(parts) == 3 && (parts[2] == "feed.xml" || parts[2] == "feed"):
 		// An audience's own feed, mirroring its page.
 		audience, err := h.archiveRepo.GetAudience(r.Context(), workspace.ID, parts[1])
-		if err != nil {
+		if err != nil || !audience.Listed {
 			http.NotFound(w, r)
 			return
 		}
@@ -125,6 +125,12 @@ func (h *ArchiveHandler) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		audience, err := h.archiveRepo.GetAudience(r.Context(), workspace.ID, parts[1])
 		if err == nil {
+			// Unticked in the console means not published: the page must not resolve, or
+			// "not listed" would only hide the link, not the archive.
+			if !audience.Listed {
+				http.NotFound(w, r)
+				return
+			}
 			h.renderList(w, r, workspace, settings, audience)
 			return
 		}
@@ -215,7 +221,13 @@ func (h *ArchiveHandler) audienceNav(r *http.Request, workspace *domain.Workspac
 		h.logger.WithField("workspace_id", workspace.ID).WithField("error", err.Error()).Warn("Failed to list archive audiences")
 		return ""
 	}
-	if len(audiences) < 2 {
+	listed := 0
+	for _, a := range audiences {
+		if a.Listed {
+			listed++
+		}
+	}
+	if listed < 2 {
 		return ""
 	}
 
@@ -229,6 +241,9 @@ func (h *ArchiveHandler) audienceNav(r *http.Request, workspace *domain.Workspac
 	b.WriteString(`<a class="` + allClass + `" href="/archive/` + wsSlug + `/">All issues</a>`)
 
 	for _, a := range audiences {
+		if !a.Listed {
+			continue
+		}
 		slug := a.Slug
 		if slug == "" {
 			// No registry row: address it by its list id rather than hiding it. GetAudience

@@ -12,6 +12,13 @@ const anthropicModels = [
   { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 ($1/$5 per MTok)' }
 ]
 
+// DeepSeek's two public models. Free text is allowed, so a future id can be typed.
+// Pricing from: https://api-docs.deepseek.com/quick_start/pricing
+const deepseekModels = [
+  { value: 'deepseek-chat', label: 'deepseek-chat (general)' },
+  { value: 'deepseek-reasoner', label: 'deepseek-reasoner (thinking)' }
+]
+
 // Suggested Gemini models with pricing (input/output per million tokens).
 // Free text is allowed, so any current/future model ID can be entered.
 // Pricing from: https://ai.google.dev/gemini-api/docs/pricing
@@ -67,6 +74,21 @@ export const LLMIntegration: React.FC<LLMIntegrationProps> = ({
           model: providerInfo?.defaultModel || 'gpt-4.1',
           base_url: '',
           reasoning_effort: ''
+        })
+      }
+    } else if (providerKind === 'deepseek') {
+      if (integration?.llm_provider?.deepseek) {
+        const provider = integration.llm_provider.deepseek
+        form.setFieldsValue({
+          name: integration.name,
+          model: provider.model || providerInfo?.defaultModel || 'deepseek-chat',
+          base_url: provider.base_url || ''
+        })
+      } else {
+        form.setFieldsValue({
+          name: providerInfo?.name || 'DeepSeek',
+          model: providerInfo?.defaultModel || 'deepseek-chat',
+          base_url: ''
         })
       }
     } else if (providerKind === 'gemini') {
@@ -132,6 +154,16 @@ export const LLMIntegration: React.FC<LLMIntegrationProps> = ({
               reasoning_effort: isString(values.reasoning_effort) ? values.reasoning_effort : ''
             }
           }),
+          ...(providerKind === 'deepseek' && {
+            deepseek: {
+              api_key:
+                isString(values.api_key) && values.api_key !== '' ? values.api_key : undefined,
+              model: isString(values.model) ? values.model : 'deepseek-chat',
+              // Empty means "use https://api.deepseek.com", which the server fills in.
+              base_url:
+                isString(values.base_url) && values.base_url !== '' ? values.base_url : undefined
+            }
+          }),
           ...(providerKind === 'gemini' && {
             gemini: {
               api_key:
@@ -164,9 +196,11 @@ export const LLMIntegration: React.FC<LLMIntegrationProps> = ({
           placeholder={
             providerKind === 'openai'
               ? t`e.g., My OpenAI Integration`
-              : providerKind === 'gemini'
-                ? t`e.g., My Google Gemini Integration`
-                : t`e.g., My Anthropic Integration`
+              : providerKind === 'deepseek'
+                ? t`e.g., My DeepSeek Integration`
+                : providerKind === 'gemini'
+                  ? t`e.g., My Google Gemini Integration`
+                  : t`e.g., My Anthropic Integration`
           }
         />
       </Form.Item>
@@ -183,9 +217,11 @@ export const LLMIntegration: React.FC<LLMIntegrationProps> = ({
           placeholder={
             providerKind === 'openai'
               ? 'sk-proj-...'
-              : providerKind === 'gemini'
-                ? 'AIza...'
-                : 'sk-ant-api03-...'
+              : providerKind === 'deepseek'
+                ? 'sk-...'
+                : providerKind === 'gemini'
+                  ? 'AIza...'
+                  : 'sk-ant-api03-...'
           }
         />
       </Form.Item>
@@ -234,6 +270,32 @@ export const LLMIntegration: React.FC<LLMIntegrationProps> = ({
                 { value: 'xhigh', label: t`Extra high` }
               ]}
             />
+          </Form.Item>
+        </>
+      )}
+
+      {providerKind === 'deepseek' && (
+        <>
+          <Form.Item
+            label={t`Model`}
+            name="model"
+            rules={[{ required: true, message: t`Please select or enter a model` }]}
+          >
+            <AutoComplete
+              options={deepseekModels}
+              placeholder={t`deepseek-chat or a custom model id`}
+              filterOption={(inputValue, option) =>
+                ((option?.value as string) ?? '').toLowerCase().includes(inputValue.toLowerCase())
+              }
+            />
+          </Form.Item>
+
+          <Form.Item
+            label={t`Base URL`}
+            name="base_url"
+            extra={t`Optional. Leave empty for https://api.deepseek.com. Change it only for a proxy or a regional endpoint.`}
+          >
+            <Input placeholder="https://api.deepseek.com" />
           </Form.Item>
         </>
       )}

@@ -1635,13 +1635,18 @@ export function Integrations({ workspace, onSave, loading, isOwner }: Integratio
                     <Descriptions.Item label={t`Name`}>{integration.name}</Descriptions.Item>
                     <Descriptions.Item label={t`Model`}>
                       <Tag variant="filled" color="purple">
-                        {provider.kind === 'openai'
-                          ? provider.openai?.model || 'Not configured'
+                        {provider.kind === 'deepseek'
+                          ? provider.deepseek?.model || 'Not configured'
+                          : provider.kind === 'openai'
+                            ? provider.openai?.model || 'Not configured'
                           : provider.kind === 'gemini'
                             ? provider.gemini?.model || 'Not configured'
                             : provider.anthropic?.model || 'Not configured'}
                       </Tag>
                     </Descriptions.Item>
+                    {provider.kind === 'deepseek' && provider.deepseek?.base_url && (
+                      <div className="text-xs text-gray-500 mt-1">{provider.deepseek.base_url}</div>
+                    )}
                     {provider.kind === 'openai' && provider.openai?.base_url && (
                       <Descriptions.Item label={t`Base URL`}>
                         <Tag variant="filled" color="blue">

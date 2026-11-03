@@ -17,6 +17,8 @@ export const getLLMProviderName = (kind: string): string => {
       return 'OpenAI'
     case 'gemini':
       return 'Google Gemini'
+    case 'deepseek':
+      return 'DeepSeek'
     default:
       return kind
   }
@@ -68,6 +70,38 @@ export const llmProviders: LLMProviderInfo[] = [
           style={{ height, maxWidth, objectFit: 'contain', display: 'inline-block' }}
           className={className}
         />
+      )
+    }
+  },
+  {
+    type: 'llm',
+    kind: 'deepseek',
+    name: 'DeepSeek',
+    defaultModel: 'deepseek-chat',
+    getIcon: (className = '', size: 'small' | 'large' | number = 'small') => {
+      const height = typeof size === 'number' ? size : size === 'small' ? 14 : 20
+      // A monogram, not a redrawn whale: a recognisable box in DeepSeek's blue reads better
+      // at 14px than a hand-traced logo, and it claims nothing it cannot back up.
+      return (
+        <span
+          className={className}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: height,
+            height,
+            borderRadius: height * 0.28,
+            background: '#4D6BFE',
+            color: '#fff',
+            fontSize: height * 0.6,
+            fontWeight: 700,
+            lineHeight: 1,
+            fontFamily: 'system-ui, -apple-system, sans-serif'
+          }}
+        >
+          D
+        </span>
       )
     }
   },

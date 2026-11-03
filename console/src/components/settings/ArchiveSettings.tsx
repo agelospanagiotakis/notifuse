@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Form,
   Input,
   Popconfirm,
@@ -30,6 +31,7 @@ interface ArchiveAudience {
   list_id: string
   slug: string
   name: string
+  listed: boolean
   campaigns: number
   url: string
 }
@@ -116,6 +118,24 @@ export function ArchiveSettings({ workspace }: { workspace: { id: string; name: 
       message.error((error as Error).message || 'Could not save')
     } finally {
       setSaving(false)
+    }
+  }
+
+  /**
+   * Tick or untick one audience. Saved immediately rather than with the form: this is a
+   * per-row decision, and routing it through "Save" would mean the checkbox silently does
+   * nothing until someone remembers to press a button several fields above it.
+   */
+  const setListed = async (listId: string, listed: boolean) => {
+    try {
+      await api.post('/api/archive.setAudienceListed', {
+        workspace_id: workspace.id,
+        list_id: listId,
+        listed
+      })
+      await load()
+    } catch (error) {
+      message.error((error as Error).message || 'Could not change the listing')
     }
   }
 
@@ -239,7 +259,7 @@ export function ArchiveSettings({ workspace }: { workspace: { id: string; name: 
         title={`Audiences${state ? ` (${state.audiences.length})` : ''}`}
         extra={
           <Text type="secondary" style={{ fontSize: 12 }}>
-            Each list&apos;s archive home — the address to give to whoever asks for it
+            Tick to publish a list&apos;s archive. Unticked it answers 404, not just a hidden link.
           </Text>
         }
       >
@@ -258,6 +278,22 @@ export function ArchiveSettings({ workspace }: { workspace: { id: string; name: 
                   <Text strong>{name}</Text>
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     {row.list_id}
+                  </Text>
+                </Space>
+              )
+            },
+            {
+              title: 'Listed',
+              dataIndex: 'listed',
+              width: 110,
+              render: (listed: boolean, row: ArchiveAudience) => (
+                <Space size={6}>
+                  <Checkbox
+                    checked={listed}
+                    onChange={(e) => void setListed(row.list_id, e.target.checked)}
+                  />
+                  <Text type={listed ? undefined : 'secondary'}>
+                    {listed ? 'Public' : 'Hidden'}
                   </Text>
                 </Space>
               )

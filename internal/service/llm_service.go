@@ -158,6 +158,14 @@ func (s *LLMService) StreamChat(ctx context.Context, req *domain.LLMChatRequest,
 			return fmt.Errorf("Gemini configuration is missing")
 		}
 		return s.streamChatGemini(ctx, req, integration.LLMProvider.Gemini, firecrawlSettings, onEvent)
+	case domain.LLMProviderKindDeepSeek:
+		if integration.LLMProvider.DeepSeek == nil {
+			return fmt.Errorf("DeepSeek configuration is missing")
+		}
+		// DeepSeek is OpenAI-compatible, so the OpenAI path does the work; it needs the host
+		// and a model name filled in when the operator left them at their defaults.
+		integration.LLMProvider.DeepSeek.WithDefaults()
+		return s.streamChatOpenAI(ctx, req, &integration.LLMProvider.DeepSeek.OpenAISettings, firecrawlSettings, onEvent)
 	default:
 		return fmt.Errorf("unsupported LLM provider: %s", integration.LLMProvider.Kind)
 	}

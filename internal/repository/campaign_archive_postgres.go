@@ -57,6 +57,10 @@ CREATE TABLE IF NOT EXISTS campaign_audience (
     name       TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Whether the audience is listed publicly. Default true so an audience registered by a
+-- script (seed_audiences.sql) is visible unless someone deliberately unticks it; the
+-- console is where the decision is made.
+ALTER TABLE campaign_audience ADD COLUMN IF NOT EXISTS is_listed BOOLEAN NOT NULL DEFAULT TRUE;
 `
 
 func (r *campaignArchiveRepository) connection(ctx context.Context, workspaceID string) (*sql.DB, error) {
@@ -191,7 +195,8 @@ func (r *campaignArchiveRepository) ListAudiences(ctx context.Context, workspace
 		SELECT a.list_id,
 		       COALESCE(u.slug, ''),
 		       COALESCE(u.name, ''),
-		       a.campaigns
+		       a.campaigns,
+		       COALESCE(u.is_listed, TRUE)
 		FROM (SELECT list_id, COUNT(*) AS campaigns
 		      FROM campaign_archive
 		      WHERE list_id <> ''
@@ -206,7 +211,7 @@ func (r *campaignArchiveRepository) ListAudiences(ctx context.Context, workspace
 	audiences := make([]*domain.ArchiveAudience, 0, 8)
 	for rows.Next() {
 		var a domain.ArchiveAudience
-		if err := rows.Scan(&a.ListID, &a.Slug, &a.Name, &a.Campaigns); err != nil {
+		if err := rows.Scan(&a.ListID, &a.Slug, &a.Name, &a.Campaigns, &a.Listed); err != nil {
 			return nil, fmt.Errorf("failed to scan archive audience row: %w", err)
 		}
 		audiences = append(audiences, &a)
@@ -258,11 +263,11 @@ func (r *campaignArchiveRepository) GetAudience(ctx context.Context, workspaceID
 
 	var a domain.ArchiveAudience
 	err = db.QueryRowContext(ctx, `
-		SELECT u.list_id, u.slug, u.name,
+		SELECT u.list_id, u.slug, u.name, u.is_listed,
 		       (SELECT COUNT(*) FROM campaign_archive c WHERE c.list_id = u.list_id)
 		FROM campaign_audience u
 		WHERE u.slug = $1 OR u.list_id = $1`, slug).
-		Scan(&a.ListID, &a.Slug, &a.Name, &a.Campaigns)
+		Scan(&a.ListID, &a.Slug, &a.Name, &a.Listed, &a.Campaigns)
 	if err == sql.ErrNoRows {
 		return nil, domain.ErrArchiveAudienceNotFound
 	}
@@ -278,13 +283,32 @@ func (r *campaignArchiveRepository) UpsertAudience(ctx context.Context, workspac
 	if err != nil {
 		return err
 	}
+	// is_listed is written as true on insert and left alone on update: re-running an import
+	// must not silently re-list an audience the operator unticked.
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO campaign_audience (list_id, slug, name)
-		VALUES ($1, $2, $3)
+		INSERT INTO campaign_audience (list_id, slug, name, is_listed)
+		VALUES ($1, $2, $3, TRUE)
 		ON CONFLICT (list_id) DO UPDATE SET slug = EXCLUDED.slug, name = EXCLUDED.name`,
 		a.ListID, a.Slug, a.Name)
 	if err != nil {
 		return fmt.Errorf("failed to upsert archive audience: %w", err)
+	}
+	return nil
+}
+
+// SetAudienceListed ticks or unticks one audience in the public archive.
+func (r *campaignArchiveRepository) SetAudienceListed(ctx context.Context, workspaceID, listID string, listed bool) error {
+	db, err := r.connection(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+	res, err := db.ExecContext(ctx,
+		`UPDATE campaign_audience SET is_listed = $2 WHERE list_id = $1`, listID, listed)
+	if err != nil {
+		return fmt.Errorf("failed to set audience listing: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return domain.ErrArchiveAudienceNotFound
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sort"
 	"strings"
@@ -54,6 +55,7 @@ func (h *ArchiveAdminHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/archive.update", requireAuth(http.HandlerFunc(h.handleUpdate)))
 	mux.Handle("/api/archive.remove", requireAuth(http.HandlerFunc(h.handleRemove)))
 	mux.Handle("/api/archive.publish", requireAuth(http.HandlerFunc(h.handlePublish)))
+	mux.Handle("/api/archive.setAudienceListed", requireAuth(http.HandlerFunc(h.handleSetAudienceListed)))
 }
 
 func (h *ArchiveAdminHandler) workspace(w http.ResponseWriter, r *http.Request) *domain.Workspace {
@@ -132,6 +134,7 @@ func (h *ArchiveAdminHandler) handleGet(w http.ResponseWriter, r *http.Request) 
 					"list_id":   a.ListID,
 					"slug":      slug,
 					"name":      name,
+					"listed":    a.Listed,
 					"campaigns": a.Campaigns,
 					"url":       "/archive/" + slugify(ws.Name) + "/" + slug + "/",
 				})
@@ -309,4 +312,50 @@ func archiveSlug(sentAt time.Time, title, templateID string) string {
 		return date + "-" + strings.TrimPrefix(templateID, "mc_")[:6]
 	}
 	return date + "-" + slug
+}
+
+// handleSetAudienceListed ticks or unticks one audience in the public archive.
+//
+// A dedicated endpoint rather than a field on archive.update: this is a per-row decision made
+// from a checkbox, and routing it through the settings form would mean a save that rewrites
+// the whole settings blob to change one boolean.
+func (h *ArchiveAdminHandler) handleSetAudienceListed(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		WriteJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		WorkspaceID string `json:"workspace_id"`
+		ListID      string `json:"list_id"`
+		Listed      bool   `json:"listed"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		WriteJSONError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if body.WorkspaceID == "" || body.ListID == "" {
+		WriteJSONError(w, "workspace_id and list_id are required", http.StatusBadRequest)
+		return
+	}
+
+	ws, err := h.workspaceRepo.GetByID(r.Context(), body.WorkspaceID)
+	if err != nil || ws == nil {
+		WriteJSONError(w, "workspace not found", http.StatusNotFound)
+		return
+	}
+	if err := h.archiveRepo.EnsureSchema(r.Context(), ws.ID); err != nil {
+		WriteJSONError(w, "archive unavailable", http.StatusInternalServerError)
+		return
+	}
+	if err := h.archiveRepo.SetAudienceListed(r.Context(), ws.ID, body.ListID, body.Listed); err != nil {
+		if errors.Is(err, domain.ErrArchiveAudienceNotFound) {
+			WriteJSONError(w, "audience not found", http.StatusNotFound)
+			return
+		}
+		h.logger.WithField("workspace_id", ws.ID).WithField("list_id", body.ListID).
+			WithField("error", err.Error()).Error("Failed to set audience listing")
+		WriteJSONError(w, "could not save", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
