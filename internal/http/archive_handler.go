@@ -423,8 +423,14 @@ func (h *ArchiveHandler) renderCampaign(w http.ResponseWriter, r *http.Request, 
 // per-contact values replaced by neutral text, because an archive page has no
 // reader to personalise for.
 func compileForWeb(workspace *domain.Workspace, tpl *domain.Template, entry *domain.ArchiveEntry) (string, error) {
-	if tpl.Email == nil || tpl.Email.MjmlSource == nil || *tpl.Email.MjmlSource == "" {
-		return "", fmt.Errorf("template %s has no MJML source", tpl.ID)
+	// Two editor modes reach the archive. The 182 imported campaigns are code-mode MJML; anything
+	// built in the visual editor is a block tree and has no MJML source at all. Reading only the
+	// source meant every campaign sent from here would 500 on its own archive page — the half of
+	// the archive this release exists to fill.
+	source := tpl.Email.GetCodeModeMjmlSource()
+	visualTree := tpl.Email.VisualEditorTree
+	if (source == nil || *source == "") && visualTree == nil {
+		return "", fmt.Errorf("template %s has neither MJML source nor a visual tree", tpl.ID)
 	}
 
 	subject := entry.Subject
@@ -442,11 +448,12 @@ func compileForWeb(workspace *domain.Workspace, tpl *domain.Template, entry *dom
 	}
 
 	resp, err := notifuse_mjml.CompileTemplate(notifuse_mjml.CompileTemplateRequest{
-		MjmlSource:     tpl.Email.MjmlSource,
-		Subject:        &subject,
-		Channel:        "web",
-		TemplateData:   data,
-		PreserveLiquid: false,
+		MjmlSource:       source,
+		VisualEditorTree: visualTree,
+		Subject:          &subject,
+		Channel:          "web",
+		TemplateData:     data,
+		PreserveLiquid:   false,
 	})
 	if err != nil {
 		return "", err

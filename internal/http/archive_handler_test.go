@@ -12,6 +12,7 @@ import (
 	"github.com/Notifuse/notifuse/internal/domain"
 	"github.com/Notifuse/notifuse/internal/domain/mocks"
 	"github.com/Notifuse/notifuse/pkg/logger"
+	"github.com/Notifuse/notifuse/pkg/notifuse_mjml"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -512,4 +513,47 @@ func TestArchive_UnlistedAudienceIsNotPublic(t *testing.T) {
 	body := rec.Body.String()
 	assert.Contains(t, body, "/archive/kois-optics/syros/")
 	assert.NotContains(t, body, "/archive/kois-optics/turkey/")
+}
+
+// A campaign built in the visual editor has no MJML source at all, and the archive has to render
+// it anyway: that is what "archive the campaigns the platform sends" means. The mode split is
+// the one thing that would silently 500 every new campaign's public page.
+func TestArchive_RendersAVisualTemplate(t *testing.T) {
+	ws := archiveWorkspace(&domain.ArchiveSettings{Enabled: true, Title: "Kois archive"})
+	repo := &fakeArchiveRepo{entries: []*domain.ArchiveEntry{
+		{
+			Slug: "2026-11-04-prosfora", Title: "Προσφορά", SentAt: time.Now().UTC(),
+			TemplateID: "example-offer", TemplateVersion: 3, ListID: "koisopticsmain",
+		},
+	}}
+
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	workspaceRepo := mocks.NewMockWorkspaceRepository(ctrl)
+	workspaceRepo.EXPECT().GetByID(gomock.Any(), gomock.Any()).Return(ws, nil).AnyTimes()
+
+	// A visual template: a tree, no mjml_source.
+	tree := notifuse_mjml.NewBaseBlock("body", notifuse_mjml.MJMLComponentMjBody)
+	text := notifuse_mjml.NewBaseBlock("t1", notifuse_mjml.MJMLComponentMjText)
+	text.Content = func() *string { s := "Προσφορά"; return &s }()
+	tree.Children = []notifuse_mjml.EmailBlock{text}
+	root := notifuse_mjml.NewBaseBlock("root", notifuse_mjml.MJMLComponentMjml)
+	root.Children = []notifuse_mjml.EmailBlock{tree}
+
+	templateRepo := mocks.NewMockTemplateRepository(ctrl)
+	templateRepo.EXPECT().GetTemplateByID(gomock.Any(), gomock.Any(), "example-offer", int64(3)).
+		Return(&domain.Template{
+			ID:      "example-offer",
+			Version: 3,
+			Email: &domain.EmailTemplate{
+				EditorMode:       domain.EditorModeVisual,
+				VisualEditorTree: root,
+			},
+		}, nil)
+
+	h := NewArchiveHandler(workspaceRepo, templateRepo, repo, nil, logger.NewLogger())
+	rec := get(h, "/archive/koisoptics/2026-11-04-prosfora", nil)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "Προσφορά")
 }
