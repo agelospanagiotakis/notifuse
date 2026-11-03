@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -233,7 +234,14 @@ func (h *ArchiveHandler) renderList(w http.ResponseWriter, r *http.Request, work
 			}
 			b.WriteString("<li><a href=\"/archive/" + html.EscapeString(slugify(workspace.Name)) + "/" + e.Slug + "\">")
 			b.WriteString("<time>" + e.SentAt.Format("2 January 2006") + "</time>")
-			b.WriteString("<span>" + html.EscapeString(e.Title) + "</span>")
+			b.WriteString("<span>" + html.EscapeString(e.Title))
+			// Reported by the platform that sent it. Zero means unknown, so it is
+			// omitted rather than rendered as "0 opens", which would be a lie.
+			if e.SentCount > 0 {
+				b.WriteString(fmt.Sprintf("<small class=\"figures\">sent to %s subscribers · %s opened</small>",
+					thousands(e.SentCount), thousands(e.UniqueOpens)))
+			}
+			b.WriteString("</span>")
 			b.WriteString("</a></li>")
 		}
 		b.WriteString("</ol>")
@@ -327,6 +335,19 @@ func compileForWeb(workspace *domain.Workspace, tpl *domain.Template, entry *dom
 	return *resp.HTML, nil
 }
 
+// thousands formats a count the way a reader expects, not the way Go does.
+func thousands(n int) string {
+	s := strconv.Itoa(n)
+	out := make([]byte, 0, len(s)+len(s)/3)
+	for i, ch := range []byte(s) {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, ch)
+	}
+	return string(out)
+}
+
 func plural(n int) string {
 	if n == 1 {
 		return ""
@@ -352,6 +373,7 @@ ol.campaigns a{display:flex;gap:16px;align-items:baseline;padding:13px 4px;text-
 ol.campaigns a:hover{background:#fff;color:var(--brand)}
 ol.campaigns time{flex:none;width:150px;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
 ol.campaigns span{flex:1;min-width:0}
+ol.campaigns .figures{display:block;color:var(--muted);font-size:12px;margin-top:3px}
 .empty{color:var(--muted)}
 footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
 footer a{color:var(--brand)}

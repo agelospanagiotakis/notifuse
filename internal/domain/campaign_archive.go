@@ -26,6 +26,11 @@ type ArchiveEntry struct {
 	Subject         string    `json:"subject,omitempty"`
 	SentAt          time.Time `json:"sent_at"`
 	ArchivedAt      time.Time `json:"archived_at"`
+	// SentCount and UniqueOpens are reported figures for a campaign sent elsewhere.
+	// Zero means "not known", never "nobody opened": an imported campaign that has no
+	// report must not be displayed as a failure.
+	SentCount   int `json:"sent_count"`
+	UniqueOpens int `json:"unique_opens"`
 }
 
 // ArchiveSettings is stored in the workspace settings blob under "archive".

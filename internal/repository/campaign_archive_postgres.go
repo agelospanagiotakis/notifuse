@@ -38,6 +38,12 @@ CREATE TABLE IF NOT EXISTS campaign_archive (
     archived_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS campaign_archive_sent_at_idx ON campaign_archive (sent_at DESC);
+-- Reported figures, where a campaign was sent by another platform (Mailchimp). Kept
+-- on the entry because the archive page shows them beside the campaign, and kept in
+-- these columns rather than folded into Notifuse's own statistics because they were
+-- measured elsewhere: whoever reads them later has to be able to tell.
+ALTER TABLE campaign_archive ADD COLUMN IF NOT EXISTS sent_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE campaign_archive ADD COLUMN IF NOT EXISTS unique_opens INTEGER NOT NULL DEFAULT 0;
 `
 
 func (r *campaignArchiveRepository) connection(ctx context.Context, workspaceID string) (*sql.DB, error) {
@@ -68,7 +74,8 @@ func (r *campaignArchiveRepository) List(ctx context.Context, workspaceID string
 	}
 
 	rows, err := db.QueryContext(ctx, `
-		SELECT slug, template_id, template_version, title, subject, sent_at, archived_at
+		SELECT slug, template_id, template_version, title, subject, sent_at, archived_at,
+		       sent_count, unique_opens
 		FROM campaign_archive
 		ORDER BY sent_at DESC`)
 	if err != nil {
@@ -79,7 +86,7 @@ func (r *campaignArchiveRepository) List(ctx context.Context, workspaceID string
 	entries := make([]*domain.ArchiveEntry, 0, 64)
 	for rows.Next() {
 		var e domain.ArchiveEntry
-		if err := rows.Scan(&e.Slug, &e.TemplateID, &e.TemplateVersion, &e.Title, &e.Subject, &e.SentAt, &e.ArchivedAt); err != nil {
+		if err := rows.Scan(&e.Slug, &e.TemplateID, &e.TemplateVersion, &e.Title, &e.Subject, &e.SentAt, &e.ArchivedAt, &e.SentCount, &e.UniqueOpens); err != nil {
 			return nil, fmt.Errorf("failed to scan campaign archive row: %w", err)
 		}
 		entries = append(entries, &e)
@@ -99,10 +106,11 @@ func (r *campaignArchiveRepository) Get(ctx context.Context, workspaceID, slug s
 
 	var e domain.ArchiveEntry
 	err = db.QueryRowContext(ctx, `
-		SELECT slug, template_id, template_version, title, subject, sent_at, archived_at
+		SELECT slug, template_id, template_version, title, subject, sent_at, archived_at,
+		       sent_count, unique_opens
 		FROM campaign_archive
 		WHERE slug = $1`, slug).
-		Scan(&e.Slug, &e.TemplateID, &e.TemplateVersion, &e.Title, &e.Subject, &e.SentAt, &e.ArchivedAt)
+		Scan(&e.Slug, &e.TemplateID, &e.TemplateVersion, &e.Title, &e.Subject, &e.SentAt, &e.ArchivedAt, &e.SentCount, &e.UniqueOpens)
 	if err == sql.ErrNoRows {
 		return nil, domain.ErrArchiveEntryNotFound
 	}
