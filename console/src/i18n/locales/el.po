@@ -572,7 +572,7 @@ msgid "A count of past activity includes the event that fires the automation, so
 msgstr "Μια μέτρηση προηγούμενης δραστηριότητας περιλαμβάνει το συμβάν που ενεργοποιεί τον αυτοματισμό, επομένως \"τουλάχιστον 3 ανοίγματα\" εγγράφονται στο τρίτο άνοιγμα."
 
 #. placeholder {0}: resetTarget?.email ?? ''
-#: src/components/settings/WorkspaceMembers.tsx:699
+#: src/components/settings/WorkspaceMembers.tsx:703
 msgid "A new password is generated for {0}, every session they have open is closed, and they must replace the password before they can use the console again."
 msgstr "Δημιουργείται νέος κωδικός πρόσβασης για {0}, όλες οι ενεργές συνεδρίες του κλείνουν και θα πρέπει να αντικαταστήσει τον κωδικό πριν μπορέσει να χρησιμοποιήσει ξανά την κονσόλα."
 
@@ -13780,7 +13780,7 @@ msgstr ""
 msgid "This segment uses relative date filters and will be automatically recomputed daily at 5:00 AM ({timezone})"
 msgstr "Αυτό το τμήμα χρησιμοποιεί φίλτρα σχετικής ημερομηνίας και θα υπολογίζεται εκ νέου αυτόματα καθημερινά στις 5:00 π.μ. ({timezone})"
 
-#: src/components/settings/WorkspaceMembers.tsx:698
+#: src/components/settings/WorkspaceMembers.tsx:702
 msgid "This signs them out immediately"
 msgstr "Η ενέργεια αποσυνδέει τον χρήστη αμέσως"
 

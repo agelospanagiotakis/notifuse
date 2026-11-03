@@ -574,7 +574,7 @@ msgid "A count of past activity includes the event that fires the automation, so
 msgstr "過去のアクティビティのカウントには、オートメーションを起動するイベント自体も含まれます。そのため「開封3回以上」は3回目の開封で登録されます。"
 
 #. placeholder {0}: resetTarget?.email ?? ''
-#: src/components/settings/WorkspaceMembers.tsx:699
+#: src/components/settings/WorkspaceMembers.tsx:703
 msgid "A new password is generated for {0}, every session they have open is closed, and they must replace the password before they can use the console again."
 msgstr ""
 
@@ -13782,7 +13782,7 @@ msgstr "このセクションは空です。コンテンツを表示するには
 msgid "This segment uses relative date filters and will be automatically recomputed daily at 5:00 AM ({timezone})"
 msgstr "このセグメントは相対日付フィルターを使用しており、毎日午前5時（{timezone}）に自動的に再計算されます"
 
-#: src/components/settings/WorkspaceMembers.tsx:698
+#: src/components/settings/WorkspaceMembers.tsx:702
 msgid "This signs them out immediately"
 msgstr ""
 

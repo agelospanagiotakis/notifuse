@@ -574,7 +574,7 @@ msgid "A count of past activity includes the event that fires the automation, so
 msgstr "Eine Zählung vergangener Aktivität schließt das Ereignis ein, das die Automatisierung auslöst, sodass \"mindestens 3 Öffnungen\" bereits bei der dritten Öffnung aufnimmt."
 
 #. placeholder {0}: resetTarget?.email ?? ''
-#: src/components/settings/WorkspaceMembers.tsx:699
+#: src/components/settings/WorkspaceMembers.tsx:703
 msgid "A new password is generated for {0}, every session they have open is closed, and they must replace the password before they can use the console again."
 msgstr ""
 
@@ -13782,7 +13782,7 @@ msgstr "Dieser Abschnitt ist leer. Fügen Sie Spalten oder Gruppen hinzu, um Inh
 msgid "This segment uses relative date filters and will be automatically recomputed daily at 5:00 AM ({timezone})"
 msgstr "Dieses Segment verwendet relative Datumsfilter und wird täglich um 5:00 Uhr ({timezone}) automatisch neu berechnet"
 
-#: src/components/settings/WorkspaceMembers.tsx:698
+#: src/components/settings/WorkspaceMembers.tsx:702
 msgid "This signs them out immediately"
 msgstr ""
 

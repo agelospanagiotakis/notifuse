@@ -574,7 +574,7 @@ msgid "A count of past activity includes the event that fires the automation, so
 msgstr "Un recompte d'activitat passada inclou l'esdeveniment que dispara l'automatització, de manera que \"almenys 3 obertures\" inscriu el contacte a la tercera obertura."
 
 #. placeholder {0}: resetTarget?.email ?? ''
-#: src/components/settings/WorkspaceMembers.tsx:699
+#: src/components/settings/WorkspaceMembers.tsx:703
 msgid "A new password is generated for {0}, every session they have open is closed, and they must replace the password before they can use the console again."
 msgstr ""
 
@@ -13782,7 +13782,7 @@ msgstr "Aquesta secció està buida. Afegiu columnes o grups per mostrar conting
 msgid "This segment uses relative date filters and will be automatically recomputed daily at 5:00 AM ({timezone})"
 msgstr "Aquest segment utilitza filtres de data relativa i es recalcularà automàticament diàriament a les 5:00 AM ({timezone})"
 
-#: src/components/settings/WorkspaceMembers.tsx:698
+#: src/components/settings/WorkspaceMembers.tsx:702
 msgid "This signs them out immediately"
 msgstr ""
 

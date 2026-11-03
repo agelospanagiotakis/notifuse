@@ -683,11 +683,15 @@ export function WorkspaceMembers({
             />
             <Form layout="vertical">
               <Form.Item label={t`Generated password`}>
-                <Input.Password
+                {/* Readable, not masked. This value exists once and is gone when the modal
+                    closes, so a field that hides it behind an eye icon invites exactly the
+                    mistake the warning above describes: close first, read never. Same shape as
+                    the API token screen, which has the same one-time property. */}
+                <Input.TextArea
                   value={generatedPassword}
                   readOnly
-                  visibilityToggle
-                  style={{ fontFamily: 'monospace' }}
+                  autoSize={{ minRows: 2, maxRows: 2 }}
+                  style={{ fontFamily: 'monospace', fontSize: 16 }}
                 />
               </Form.Item>
             </Form>
