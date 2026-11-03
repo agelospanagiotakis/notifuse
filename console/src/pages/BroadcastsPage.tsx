@@ -65,6 +65,7 @@ import { SendOrScheduleModal } from '../components/broadcasts/SendOrScheduleModa
 import { useAuth, useWorkspacePermissions } from '../contexts/AuthContext'
 import TemplatePreviewDrawer from '../components/templates/TemplatePreviewDrawer'
 import { BroadcastStats, ProgressStats } from '../components/broadcasts/BroadcastStats'
+import { ImportedMailchimpStats, ImportedStats } from '../components/broadcasts/ImportedMailchimpStats'
 import { BroadcastLinkStats } from '../components/broadcasts/BroadcastLinkStats'
 import { SendingProgress } from '../components/broadcasts/SendingProgress'
 import { BroadcastAnalyticsLinks } from '../components/broadcasts/BroadcastAnalyticsLinks'
@@ -786,6 +787,9 @@ const BroadcastCard: React.FC<BroadcastCardProps> = ({
           enqueuedCount={enqueuedCount}
           broadcastStatus={broadcast.status}
           onStatsUpdate={setProgressStats}
+        />
+        <ImportedMailchimpStats
+          stats={(broadcast.metadata as { mailchimp?: ImportedStats } | undefined)?.mailchimp}
         />
       </div>
 
