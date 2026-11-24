@@ -55,7 +55,9 @@ type ArchiveAudience struct {
 	Listed bool `json:"listed"`
 	// NotifuseListID is the platform list this audience maps to, when one does.
 	NotifuseListID string `json:"notifuse_list_id,omitempty"`
-	Campaigns      int    `json:"campaigns"`
+	// URL is the audience's public archive page, filled in by the admin handler.
+	URL       string `json:"url,omitempty"`
+	Campaigns int    `json:"campaigns"`
 }
 
 // ArchiveSettings is stored in the workspace settings blob under "archive".

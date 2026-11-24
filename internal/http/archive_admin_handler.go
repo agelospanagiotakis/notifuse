@@ -117,6 +117,13 @@ func (h *ArchiveAdminHandler) handleGet(w http.ResponseWriter, r *http.Request) 
 	if err := h.archiveRepo.EnsureSchema(r.Context(), ws.ID); err == nil {
 		if list, err := h.archiveRepo.ListAudiences(r.Context(), ws.ID); err == nil {
 			audiences = list
+			for _, a := range audiences {
+				slug := a.Slug
+				if slug == "" {
+					slug = a.ListID
+				}
+				a.URL = "/archive/" + slugify(ws.Name) + "/" + slug + "/"
+			}
 		}
 	}
 

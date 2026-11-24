@@ -33,6 +33,7 @@ interface ArchiveAudience {
   name: string
   listed: boolean
   notifuse_list_id?: string
+  url?: string
   campaigns: number
 }
 
@@ -256,7 +257,7 @@ export function ArchiveSettings({ workspace }: { workspace: { id: string; name: 
         title={`Audiences${state ? ` (${audiences.length})` : ''}`}
         extra={
           <Text type="secondary" style={{ fontSize: 12 }}>
-            Unticked audiences are not listed publicly and their pages answer 404.
+            Tick to publish a list&apos;s archive. Unticked it answers 404, not just a hidden link.
           </Text>
         }
       >
@@ -282,12 +283,25 @@ export function ArchiveSettings({ workspace }: { workspace: { id: string; name: 
             {
               title: 'Listed',
               dataIndex: 'listed',
-              width: 90,
+              width: 110,
               render: (listed: boolean, row: ArchiveAudience) => (
-                <Checkbox checked={listed} onChange={(e) => void setListed(row.list_id, e.target.checked)} />
+                <Space size={6}>
+                  <Checkbox checked={listed} onChange={(e) => void setListed(row.list_id, e.target.checked)} />
+                  <Text type={listed ? undefined : 'secondary'}>{listed ? 'Public' : 'Hidden'}</Text>
+                </Space>
               )
             },
-            { title: 'Campaigns', dataIndex: 'campaigns', width: 110, align: 'right' as const }
+            { title: 'Campaigns', dataIndex: 'campaigns', width: 120, align: 'right' as const },
+            {
+              title: 'Archive',
+              width: 100,
+              render: (_: unknown, row: ArchiveAudience) =>
+                row.url ? (
+                  <Link href={row.url} target="_blank" rel="noreferrer">
+                    Open
+                  </Link>
+                ) : null
+            }
           ]}
         />
       </Card>
