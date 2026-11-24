@@ -377,7 +377,11 @@ func (h *ArchiveHandler) renderCampaign(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	htmlOut = notifuse_mjml.FillViewInBrowserLink(htmlOut, "/archive/"+slugify(workspace.Name)+"/"+entry.Slug+"/")
+	permalink := "/archive/" + slugify(workspace.Name) + "/" + entry.Slug + "/"
+	htmlOut = notifuse_mjml.FillViewInBrowserLink(htmlOut, permalink)
+	// Archived historical campaigns have no per-recipient token; point Mailchimp's link at the
+	// workspace's notification-center landing so the footer is not dead.
+	htmlOut = notifuse_mjml.RewriteMailchimpLinks(htmlOut, "/notification-center?wid="+workspace.ID, "/notification-center?wid="+workspace.ID)
 
 	page := withToolbar(htmlOut, toolbarHTML(archiveBarOptions{
 		workspaceSlug: slugify(workspace.Name),
@@ -398,8 +402,8 @@ func (h *ArchiveHandler) renderCampaign(w http.ResponseWriter, r *http.Request, 
 // per-contact values replaced by neutral text, because an archive page has no
 // reader to personalise for.
 func compileForWeb(workspace *domain.Workspace, tpl *domain.Template, entry *domain.ArchiveEntry) (string, error) {
-	if tpl.Email == nil || tpl.Email.MjmlSource == nil || *tpl.Email.MjmlSource == "" {
-		return "", fmt.Errorf("template %s has no MJML source", tpl.ID)
+	if tpl.Email == nil || ((tpl.Email.MjmlSource == nil || *tpl.Email.MjmlSource == "") && tpl.Email.VisualEditorTree == nil) {
+		return "", fmt.Errorf("template %s has no body to render", tpl.ID)
 	}
 
 	subject := entry.Subject
@@ -416,13 +420,18 @@ func compileForWeb(workspace *domain.Workspace, tpl *domain.Template, entry *dom
 		"unsubscribe_url": "",
 	}
 
-	resp, err := notifuse_mjml.CompileTemplate(notifuse_mjml.CompileTemplateRequest{
-		MjmlSource:     tpl.Email.MjmlSource,
+	compileReq := notifuse_mjml.CompileTemplateRequest{
 		Subject:        &subject,
 		Channel:        "web",
 		TemplateData:   data,
 		PreserveLiquid: false,
-	})
+	}
+	if tpl.Email.MjmlSource != nil && *tpl.Email.MjmlSource != "" {
+		compileReq.MjmlSource = tpl.Email.MjmlSource
+	} else {
+		compileReq.VisualEditorTree = tpl.Email.VisualEditorTree
+	}
+	resp, err := notifuse_mjml.CompileTemplate(compileReq)
 	if err != nil {
 		return "", err
 	}

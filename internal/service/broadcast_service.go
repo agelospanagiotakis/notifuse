@@ -1629,6 +1629,9 @@ func (s *BroadcastService) SendToIndividual(ctx context.Context, request *domain
 		if viewURL, ok := templateData["view_in_browser_url"].(string); ok && viewURL != "" {
 			*compiledTemplate.HTML = notifuse_mjml.FillViewInBrowserLink(*compiledTemplate.HTML, viewURL)
 		}
+		unsubURL, _ := templateData["unsubscribe_url"].(string)
+		prefsURL, _ := templateData["notification_center_url"].(string)
+		*compiledTemplate.HTML = notifuse_mjml.RewriteMailchimpLinks(*compiledTemplate.HTML, unsubURL, prefsURL)
 	}
 	if compiledTemplate.TextError != "" {
 		s.logger.WithFields(map[string]interface{}{

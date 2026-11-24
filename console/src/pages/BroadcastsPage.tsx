@@ -7,7 +7,7 @@ import { plural } from '@lingui/core/macro'
 import { Plus, RefreshCw, Search } from 'lucide-react'
 import { CountTabs, FullDrawer, PageHeader, Panel, TableToolbar, useNumberFormat, type CountTabOption } from '../components/layout'
 import { useAuth, useWorkspacePermissions } from '../contexts/AuthContext'
-import { BROADCAST_STATUS_GROUPS, type Broadcast } from '../services/api/broadcast'
+import { broadcastApi, BROADCAST_STATUS_GROUPS, type Broadcast } from '../services/api/broadcast'
 import { listsApi } from '../services/api/list'
 import { listSegments } from '../services/api/segment'
 import type { BroadcastsSearch } from '../router'
@@ -147,11 +147,29 @@ export function BroadcastsPage() {
   // An imported campaign was sent by Mailchimp: it must open the detail (reported figures),
   // never the composer, and cannot be re-sent.
   useEffect(() => {
-    if (!search.compose || search.compose === 'new') return
-    const imported = rows.find((b) => b.id === search.compose && isImportedBroadcast(b))
-    if (imported) openDetail(imported.id)
+    const id = search.compose
+    if (!id || id === 'new') return
+    const loaded = rows.find((b) => b.id === id)
+    if (loaded) {
+      if (isImportedBroadcast(loaded) || loaded.status !== 'draft') openDetail(id)
+      return
+    }
+    // Not on the loaded page/filter: fetch it, so an imported (or already sent) campaign
+    // opens its detail instead of the composer even from a pasted ?compose= URL.
+    let alive = true
+    broadcastApi
+      .get({ workspace_id: workspaceId, id })
+      .then((res) => {
+        if (alive && res.broadcast && (isImportedBroadcast(res.broadcast) || res.broadcast.status !== 'draft')) {
+          openDetail(id)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search.compose, rows])
+  }, [search.compose, rows, workspaceId])
 
   // J and K walk the loaded rows; at the last one J loads the next page, then moves on.
   const index = search.broadcast ? rows.findIndex((b) => b.id === search.broadcast) : -1
