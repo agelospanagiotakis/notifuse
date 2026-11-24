@@ -49,7 +49,7 @@ msgstr "- ακυρώθηκε"
 msgid "· applies to the whole Web Analytics section. Click a row or a country to add one."
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:111
+#: src/components/settings/WorkspaceMembers.tsx:112
 msgid "· read only"
 msgstr ""
 
@@ -126,7 +126,7 @@ msgstr ""
 msgid "(unknown)"
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:257
+#: src/components/settings/WorkspaceMembers.tsx:307
 msgid "(you)"
 msgstr ""
 
@@ -525,7 +525,7 @@ msgstr ""
 #~ msgstr "Οι κανόνες {0} από {1} ταιριάζουν"
 
 #. placeholder {0}: int(shown)
-#: src/pages/BroadcastsPage.tsx:230
+#: src/pages/BroadcastsPage.tsx:261
 msgid "{0} of {total, plural, one {# broadcast} other {# broadcasts}}"
 msgstr ""
 
@@ -656,7 +656,7 @@ msgstr ""
 msgid "{active, plural, one {# active} other {# active}}"
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:113
+#: src/components/settings/WorkspaceMembers.tsx:114
 msgid "{active} of {total} permissions granted"
 msgstr ""
 
@@ -774,7 +774,7 @@ msgstr ""
 msgid "{count, plural, one {# value} other {# values}}"
 msgstr ""
 
-#: src/components/broadcasts/BroadcastsTable.tsx:317
+#: src/components/broadcasts/BroadcastsTable.tsx:338
 msgid "{count, plural, one {A/B · # variant} other {A/B · # variants}}"
 msgstr ""
 
@@ -831,7 +831,7 @@ msgstr ""
 msgid "{days, plural, one {Added in the last # day, today included} other {Added in the last # days, today included}}"
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:240
+#: src/components/settings/WorkspaceMembers.tsx:290
 msgid "{days, plural, one {expires in # day} other {expires in # days}}"
 msgstr ""
 
@@ -895,12 +895,12 @@ msgstr ""
 msgid "{exactTotal, plural, one {{shownCount} of # contact} other {{shownCount} of # contacts}}"
 msgstr ""
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:73
+#: src/components/broadcasts/BroadcastStatusPill.tsx:74
 msgctxt "newsletter status"
 msgid "{failed, plural, one {# failed} other {# failed}}"
 msgstr ""
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:74
+#: src/components/broadcasts/BroadcastStatusPill.tsx:75
 msgid "{failed, plural, one {The provider refused # recipient and every retry was used up. Open the logs to see why, then retry it.} other {The provider refused # recipients and every retry was used up. Open the logs to see why, then retry them.}}"
 msgstr ""
 
@@ -1588,7 +1588,7 @@ msgstr ""
 msgid "</{tag}> closes no open tag."
 msgstr ""
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:967
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:1004
 #: src/components/settings/integrations/providerDetails.ts:170
 msgid "≈ {perHour} per hour · ≈ {perDay} per day"
 msgstr ""
@@ -1682,6 +1682,10 @@ msgstr ""
 
 #: src/components/settings/BlogSettings.tsx:391
 msgid "255 characters at most"
+msgstr ""
+
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:819
+msgid "2587 for STARTTLS"
 msgstr ""
 
 #: src/components/settings/Integrations.tsx:2219
@@ -1922,9 +1926,9 @@ msgid "A name replaces custom_N in dashboards, the explore picker and attributio
 msgstr ""
 
 #. placeholder {0}: resetTarget?.email ?? ''
-#: src/components/settings/WorkspaceMembers.tsx:703
-#~ msgid "A new password is generated for {0}, every session they have open is closed, and they must replace the password before they can use the console again."
-#~ msgstr "Δημιουργείται νέος κωδικός πρόσβασης για {0}, όλες οι ενεργές συνεδρίες του κλείνουν και θα πρέπει να αντικαταστήσει τον κωδικό πριν μπορέσει να χρησιμοποιήσει ξανά την κονσόλα."
+#: src/components/settings/WorkspaceMembers.tsx:792
+msgid "A new password is generated for {0}, every session they have open is closed, and they must replace the password before they can use the console again."
+msgstr "Δημιουργείται νέος κωδικός πρόσβασης για {0}, όλες οι ενεργές συνεδρίες του κλείνουν και θα πρέπει να αντικαταστήσει τον κωδικό πριν μπορέσει να χρησιμοποιήσει ξανά την κονσόλα."
 
 #: src/components/blog/ThemeEditorDrawer.tsx:556
 msgid "A newer draft was found in local storage. Would you like to restore it or discard it?"
@@ -1942,7 +1946,7 @@ msgstr ""
 msgid "A one-time code to sign in or confirm an action."
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:279
+#: src/components/settings/WorkspaceMembers.tsx:329
 msgid "A platform admin reaches every workspace without joining it"
 msgstr ""
 
@@ -2025,19 +2029,19 @@ msgstr ""
 #~ msgid "A winner has been selected. Emails are being sent to the remaining recipients."
 #~ msgstr ""
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:55
+#: src/components/broadcasts/BroadcastStatusPill.tsx:56
 msgctxt "newsletter status"
 msgid "A winner has been selected. Emails are being sent to the remaining recipients."
 msgstr ""
 
 #: src/components/analytics/UpcomingSends.tsx:157
-#: src/components/broadcasts/BroadcastsTable.tsx:309
-#: src/components/broadcasts/BroadcastsTable.tsx:314
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:367
+#: src/components/broadcasts/BroadcastsTable.tsx:330
+#: src/components/broadcasts/BroadcastsTable.tsx:335
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:369
 msgid "A/B"
 msgstr ""
 
-#: src/components/broadcasts/BroadcastsTable.tsx:310
+#: src/components/broadcasts/BroadcastsTable.tsx:331
 msgid "A/B · {winnerName}"
 msgstr ""
 
@@ -2060,12 +2064,12 @@ msgstr ""
 #~ msgid "A/B test has completed. Select a winner to send to the remaining recipients."
 #~ msgstr ""
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:44
+#: src/components/broadcasts/BroadcastStatusPill.tsx:45
 msgctxt "newsletter status"
 msgid "A/B test has completed. Select a winner to send to the remaining recipients."
 msgstr ""
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:40
+#: src/components/broadcasts/BroadcastStatusPill.tsx:41
 msgid "A/B test is in progress. Emails are being sent to the test group."
 msgstr ""
 
@@ -2163,8 +2167,8 @@ msgstr "Αποδεχτείτε την πρόσκληση"
 msgid "Accepted the invitation <0>{target}</0>"
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:271
-#: src/components/settings/WorkspaceMembers.tsx:302
+#: src/components/settings/WorkspaceMembers.tsx:321
+#: src/components/settings/WorkspaceMembers.tsx:352
 msgid "Access"
 msgstr ""
 
@@ -2204,7 +2208,7 @@ msgstr "Δράση"
 #: src/components/automations/nodeTypes.ts:42
 #: src/components/blog/RecentThemesTable.tsx:173
 #: src/components/settings/CustomFieldsConfiguration.tsx:225
-#: src/components/settings/WorkspaceMembers.tsx:227
+#: src/components/settings/WorkspaceMembers.tsx:257
 #: src/components/transactional/TransactionalTable.tsx:274
 msgid "Actions"
 msgstr "Δράσεις"
@@ -2298,7 +2302,7 @@ msgstr ""
 msgid "Actor email"
 msgstr ""
 
-#: src/components/blog/AuthorsField.tsx:185
+#: src/components/blog/AuthorsField.tsx:188
 #: src/components/broadcasts/HeadersEditor.tsx:54
 #: src/components/broadcasts/HeadersEditor.tsx:102
 #: src/components/segment/input_json_path.tsx:98
@@ -2380,8 +2384,8 @@ msgstr ""
 msgid "Add at least one filter"
 msgstr ""
 
-#: src/components/blog/AuthorsField.tsx:176
-#: src/components/blog/AuthorsField.tsx:181
+#: src/components/blog/AuthorsField.tsx:179
+#: src/components/blog/AuthorsField.tsx:184
 msgid "Add author"
 msgstr ""
 
@@ -2483,7 +2487,7 @@ msgid "Add filter conditions"
 msgstr "Προσθήκη συνθηκών φίλτρου"
 
 #: src/components/settings/Integrations.tsx:579
-#: src/components/settings/integrations/IntegrationCatalogue.tsx:162
+#: src/components/settings/integrations/IntegrationCatalogue.tsx:164
 msgid "Add integration"
 msgstr ""
 
@@ -2525,8 +2529,8 @@ msgstr "Προσθήκη διαδρομής"
 #~ msgid "Add rule"
 #~ msgstr "Add rule"
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:945
 #: src/components/settings/integrations/EmailProviderDrawer.tsx:982
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:1019
 msgid "Add sender"
 msgstr ""
 
@@ -2740,7 +2744,7 @@ msgstr "Συγκεντρωτικό"
 
 #: src/components/settings/Integrations.tsx:438
 #: src/components/settings/Integrations.tsx:747
-#: src/components/settings/integrations/IntegrationCatalogue.tsx:166
+#: src/components/settings/integrations/IntegrationCatalogue.tsx:168
 msgid "AI assistant"
 msgstr ""
 
@@ -2833,7 +2837,7 @@ msgstr ""
 msgid "All"
 msgstr "Όλα"
 
-#: src/pages/BroadcastsPage.tsx:185
+#: src/pages/BroadcastsPage.tsx:216
 msgctxt "newsletter filter"
 msgid "All"
 msgstr ""
@@ -2885,7 +2889,7 @@ msgstr ""
 msgid "All dimensions selected"
 msgstr "Επιλέχθηκαν όλες οι διαστάσεις"
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:70
+#: src/components/broadcasts/BroadcastStatusPill.tsx:71
 msgid "All emails have been sent."
 msgstr "Όλα τα email έχουν σταλεί."
 
@@ -3302,13 +3306,15 @@ msgstr ""
 
 #: src/components/integrations/FirecrawlIntegration.tsx:100
 #: src/components/integrations/FirecrawlIntegration.tsx:100
-#: src/components/integrations/LLMIntegration.tsx:201
-#: src/components/integrations/LLMIntegration.tsx:201
+#: src/components/integrations/LLMIntegration.tsx:231
+#: src/components/integrations/LLMIntegration.tsx:231
 #: src/components/logs/auditDisplay.ts:22
 #: src/components/settings/integrations/EmailProviderDrawer.tsx:713
 #: src/components/settings/integrations/EmailProviderDrawer.tsx:750
 #: src/components/settings/integrations/EmailProviderDrawer.tsx:777
 #: src/components/settings/integrations/EmailProviderDrawer.tsx:800
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:829
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:833
 #: src/components/settings/integrations/IntegrationCatalogue.tsx:59
 #: src/components/settings/integrations/providerDetails.ts:34
 #: src/components/settings/integrations/providerDetails.ts:36
@@ -3334,15 +3340,19 @@ msgstr "Κλειδί API (ξεκινά με SG.)"
 msgid "API key address"
 msgstr "Διεύθυνση κλειδιού API"
 
+#: src/components/settings/integrations/IntegrationCatalogue.tsx:60
+msgid "API key and webhook secret"
+msgstr ""
+
 #: src/components/settings/ZapierSettings.tsx:239
 msgid "API key created"
 msgstr "Δημιουργήθηκε το κλειδί API"
 
-#: src/components/settings/WorkspaceMembers.tsx:361
+#: src/components/settings/WorkspaceMembers.tsx:411
 msgid "API key created successfully"
 msgstr "Το κλειδί API δημιουργήθηκε με επιτυχία"
 
-#: src/components/settings/WorkspaceMembers.tsx:672
+#: src/components/settings/WorkspaceMembers.tsx:722
 msgid "API Key Created Successfully"
 msgstr "Το κλειδί API δημιουργήθηκε με επιτυχία"
 
@@ -3350,7 +3360,7 @@ msgstr "Το κλειδί API δημιουργήθηκε με επιτυχία"
 #~ msgid "API key name"
 #~ msgstr "API key name"
 
-#: src/components/settings/WorkspaceMembers.tsx:636
+#: src/components/settings/WorkspaceMembers.tsx:686
 msgid "API Key Name"
 msgstr "Όνομα κλειδιού API"
 
@@ -3363,11 +3373,11 @@ msgid "API key, US or EU"
 msgstr ""
 
 #: src/components/logs/labels.ts:11
-#: src/components/settings/WorkspaceMembers.tsx:517
+#: src/components/settings/WorkspaceMembers.tsx:567
 msgid "API keys"
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:679
+#: src/components/settings/WorkspaceMembers.tsx:729
 msgid "API Token"
 msgstr "Token API"
 
@@ -3454,7 +3464,7 @@ msgstr "Είστε βέβαιοι ότι θέλετε να διαγράψετε 
 #~ msgid "Are you sure you want to delete the invitation for {0}?"
 #~ msgstr "Είστε βέβαιοι ότι θέλετε να διαγράψετε την πρόσκληση για το {0};"
 
-#: src/components/settings/WorkspaceMembers.tsx:202
+#: src/components/settings/WorkspaceMembers.tsx:206
 msgid "Are you sure you want to delete the invitation for {email}?"
 msgstr ""
 
@@ -3505,11 +3515,11 @@ msgstr ""
 #~ msgid "Are you sure you want to remove {0}?{1}"
 #~ msgstr "Είστε βέβαιοι ότι θέλετε να αφαιρέσετε το {0};{1}"
 
-#: src/components/settings/WorkspaceMembers.tsx:190
+#: src/components/settings/WorkspaceMembers.tsx:194
 msgid "Are you sure you want to remove {email}?"
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:189
+#: src/components/settings/WorkspaceMembers.tsx:193
 msgid "Are you sure you want to remove {email}? This API key will be permanently deleted."
 msgstr ""
 
@@ -3655,7 +3665,7 @@ msgstr "τουλάχιστον"
 msgid "at least one"
 msgstr ""
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:880
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:917
 msgid "At least one"
 msgstr ""
 
@@ -3708,7 +3718,7 @@ msgstr "Κανόνες απόδοσης"
 #~ msgid "Attribution rules saved. Run a backfill to rewrite historical data."
 #~ msgstr "Attribution rules saved. Run a backfill to rewrite historical data."
 
-#: src/components/broadcasts/BroadcastsTable.tsx:345
+#: src/components/broadcasts/BroadcastsTable.tsx:383
 #: src/components/broadcasts/compose/AudienceCard.tsx:61
 #: src/components/broadcasts/detail/BroadcastAside.tsx:138
 msgid "Audience"
@@ -3779,7 +3789,7 @@ msgstr "Email ελέγχου ταυτότητας που αποστέλλετα�
 msgid "Author"
 msgstr ""
 
-#: src/components/blog/AuthorsField.tsx:195
+#: src/components/blog/AuthorsField.tsx:198
 msgid "Author name is required"
 msgstr "Απαιτείται το όνομα του συγγραφέα"
 
@@ -3944,7 +3954,7 @@ msgstr ""
 #~ msgid "Available Tools"
 #~ msgstr "Διαθέσιμα Εργαλεία"
 
-#: src/components/blog/AuthorsField.tsx:215
+#: src/components/blog/AuthorsField.tsx:218
 msgid "Avatar URL"
 msgstr "URL Avatar"
 
@@ -3997,11 +4007,11 @@ msgid "Back to automations"
 msgstr ""
 
 #: src/components/broadcasts/compose/BroadcastCompose.tsx:93
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:164
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:165
 msgid "Back to broadcasts"
 msgstr ""
 
-#: src/components/broadcasts/BroadcastsTable.tsx:206
+#: src/components/broadcasts/BroadcastsTable.tsx:227
 #: src/components/broadcasts/compose/BroadcastCompose.tsx:384
 #: src/components/broadcasts/useBroadcastActions.tsx:133
 msgid "Back to draft"
@@ -4093,7 +4103,8 @@ msgstr ""
 #~ msgstr "Τύπος φόντου"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:113
-#: src/components/integrations/LLMIntegration.tsx:242
+#: src/components/integrations/LLMIntegration.tsx:272
+#: src/components/integrations/LLMIntegration.tsx:315
 #: src/components/settings/Integrations.tsx:453
 #: src/components/settings/Integrations.tsx:500
 msgid "Base URL"
@@ -4617,7 +4628,7 @@ msgid "Bounced or failed"
 msgstr ""
 
 #: src/components/broadcasts/BroadcastKpis.tsx:150
-#: src/components/broadcasts/BroadcastsTable.tsx:392
+#: src/components/broadcasts/BroadcastsTable.tsx:430
 #: src/components/broadcasts/detail/BroadcastFunnel.tsx:110
 #: src/components/transactional/TransactionalTable.tsx:228
 msgid "Bounces"
@@ -4695,7 +4706,7 @@ msgid "broadcast"
 msgstr "εκπομπή"
 
 #: src/components/automations/config/TriggerConfigForm.tsx:366
-#: src/components/broadcasts/BroadcastsTable.tsx:243
+#: src/components/broadcasts/BroadcastsTable.tsx:264
 #: src/components/messages/MessageHistoryTable.tsx:157
 #: src/components/messages/MessageHistoryTable.tsx:255
 #: src/components/segment/form_leaf.tsx:591
@@ -4783,7 +4794,7 @@ msgid "Broadcast name"
 msgstr "Όνομα εκπομπής"
 
 #: src/components/broadcasts/compose/BroadcastCompose.tsx:93
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:163
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:164
 msgid "Broadcast not found"
 msgstr ""
 
@@ -4803,8 +4814,8 @@ msgstr ""
 #: src/components/settings/permissionLabels.ts:10
 #: src/components/templates/DeleteTemplateModal.tsx:41
 #: src/layouts/app-shell/menuItems.ts:225
-#: src/pages/BroadcastsPage.tsx:257
-#: src/pages/BroadcastsPage.tsx:358
+#: src/pages/BroadcastsPage.tsx:288
+#: src/pages/BroadcastsPage.tsx:390
 #: src/services/api/errors.ts:85
 msgid "Broadcasts"
 msgstr "Εκπομπές"
@@ -4817,7 +4828,7 @@ msgstr ""
 msgid "Broadcasts and automation emails"
 msgstr ""
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:956
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:993
 msgid "Broadcasts and automation emails go out at up to this rate"
 msgstr ""
 
@@ -5024,20 +5035,20 @@ msgstr ""
 #: src/components/automations/list/AutomationsTable.tsx:90
 #: src/components/automations/nodes/BaseNode.tsx:59
 #: src/components/blog_editor/toolbars/components/LinkPopover.tsx:115
-#: src/components/blog/AuthorsField.tsx:157
+#: src/components/blog/AuthorsField.tsx:160
 #: src/components/blog/PostsTable.tsx:215
 #: src/components/blog/PostsTable.tsx:222
 #: src/components/blog/PublishModal.tsx:205
 #: src/components/blog/RecentThemesTable.tsx:96
 #: src/components/blog/ThemeEditorDrawer.tsx:336
 #: src/components/blog/ThemeEditorDrawer.tsx:566
-#: src/components/broadcasts/BroadcastsTable.tsx:204
-#: src/components/broadcasts/BroadcastsTable.tsx:207
+#: src/components/broadcasts/BroadcastsTable.tsx:225
+#: src/components/broadcasts/BroadcastsTable.tsx:228
 #: src/components/broadcasts/ChangeVariationSenderModal.tsx:138
 #: src/components/broadcasts/compose/BroadcastCompose.tsx:363
 #: src/components/broadcasts/compose/ContentCard.tsx:91
 #: src/components/broadcasts/DeleteBroadcastModal.tsx:48
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:340
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:342
 #: src/components/broadcasts/HeadersEditor.tsx:103
 #: src/components/broadcasts/useBroadcastActions.tsx:162
 #: src/components/broadcasts/useBroadcastActions.tsx:168
@@ -5085,18 +5096,19 @@ msgstr ""
 #: src/components/settings/EditPermissionsDrawer.tsx:101
 #: src/components/settings/Integrations.tsx:272
 #: src/components/settings/integrations/EmailProviderCard.tsx:192
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:926
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:988
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:963
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:1025
 #: src/components/settings/integrations/TestEmailModal.tsx:68
 #: src/components/settings/SystemSettingsDrawer.tsx:178
 #: src/components/settings/WebhookDetail.tsx:346
 #: src/components/settings/WebhookDetail.tsx:576
 #: src/components/settings/WebhookDetail.tsx:595
 #: src/components/settings/WebhooksSettings.tsx:510
-#: src/components/settings/WorkspaceMembers.tsx:192
-#: src/components/settings/WorkspaceMembers.tsx:204
-#: src/components/settings/WorkspaceMembers.tsx:557
-#: src/components/settings/WorkspaceMembers.tsx:619
+#: src/components/settings/WorkspaceMembers.tsx:196
+#: src/components/settings/WorkspaceMembers.tsx:208
+#: src/components/settings/WorkspaceMembers.tsx:607
+#: src/components/settings/WorkspaceMembers.tsx:669
+#: src/components/settings/WorkspaceMembers.tsx:761
 #: src/components/templates/CreateTemplateDrawer.tsx:928
 #: src/components/templates/DeleteTemplateModal.tsx:115
 #: src/components/templates/SendTemplateModal.tsx:319
@@ -5162,12 +5174,12 @@ msgstr ""
 msgid "Cancelled"
 msgstr "Ακυρώθηκε"
 
-#: src/pages/BroadcastsPage.tsx:209
+#: src/pages/BroadcastsPage.tsx:240
 msgctxt "newsletter filter"
 msgid "Cancelled"
 msgstr ""
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:80
+#: src/components/broadcasts/BroadcastStatusPill.tsx:81
 msgctxt "newsletter status"
 msgid "Cancelled"
 msgstr ""
@@ -5373,8 +5385,16 @@ msgstr ""
 msgid "Changed the permissions of <0>{target}</0>"
 msgstr ""
 
-#: src/components/logs/auditPhrases.ts:99
+#: src/components/logs/auditPhrases.ts:106
+msgid "Changed the public listing of an archive audience"
+msgstr ""
+
+#: src/components/logs/auditPhrases.ts:100
 msgid "Changed the web analytics settings of <0>{target}</0>"
+msgstr ""
+
+#: src/components/logs/auditPhrases.ts:108
+msgid "Changed their password"
 msgstr ""
 
 #: src/components/transactional/NotificationChecks.tsx:214
@@ -5589,7 +5609,7 @@ msgstr ""
 msgid "City precision needs City on"
 msgstr ""
 
-#: src/components/settings/integrations/IntegrationCatalogue.tsx:62
+#: src/components/settings/integrations/IntegrationCatalogue.tsx:63
 msgid "Claude models"
 msgstr ""
 
@@ -5627,7 +5647,7 @@ msgstr "Καθαρό πεδίο"
 #: src/components/logs/MessagesTab.tsx:807
 #: src/components/logs/OutgoingWebhooksTab.tsx:240
 #: src/pages/AutomationsPage.tsx:262
-#: src/pages/BroadcastsPage.tsx:327
+#: src/pages/BroadcastsPage.tsx:358
 #: src/pages/ContactsPage.tsx:525
 msgid "Clear filters"
 msgstr "Καθαρίστε τα φίλτρα"
@@ -5679,7 +5699,7 @@ msgstr ""
 
 #: src/components/analytics/DashboardKpis.tsx:316
 #: src/components/broadcasts/BroadcastKpis.tsx:141
-#: src/components/broadcasts/BroadcastsTable.tsx:290
+#: src/components/broadcasts/BroadcastsTable.tsx:311
 #: src/components/broadcasts/compose/ContentCard.tsx:328
 #: src/components/broadcasts/detail/BroadcastFunnel.tsx:74
 #: src/components/broadcasts/detail/LinkStatsPanel.tsx:150
@@ -5789,7 +5809,7 @@ msgstr ""
 #~ msgstr "κλικ"
 
 #: src/components/analytics/OriginVolumeChart.tsx:191
-#: src/components/broadcasts/BroadcastsTable.tsx:363
+#: src/components/broadcasts/BroadcastsTable.tsx:401
 #: src/components/broadcasts/detail/AbTestPanel.tsx:169
 #: src/components/broadcasts/detail/EngagementChart.tsx:86
 #: src/components/contacts/TrackingConsent.tsx:32
@@ -5912,9 +5932,10 @@ msgstr ""
 #: src/components/contacts/sheet/ContactDetailsBody.tsx:173
 #: src/components/layout/DrawerControls.tsx:109
 #: src/components/logs/MessageDetail.tsx:96
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:835
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:872
 #: src/components/settings/WebhookDetail.tsx:592
-#: src/components/settings/WorkspaceMembers.tsx:615
+#: src/components/settings/WorkspaceMembers.tsx:665
+#: src/components/settings/WorkspaceMembers.tsx:757
 #: src/components/templates/ImportErrorsModal.tsx:36
 #: src/components/transactional/ApiCommandDrawer.tsx:212
 #: src/components/updates/UpdateDrawer.tsx:31
@@ -5928,7 +5949,7 @@ msgstr "Κλείσιμο χωρίς αποθήκευση"
 
 #: src/components/blog/CategoryDrawer.tsx:153
 #: src/components/broadcasts/compose/BroadcastCompose.tsx:231
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:831
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:868
 msgid "Close without saving?"
 msgstr ""
 
@@ -6293,7 +6314,7 @@ msgstr "Διαμόρφωση τώρα"
 #~ msgstr "Διαμορφώστε τα εξερχόμενα webhook για να λαμβάνετε ειδοποιήσεις σε πραγματικό χρόνο όταν συμβαίνουν συμβάντα στον χώρο εργασίας σας."
 
 #: src/components/broadcasts/compose/sendSummaryChecks.tsx:192
-#: src/pages/BroadcastsPage.tsx:267
+#: src/pages/BroadcastsPage.tsx:298
 msgid "Configure provider"
 msgstr ""
 
@@ -6308,7 +6329,7 @@ msgstr ""
 
 #: src/components/settings/Integrations.tsx:297
 #: src/components/settings/Integrations.tsx:307
-#: src/components/settings/integrations/IntegrationCatalogue.tsx:107
+#: src/components/settings/integrations/IntegrationCatalogue.tsx:109
 msgid "Configured"
 msgstr "Διαμόρφωση"
 
@@ -6385,7 +6406,7 @@ msgid "Connected"
 msgstr "Συνδεδεμένος"
 
 #: src/components/settings/Integrations.tsx:748
-#: src/components/settings/integrations/IntegrationCatalogue.tsx:167
+#: src/components/settings/integrations/IntegrationCatalogue.tsx:169
 msgid "Connected apps"
 msgstr ""
 
@@ -6897,7 +6918,7 @@ msgstr ""
 msgid "Couldn't load the automations"
 msgstr ""
 
-#: src/pages/BroadcastsPage.tsx:244
+#: src/pages/BroadcastsPage.tsx:275
 msgid "Couldn't load the broadcasts"
 msgstr ""
 
@@ -6909,7 +6930,7 @@ msgstr ""
 msgid "Couldn't load the files"
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:495
+#: src/components/settings/WorkspaceMembers.tsx:545
 msgid "Couldn't load the members"
 msgstr ""
 
@@ -6929,7 +6950,7 @@ msgstr ""
 msgid "Couldn't load the posts"
 msgstr ""
 
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:411
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:419
 msgid "Couldn't load the statistics of this broadcast"
 msgstr ""
 
@@ -6957,7 +6978,7 @@ msgid "Couldn't load the webhooks"
 msgstr ""
 
 #: src/components/broadcasts/compose/BroadcastCompose.tsx:95
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:169
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:170
 msgid "Couldn't load this broadcast"
 msgstr ""
 
@@ -7155,8 +7176,8 @@ msgstr "Δημιουργήστε έναν μισθωτή SES για αυτήν �
 #~ msgid "Create and manage your blog content"
 #~ msgstr "Δημιουργήστε και διαχειριστείτε το περιεχόμενο του ιστολογίου σας"
 
-#: src/components/settings/WorkspaceMembers.tsx:602
-#: src/components/settings/WorkspaceMembers.tsx:626
+#: src/components/settings/WorkspaceMembers.tsx:652
+#: src/components/settings/WorkspaceMembers.tsx:676
 msgid "Create API Key"
 msgstr "Δημιουργία κλειδιού API"
 
@@ -7340,7 +7361,7 @@ msgstr "Δημιουργήστε το πρώτο σας πρότυπο για ν
 #: src/components/logs/MessagesTab.tsx:476
 #: src/components/logs/OutgoingWebhooksTab.tsx:408
 #: src/components/settings/WebhookDetail.tsx:503
-#: src/components/settings/WorkspaceMembers.tsx:304
+#: src/components/settings/WorkspaceMembers.tsx:354
 #: src/components/transactional/TransactionalDetail.tsx:431
 msgid "Created"
 msgstr "Δημιουργήθηκε"
@@ -7898,9 +7919,21 @@ msgstr "Αποδιπλασιασμός:"
 msgid "Deepest scroll reached on any page of the visit"
 msgstr ""
 
+#: src/components/settings/integrations/IntegrationCatalogue.tsx:66
+msgid "DeepSeek chat and reasoner"
+msgstr ""
+
+#: src/components/integrations/LLMIntegration.tsx:311
+msgid "deepseek-chat"
+msgstr ""
+
 #: src/components/integrations/LLMIntegration.tsx:310
 #~ msgid "deepseek-chat or a custom model id"
 #~ msgstr "deepseek-chat ή ένα προσαρμοσμένο αναγνωριστικό μοντέλου"
+
+#: src/components/integrations/LLMIntegration.tsx:307
+msgid "deepseek-chat, deepseek-reasoner, or a custom model ID"
+msgstr ""
 
 #: src/components/broadcasts/compose/sendSummaryChecks.tsx:203
 #: src/components/broadcasts/VariationSenderSelect.tsx:61
@@ -7910,9 +7943,9 @@ msgstr ""
 msgid "default"
 msgstr "προεπιλογή"
 
-#: src/components/integrations/LLMIntegration.tsx:259
+#: src/components/integrations/LLMIntegration.tsx:289
 #: src/components/settings/Integrations.tsx:339
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:900
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:937
 #: src/components/templates/TemplateTranslationsTab.tsx:453
 msgid "Default"
 msgstr "Προεπιλογή"
@@ -8050,10 +8083,10 @@ msgstr "Καθυστέρηση"
 #: src/components/blog/DeleteCategoryModal.tsx:29
 #: src/components/blog/DeletePostModal.tsx:29
 #: src/components/blog/PostsTable.tsx:259
-#: src/components/broadcasts/BroadcastsTable.tsx:212
+#: src/components/broadcasts/BroadcastsTable.tsx:233
 #: src/components/broadcasts/DeleteBroadcastModal.tsx:58
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:275
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:275
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:277
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:277
 #: src/components/contacts/BulkActionsBar.tsx:163
 #: src/components/contacts/BulkActionsBar.tsx:219
 #: src/components/contacts/BulkUpdateDrawer.tsx:158
@@ -8078,12 +8111,12 @@ msgstr "Καθυστέρηση"
 #: src/components/settings/Integrations.tsx:290
 #: src/components/settings/integrations/EmailProviderCard.tsx:191
 #: src/components/settings/integrations/EmailProviderCard.tsx:229
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:925
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:962
 #: src/components/settings/WebhookDetail.tsx:337
 #: src/components/settings/WebhookDetail.tsx:345
 #: src/components/settings/WebhookDetail.tsx:352
-#: src/components/settings/WorkspaceMembers.tsx:191
-#: src/components/settings/WorkspaceMembers.tsx:203
+#: src/components/settings/WorkspaceMembers.tsx:195
+#: src/components/settings/WorkspaceMembers.tsx:207
 #: src/components/transactional/TransactionalDetail.tsx:333
 #: src/components/transactional/TransactionalTable.tsx:306
 #: src/components/web_analytics/annotations/AnnotationTable.tsx:84
@@ -8275,12 +8308,12 @@ msgstr "Διαγραφή φακέλου (Λειτουργία μόνο για α
 msgid "Delete header"
 msgstr "Διαγραφή κεφαλίδας"
 
-#: src/components/settings/WorkspaceMembers.tsx:201
-#: src/components/settings/WorkspaceMembers.tsx:215
+#: src/components/settings/WorkspaceMembers.tsx:205
+#: src/components/settings/WorkspaceMembers.tsx:245
 msgid "Delete invitation"
 msgstr "Διαγραφή πρόσκλησης"
 
-#: src/components/settings/WorkspaceMembers.tsx:220
+#: src/components/settings/WorkspaceMembers.tsx:250
 msgid "Delete key"
 msgstr ""
 
@@ -8320,7 +8353,7 @@ msgstr ""
 msgid "Delete segment"
 msgstr "Διαγραφή τμήματος"
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:921
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:958
 msgid "Delete sender"
 msgstr ""
 
@@ -8344,7 +8377,7 @@ msgstr ""
 msgid "Delete the notification?"
 msgstr "Διαγραφή της ειδοποίησης;"
 
-#: src/components/settings/WorkspaceMembers.tsx:186
+#: src/components/settings/WorkspaceMembers.tsx:190
 msgid "Delete this API key?"
 msgstr ""
 
@@ -8370,7 +8403,7 @@ msgstr "Διαγραφή αυτής της λειτουργίας;"
 msgid "Delete this rule?"
 msgstr "Διαγραφή αυτού του κανόνα;"
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:922
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:959
 msgid "Delete this sender?"
 msgstr "Διαγραφή αυτού του αποστολέα;"
 
@@ -8986,12 +9019,12 @@ msgstr ""
 #: src/components/blog/PostDrawer.tsx:758
 #: src/components/blog/PostsTable.tsx:348
 #: src/components/blog/ThemeEditorDrawer.tsx:483
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:199
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:201
 #: src/components/templates/templateUsage.ts:83
 msgid "Draft"
 msgstr "Σχέδιο"
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:31
+#: src/components/broadcasts/BroadcastStatusPill.tsx:32
 msgctxt "newsletter status"
 msgid "Draft"
 msgstr ""
@@ -9002,7 +9035,7 @@ msgstr "Το πρόχειρο αποκαταστάθηκε από την τοπ�
 
 #: src/components/blog/PostsTable.tsx:435
 #: src/pages/AutomationsPage.tsx:140
-#: src/pages/BroadcastsPage.tsx:186
+#: src/pages/BroadcastsPage.tsx:217
 msgid "Drafts"
 msgstr "Προσχέδια"
 
@@ -9134,23 +9167,23 @@ msgstr ""
 msgid "e.g., Company Name, Industry, etc."
 msgstr "π.χ. Επωνυμία εταιρείας, Βιομηχανία κ.λπ."
 
-#: src/components/integrations/LLMIntegration.tsx:190
+#: src/components/integrations/LLMIntegration.tsx:220
 msgid "e.g., My Anthropic Integration"
 msgstr "π.χ., My Anthropic Integration"
 
-#: src/components/integrations/LLMIntegration.tsx:218
-#~ msgid "e.g., My DeepSeek Integration"
-#~ msgstr "π.χ. Η ενσωμάτωση DeepSeek μου"
+#: src/components/integrations/LLMIntegration.tsx:219
+msgid "e.g., My DeepSeek Integration"
+msgstr "π.χ. Η ενσωμάτωση DeepSeek μου"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:91
 msgid "e.g., My Firecrawl Integration"
 msgstr "π.χ. My Firecrawl Integration"
 
-#: src/components/integrations/LLMIntegration.tsx:189
+#: src/components/integrations/LLMIntegration.tsx:217
 msgid "e.g., My Google Gemini Integration"
 msgstr "π.χ. My Google Gemini Integration"
 
-#: src/components/integrations/LLMIntegration.tsx:187
+#: src/components/integrations/LLMIntegration.tsx:215
 msgid "e.g., My OpenAI Integration"
 msgstr "π.χ. My OpenAI Integration"
 
@@ -9214,8 +9247,8 @@ msgstr ""
 #: src/components/blog/BlogSidebar.tsx:119
 #: src/components/blog/PostsTable.tsx:234
 #: src/components/blog/PostsTable.tsx:238
-#: src/components/broadcasts/BroadcastsTable.tsx:198
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:303
+#: src/components/broadcasts/BroadcastsTable.tsx:219
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:305
 #: src/components/contacts/ContactsTable.tsx:91
 #: src/components/email_builder/EmailBuilder.tsx:1138
 #: src/components/email_builder/ui/DisplayConditionSummary.tsx:72
@@ -9241,8 +9274,8 @@ msgstr "Επεξεργασία"
 msgid "Edit {0} translation"
 msgstr "Επεξεργασία μετάφρασης {0}"
 
-#: src/components/blog/AuthorsField.tsx:131
-#: src/components/blog/AuthorsField.tsx:146
+#: src/components/blog/AuthorsField.tsx:134
+#: src/components/blog/AuthorsField.tsx:149
 msgid "Edit {name}"
 msgstr ""
 
@@ -9290,7 +9323,7 @@ msgstr "Επεξεργαστείτε τους κόμβους οποιουδήπ�
 msgid "Edit any post"
 msgstr "Επεξεργαστείτε οποιαδήποτε ανάρτηση"
 
-#: src/components/blog/AuthorsField.tsx:181
+#: src/components/blog/AuthorsField.tsx:184
 msgid "Edit author"
 msgstr ""
 
@@ -9371,7 +9404,7 @@ msgstr "Επεξεργασία ειδοποίησης"
 msgid "Edit Notification"
 msgstr "Επεξεργασία ειδοποίησης"
 
-#: src/components/settings/WorkspaceMembers.tsx:218
+#: src/components/settings/WorkspaceMembers.tsx:248
 msgid "Edit permissions"
 msgstr "Δικαιώματα επεξεργασίας"
 
@@ -9402,7 +9435,7 @@ msgstr "Επεξεργασία κανόνα"
 msgid "Edit segment"
 msgstr "Επεξεργασία τμήματος"
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:982
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:1019
 msgid "Edit sender"
 msgstr ""
 
@@ -9411,7 +9444,7 @@ msgstr ""
 #~ msgstr "Επεξεργασία αποστολέα"
 
 #. placeholder {0}: sender.email
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:914
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:951
 msgid "Edit sender {0}"
 msgstr ""
 
@@ -9490,7 +9523,7 @@ msgstr "Επεξεργασία σύνδεσης Zapier"
 msgid "Edited {0}"
 msgstr ""
 
-#: src/components/broadcasts/BroadcastsTable.tsx:120
+#: src/components/broadcasts/BroadcastsTable.tsx:141
 msgctxt "newsletter status"
 msgid "Edited {ago}"
 msgstr ""
@@ -9539,7 +9572,7 @@ msgstr "Πέρασε"
 #: src/components/logs/MessagesTab.tsx:485
 #: src/components/segment/segmentLabels.ts:17
 #: src/components/settings/Integrations.tsx:549
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:998
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:1035
 #: src/components/transactional/TransactionalDetail.tsx:408
 #: src/components/transactional/UpsertTransactionalNotificationDrawer.tsx:483
 #: src/pages/SignInPage.tsx:318
@@ -9551,7 +9584,7 @@ msgstr "Email"
 #~ msgid "Email (Required)"
 #~ msgstr "Email (Απαιτείται)"
 
-#: src/components/settings/WorkspaceMembers.tsx:572
+#: src/components/settings/WorkspaceMembers.tsx:622
 msgid "Email address"
 msgstr ""
 
@@ -9632,7 +9665,7 @@ msgid "Email Integration"
 msgstr "Ενσωμάτωση email"
 
 #: src/components/contacts/ContactUpsertDrawer.tsx:537
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:1000
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:1037
 msgid "Email is required"
 msgstr "Απαιτείται email"
 
@@ -9688,7 +9721,7 @@ msgstr "Προεπισκόπηση email"
 #~ msgid "Email Provider Configuration Needed"
 #~ msgstr "Απαιτείται διαμόρφωση παρόχου email"
 
-#: src/pages/BroadcastsPage.tsx:263
+#: src/pages/BroadcastsPage.tsx:294
 msgid "Email Provider Required"
 msgstr "Απαιτείται πάροχος email"
 
@@ -9697,7 +9730,7 @@ msgid "Email providers and connected services"
 msgstr ""
 
 #: src/components/settings/integrations/EmailRoles.tsx:78
-#: src/components/settings/integrations/IntegrationCatalogue.tsx:164
+#: src/components/settings/integrations/IntegrationCatalogue.tsx:166
 msgid "Email sending"
 msgstr ""
 
@@ -9806,7 +9839,7 @@ msgstr ""
 #~ msgid "Emails are being delivered. {0} still to go."
 #~ msgstr ""
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:66
+#: src/components/broadcasts/BroadcastStatusPill.tsx:67
 msgid "Emails are being delivered. {count} still to go."
 msgstr ""
 
@@ -9845,7 +9878,7 @@ msgstr ""
 msgid "Emails sent, opened, clicked… pages viewed and website visits"
 msgstr ""
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:972
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:1009
 msgid "emails/min"
 msgstr ""
 
@@ -10030,7 +10063,7 @@ msgstr "Εισαγάγετε ένα κλειδί άδειας χρήσης"
 msgid "Enter a name for this block"
 msgstr "Εισαγάγετε ένα όνομα για αυτό το μπλοκ"
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:872
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:909
 msgid "Enter a name for this integration"
 msgstr "Εισαγάγετε ένα όνομα για αυτήν την ενσωμάτωση"
 
@@ -10076,7 +10109,7 @@ msgstr ""
 msgid "Enter at least one value"
 msgstr ""
 
-#: src/components/blog/AuthorsField.tsx:199
+#: src/components/blog/AuthorsField.tsx:202
 msgid "Enter author name"
 msgstr "Εισαγάγετε το όνομα του συγγραφέα"
 
@@ -10084,7 +10117,7 @@ msgstr "Εισαγάγετε το όνομα του συγγραφέα"
 #~ msgid "Enter automation name"
 #~ msgstr "Εισαγάγετε το όνομα αυτοματισμού"
 
-#: src/components/blog/AuthorsField.tsx:216
+#: src/components/blog/AuthorsField.tsx:219
 msgid "Enter avatar URL (optional)"
 msgstr "Εισαγάγετε τη διεύθυνση URL avatar (προαιρετικό)"
 
@@ -10132,7 +10165,7 @@ msgid "Enter duration"
 msgstr "Εισαγάγετε τη διάρκεια"
 
 #: src/components/contacts/ContactUpsertDrawer.tsx:541
-#: src/components/settings/WorkspaceMembers.tsx:577
+#: src/components/settings/WorkspaceMembers.tsx:627
 msgid "Enter email address"
 msgstr "Εισαγάγετε τη διεύθυνση email"
 
@@ -10709,7 +10742,7 @@ msgstr "Εξωτερική ταυτότητα"
 msgid "External ID copied"
 msgstr ""
 
-#: src/components/integrations/LLMIntegration.tsx:265
+#: src/components/integrations/LLMIntegration.tsx:295
 #: src/components/settings/Integrations.tsx:345
 msgid "Extra high"
 msgstr "Εξαιρετικά ψηλά"
@@ -10753,12 +10786,12 @@ msgctxt "failures column"
 msgid "Failed"
 msgstr ""
 
-#: src/pages/BroadcastsPage.tsx:205
+#: src/pages/BroadcastsPage.tsx:236
 msgctxt "newsletter filter"
 msgid "Failed"
 msgstr ""
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:84
+#: src/components/broadcasts/BroadcastStatusPill.tsx:85
 msgctxt "newsletter status"
 msgid "Failed"
 msgstr ""
@@ -10835,7 +10868,7 @@ msgstr "Απέτυχε η σύνδεση του Zapier"
 msgid "Failed to copy to clipboard"
 msgstr "Αποτυχία αντιγραφής στο πρόχειρο"
 
-#: src/components/settings/WorkspaceMembers.tsx:367
+#: src/components/settings/WorkspaceMembers.tsx:417
 msgid "Failed to create API key"
 msgstr "Αποτυχία δημιουργίας κλειδιού API"
 
@@ -10917,7 +10950,7 @@ msgstr ""
 msgid "Failed to delete integration"
 msgstr "Απέτυχε η διαγραφή της ενοποίησης"
 
-#: src/components/settings/WorkspaceMembers.tsx:418
+#: src/components/settings/WorkspaceMembers.tsx:468
 msgid "Failed to delete invitation"
 msgstr "Η διαγραφή της πρόσκλησης απέτυχε"
 
@@ -11024,7 +11057,7 @@ msgstr ""
 msgid "Failed to install the licence key"
 msgstr "Αποτυχία εγκατάστασης του κλειδιού άδειας χρήσης"
 
-#: src/components/settings/WorkspaceMembers.tsx:337
+#: src/components/settings/WorkspaceMembers.tsx:387
 msgid "Failed to invite member"
 msgstr "Αποτυχία πρόσκλησης μέλους"
 
@@ -11104,7 +11137,7 @@ msgstr "Αποτυχία εγγραφής webhook"
 msgid "Failed to remove custom field label"
 msgstr "Αποτυχία αφαίρεσης προσαρμοσμένης ετικέτας πεδίου"
 
-#: src/components/settings/WorkspaceMembers.tsx:399
+#: src/components/settings/WorkspaceMembers.tsx:449
 msgid "Failed to remove member"
 msgstr "Αποτυχία αφαίρεσης μέλους"
 
@@ -11116,7 +11149,7 @@ msgstr ""
 msgid "Failed to render preview"
 msgstr "Αποτυχία απόδοσης προεπισκόπησης"
 
-#: src/components/settings/WorkspaceMembers.tsx:451
+#: src/components/settings/WorkspaceMembers.tsx:501
 msgid "Failed to resend invitation"
 msgstr "Απέτυχε η εκ νέου αποστολή της πρόσκλησης"
 
@@ -11127,6 +11160,10 @@ msgstr "Απέτυχε η εκ νέου αποστολή του μαγικού �
 #: src/components/settings/WorkspaceMembers.tsx:466
 #~ msgid "Failed to reset password"
 #~ msgstr "Αποτυχία επαναφοράς κωδικού"
+
+#: src/components/settings/WorkspaceMembers.tsx:234
+msgid "Failed to reset the password"
+msgstr ""
 
 #: src/components/broadcasts/useBroadcastActions.tsx:87
 msgid "Failed to resume broadcast"
@@ -11792,7 +11829,11 @@ msgstr ""
 msgid "for {0}"
 msgstr ""
 
-#: src/components/integrations/LLMIntegration.tsx:243
+#: src/components/integrations/LLMIntegration.tsx:316
+msgid "For a self-hosted DeepSeek-compatible endpoint. Empty: the DeepSeek API"
+msgstr ""
+
+#: src/components/integrations/LLMIntegration.tsx:273
 msgid "For an OpenAI-compatible service (Ollama, vLLM, LiteLLM, Azure…). Empty: the OpenAI API"
 msgstr ""
 
@@ -11893,7 +11934,7 @@ msgstr ""
 msgid "From an email"
 msgstr ""
 
-#: src/components/integrations/LLMIntegration.tsx:164
+#: src/components/integrations/LLMIntegration.tsx:190
 msgid "From console.anthropic.com"
 msgstr ""
 
@@ -11913,7 +11954,7 @@ msgstr "Απαιτείται από email"
 msgid "From firecrawl.dev, or your own instance"
 msgstr ""
 
-#: src/components/integrations/LLMIntegration.tsx:166
+#: src/components/integrations/LLMIntegration.tsx:192
 msgid "From Google AI Studio"
 msgstr ""
 
@@ -11929,7 +11970,11 @@ msgstr "Από Όνομα"
 msgid "From Name (override)"
 msgstr "Από το όνομα (παράκαμψη)"
 
-#: src/components/integrations/LLMIntegration.tsx:165
+#: src/components/integrations/LLMIntegration.tsx:193
+msgid "From platform.deepseek.com"
+msgstr ""
+
+#: src/components/integrations/LLMIntegration.tsx:191
 msgid "From platform.openai.com, or your endpoint's own key"
 msgstr ""
 
@@ -11950,7 +11995,7 @@ msgstr ""
 #~ msgid "From:"
 #~ msgstr "Από:"
 
-#: src/components/settings/WorkspaceMembers.tsx:95
+#: src/components/settings/WorkspaceMembers.tsx:96
 msgid "Full access"
 msgstr ""
 
@@ -12024,7 +12069,7 @@ msgstr ""
 msgid "gap {gutter}"
 msgstr ""
 
-#: src/components/settings/integrations/IntegrationCatalogue.tsx:64
+#: src/components/settings/integrations/IntegrationCatalogue.tsx:65
 msgid "Gemini models"
 msgstr ""
 
@@ -12040,7 +12085,7 @@ msgstr ""
 #~ msgid "gemini-3.5-flash, gemini-3.1-pro-preview, or a custom model ID"
 #~ msgstr "gemini-3.5-flash, gemini-3.1-pro-preview, or a custom model ID"
 
-#: src/components/integrations/LLMIntegration.tsx:282
+#: src/components/integrations/LLMIntegration.tsx:335
 msgid "gemini-4-argon or a custom model ID"
 msgstr ""
 
@@ -12082,9 +12127,9 @@ msgstr ""
 msgid "Generated HTML"
 msgstr "Δημιουργήθηκε HTML"
 
-#: src/components/settings/WorkspaceMembers.tsx:685
-#~ msgid "Generated password"
-#~ msgstr "Νέος κωδικός πρόσβασης"
+#: src/components/settings/WorkspaceMembers.tsx:779
+msgid "Generated password"
+msgstr "Νέος κωδικός πρόσβασης"
 
 #: src/components/segment/SegmentCountCard.tsx:70
 msgid "Generated SQL:"
@@ -12281,11 +12326,11 @@ msgstr "Google Workspace / Gmail"
 #~ msgid "gpt-4o, gpt-4.1, o4-mini, or custom model name"
 #~ msgstr "gpt-4o, gpt-4.1, o4-mini, or custom model name"
 
-#: src/components/integrations/LLMIntegration.tsx:237
+#: src/components/integrations/LLMIntegration.tsx:267
 msgid "gpt-6.1-sol, gpt-6-astra, gpt-6.1-terra, or custom model name"
 msgstr ""
 
-#: src/components/integrations/LLMIntegration.tsx:233
+#: src/components/integrations/LLMIntegration.tsx:263
 msgid "gpt-6.1-sol, gpt-6-astra, gpt-6.1-terra, or the name your endpoint uses"
 msgstr ""
 
@@ -12492,7 +12537,7 @@ msgstr "Απόκρυψη"
 msgid "Hide done steps"
 msgstr ""
 
-#: src/components/integrations/LLMIntegration.tsx:264
+#: src/components/integrations/LLMIntegration.tsx:294
 #: src/components/settings/Integrations.tsx:344
 msgid "High"
 msgstr "Ψηλά"
@@ -12547,6 +12592,7 @@ msgid "Hook URL"
 msgstr ""
 
 #: src/components/settings/integrations/EmailProviderDrawer.tsx:569
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:814
 #: src/components/setup/SmtpPanel.tsx:163
 #: src/components/transactional/ApiCommandDrawer.tsx:143
 msgid "Host"
@@ -12577,7 +12623,7 @@ msgstr "Πόσο καιρό να περιμένετε πριν προχωρήσ�
 msgid "How many"
 msgstr ""
 
-#: src/components/integrations/LLMIntegration.tsx:253
+#: src/components/integrations/LLMIntegration.tsx:283
 msgid "How much a reasoning model thinks. Default for other models; some providers ignore it"
 msgstr ""
 
@@ -13333,9 +13379,9 @@ msgid "Install the tracking snippet"
 msgstr "Εγκαταστήστε το απόσπασμα παρακολούθησης"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:87
-#: src/components/integrations/LLMIntegration.tsx:176
+#: src/components/integrations/LLMIntegration.tsx:204
 #: src/components/integrations/SupabaseIntegration.tsx:172
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:868
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:905
 msgid "Integration"
 msgstr ""
 
@@ -13476,15 +13522,15 @@ msgstr "Μη έγκυρη διεύθυνση URL YouTube"
 msgid "Invitation accepted successfully! Welcome to the workspace."
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:414
+#: src/components/settings/WorkspaceMembers.tsx:464
 msgid "Invitation deleted successfully"
 msgstr "Η πρόσκληση διαγράφηκε με επιτυχία"
 
-#: src/components/settings/WorkspaceMembers.tsx:237
+#: src/components/settings/WorkspaceMembers.tsx:287
 msgid "Invitation expired"
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:444
+#: src/components/settings/WorkspaceMembers.tsx:494
 msgid "Invitation resent to {email}"
 msgstr "Η πρόσκληση στάλθηκε ξανά στο {email}"
 
@@ -13492,19 +13538,19 @@ msgstr "Η πρόσκληση στάλθηκε ξανά στο {email}"
 #~ msgid "Invitation sent"
 #~ msgstr "Η πρόσκληση στάλθηκε"
 
-#: src/components/settings/WorkspaceMembers.tsx:241
+#: src/components/settings/WorkspaceMembers.tsx:291
 msgid "Invitation sent {sent}, {expires}"
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:327
+#: src/components/settings/WorkspaceMembers.tsx:377
 msgid "Invitation sent to {inviteEmail}"
 msgstr "Η πρόσκληση στάλθηκε στο {inviteEmail}"
 
-#: src/components/settings/WorkspaceMembers.tsx:487
+#: src/components/settings/WorkspaceMembers.tsx:537
 msgid "Invite"
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:548
+#: src/components/settings/WorkspaceMembers.tsx:598
 msgid "Invite member"
 msgstr ""
 
@@ -13728,7 +13774,7 @@ msgstr ""
 #~ msgstr "εντάχθηκε"
 
 #: src/components/automations/describeTrigger.ts:48
-#: src/components/settings/WorkspaceMembers.tsx:273
+#: src/components/settings/WorkspaceMembers.tsx:323
 msgid "Joined"
 msgstr "Έγινε μέλος"
 
@@ -13785,7 +13831,7 @@ msgstr "Δικαιολογήστε"
 #: src/components/layout/SaveBar.tsx:120
 #: src/components/lists/ListDrawer.tsx:215
 #: src/components/segment/SegmentDrawer.tsx:183
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:836
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:873
 #: src/components/templates/CreateTemplateDrawer.tsx:721
 #: src/components/templates/CreateTemplateDrawer.tsx:899
 #: src/components/templates/useTemplateConflictModal.tsx:43
@@ -13806,7 +13852,7 @@ msgstr ""
 msgid "Keep importing"
 msgstr ""
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:968
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:1005
 msgid "Keep it at or below your provider's limit, minus your transactional traffic."
 msgstr ""
 
@@ -14065,7 +14111,7 @@ msgid "Leave blank to keep the current value"
 msgstr "Αφήστε το κενό για να διατηρήσετε την τρέχουσα τιμή"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:106
-#: src/components/integrations/LLMIntegration.tsx:207
+#: src/components/integrations/LLMIntegration.tsx:237
 msgid "Leave blank to keep the existing API key"
 msgstr "Αφήστε το κενό για να διατηρήσετε το υπάρχον κλειδί API"
 
@@ -14174,7 +14220,7 @@ msgstr ""
 msgid "Let's take a quick tour to help you get started with building beautiful emails using MJML."
 msgstr "Ας κάνουμε μια γρήγορη περιήγηση για να σας βοηθήσουμε να ξεκινήσετε να δημιουργείτε όμορφα μηνύματα ηλεκτρονικού ταχυδρομείου χρησιμοποιώντας το MJML."
 
-#: src/components/settings/integrations/IntegrationCatalogue.tsx:104
+#: src/components/settings/integrations/IntegrationCatalogue.tsx:106
 msgid "Lets the assistant read web pages and search"
 msgstr ""
 
@@ -14452,11 +14498,11 @@ msgstr "Λίστα"
 msgid "List \"{0}\" deleted successfully"
 msgstr "Η λίστα \"{0}\" διαγράφηκε με επιτυχία"
 
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:236
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:238
 msgid "List {listName}, unsubscribed excluded"
 msgstr ""
 
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:237
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:239
 msgid "List {listName}, unsubscribed included"
 msgstr ""
 
@@ -14649,7 +14695,7 @@ msgstr "Η ενσωμάτωση LLM αποθηκεύτηκε με επιτυχί
 msgid "Load {CONTACTS_PAGE_SIZE} more"
 msgstr ""
 
-#: src/pages/BroadcastsPage.tsx:233
+#: src/pages/BroadcastsPage.tsx:264
 msgid "Load {PAGE_SIZE} more"
 msgstr ""
 
@@ -14799,7 +14845,7 @@ msgstr "Αναζητήστε την πλήρη εγγραφή μιας επαφ�
 msgid "Loop"
 msgstr "Βρόχος"
 
-#: src/components/integrations/LLMIntegration.tsx:262
+#: src/components/integrations/LLMIntegration.tsx:292
 #: src/components/settings/Integrations.tsx:342
 msgid "Low"
 msgstr "Χαμηλό"
@@ -14885,7 +14931,7 @@ msgstr "Δημιουργήστε μια έκδοση θέματος ζωνταν
 msgid "Make an automation live and install its database trigger, so contacts begin flowing through it"
 msgstr "Κάντε έναν αυτοματισμό ζωντανό και εγκαταστήστε το έναυσμα βάσης δεδομένων του, ώστε οι επαφές να αρχίσουν να ρέουν μέσα από αυτό"
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:908
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:945
 msgid "Make default"
 msgstr ""
 
@@ -15143,7 +15189,7 @@ msgstr "Διάμεσος Χρονοσκορ"
 msgid "Median Value"
 msgstr "Διάμεση Αξία"
 
-#: src/components/integrations/LLMIntegration.tsx:263
+#: src/components/integrations/LLMIntegration.tsx:293
 #: src/components/settings/Integrations.tsx:343
 msgid "Medium"
 msgstr "Μεσαίο"
@@ -15154,17 +15200,17 @@ msgid "Mediums"
 msgstr "Μέσα"
 
 #: src/components/logs/auditDisplay.ts:20
-#: src/components/settings/WorkspaceMembers.tsx:246
+#: src/components/settings/WorkspaceMembers.tsx:296
 #: src/layouts/app-shell/AccountMenu.tsx:77
 msgid "Member"
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:395
+#: src/components/settings/WorkspaceMembers.tsx:445
 msgid "Member removed successfully"
 msgstr "Το μέλος καταργήθηκε με επιτυχία"
 
 #: src/components/logs/labels.ts:10
-#: src/components/settings/WorkspaceMembers.tsx:478
+#: src/components/settings/WorkspaceMembers.tsx:528
 msgid "Members"
 msgstr ""
 
@@ -15284,7 +15330,7 @@ msgstr "ελάχ"
 msgid "Min. sessions: {minSessions}"
 msgstr ""
 
-#: src/components/integrations/LLMIntegration.tsx:261
+#: src/components/integrations/LLMIntegration.tsx:291
 #: src/components/settings/Integrations.tsx:341
 msgid "Minimal"
 msgstr "Minimal"
@@ -15427,10 +15473,11 @@ msgstr "Προεπισκόπηση κινητού και επιτραπέζιο�
 msgid "Mobile view (400px)"
 msgstr "Προβολή για κινητά (400 pixel)"
 
-#: src/components/integrations/LLMIntegration.tsx:198
-#: src/components/integrations/LLMIntegration.tsx:219
-#: src/components/integrations/LLMIntegration.tsx:232
-#: src/components/integrations/LLMIntegration.tsx:275
+#: src/components/integrations/LLMIntegration.tsx:228
+#: src/components/integrations/LLMIntegration.tsx:249
+#: src/components/integrations/LLMIntegration.tsx:262
+#: src/components/integrations/LLMIntegration.tsx:306
+#: src/components/integrations/LLMIntegration.tsx:328
 #: src/components/settings/Integrations.tsx:451
 msgid "Model"
 msgstr "Μοντέλο"
@@ -15477,8 +15524,8 @@ msgstr "Μηνιαία"
 #: src/components/automations/list/AutomationsTable.tsx:296
 #: src/components/blog/CategoryDrawer.tsx:199
 #: src/components/blog/PostsTable.tsx:420
-#: src/components/broadcasts/BroadcastsTable.tsx:473
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:346
+#: src/components/broadcasts/BroadcastsTable.tsx:511
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:348
 #: src/components/contacts/ContactsViewHeader.tsx:134
 #: src/components/contacts/sheet/ContactDetailsBody.tsx:260
 #: src/components/file_manager/FileExplorer.tsx:1103
@@ -15551,22 +15598,22 @@ msgstr "ενοικιαστής μου"
 msgid "N/A"
 msgstr "N/A"
 
-#: src/components/blog/AuthorsField.tsx:194
+#: src/components/blog/AuthorsField.tsx:197
 #: src/components/blog/CategoryDrawer.tsx:233
 #: src/components/email_builder/blocks/MjFontBlock.tsx:71
 #: src/components/email_builder/ui/SaveBlockModal.tsx:135
 #: src/components/file_manager/FileTable.tsx:78
 #: src/components/integrations/FirecrawlIntegration.tsx:89
-#: src/components/integrations/LLMIntegration.tsx:179
+#: src/components/integrations/LLMIntegration.tsx:207
 #: src/components/integrations/SupabaseIntegration.tsx:175
 #: src/components/lists/ListDrawer.tsx:404
 #: src/components/settings/GeneralSettings.tsx:197
 #: src/components/settings/GeneralSettings.tsx:227
 #: src/components/settings/GeneralSettings.tsx:325
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:870
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:1006
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:907
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:1043
 #: src/components/settings/WebhooksSettings.tsx:531
-#: src/components/settings/WorkspaceMembers.tsx:293
+#: src/components/settings/WorkspaceMembers.tsx:343
 #: src/components/transactional/UpsertTransactionalNotificationDrawer.tsx:395
 #: src/components/transactional/UpsertTransactionalNotificationDrawer.tsx:395
 #: src/components/web_analytics/filters/FilterFormDrawer.tsx:204
@@ -15598,7 +15645,7 @@ msgstr ""
 msgid "Name and slug required"
 msgstr ""
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:1006
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:1043
 #: src/components/web_analytics/filters/FilterFormDrawer.tsx:205
 msgid "Name is required"
 msgstr "Το όνομα απαιτείται"
@@ -15691,7 +15738,7 @@ msgstr ""
 #: src/components/analytics/GetStartedChecklist.tsx:222
 #: src/components/analytics/UpcomingSends.tsx:119
 #: src/pages/AnalyticsPage.tsx:190
-#: src/pages/BroadcastsPage.tsx:219
+#: src/pages/BroadcastsPage.tsx:250
 msgid "New broadcast"
 msgstr ""
 
@@ -15734,7 +15781,7 @@ msgstr "Νέος φάκελος"
 msgid "New folder (Read-only mode)"
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:521
+#: src/components/settings/WorkspaceMembers.tsx:571
 msgid "New key"
 msgstr ""
 
@@ -15761,6 +15808,7 @@ msgid "New notification"
 msgstr ""
 
 #: src/components/settings/SecuritySettings.tsx:57
+#: src/components/settings/WorkspaceMembers.tsx:750
 msgid "New password"
 msgstr "Νέος κωδικός πρόσβασης"
 
@@ -15906,7 +15954,7 @@ msgstr "Όχι"
 msgid "No {0} content to preview"
 msgstr "Δεν υπάρχει περιεχόμενο {0} για προεπισκόπηση"
 
-#: src/components/settings/WorkspaceMembers.tsx:89
+#: src/components/settings/WorkspaceMembers.tsx:90
 msgid "No access"
 msgstr ""
 
@@ -15936,7 +15984,7 @@ msgstr ""
 msgid "No API key"
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:532
+#: src/components/settings/WorkspaceMembers.tsx:582
 msgid "No API keys yet. Create one to call the API or connect Zapier."
 msgstr ""
 
@@ -15964,7 +16012,7 @@ msgstr ""
 #~ msgid "No broadcasts found"
 #~ msgstr "Δεν βρέθηκαν εκπομπές"
 
-#: src/pages/BroadcastsPage.tsx:325
+#: src/pages/BroadcastsPage.tsx:356
 msgid "No broadcasts match"
 msgstr ""
 
@@ -15972,7 +16020,7 @@ msgstr ""
 #~ msgid "No broadcasts match your filters"
 #~ msgstr "Καμία εκπομπή δεν ταιριάζει με τα φίλτρα σας"
 
-#: src/pages/BroadcastsPage.tsx:280
+#: src/pages/BroadcastsPage.tsx:311
 msgid "No broadcasts yet"
 msgstr ""
 
@@ -16274,7 +16322,7 @@ msgstr ""
 msgid "No match"
 msgstr "Κανένα ταίρι"
 
-#: src/components/settings/WorkspaceMembers.tsx:510
+#: src/components/settings/WorkspaceMembers.tsx:560
 msgid "No members found"
 msgstr "Δεν βρέθηκαν μέλη"
 
@@ -16302,7 +16350,7 @@ msgstr ""
 msgid "No MJML content to export"
 msgstr "Δεν υπάρχει περιεχόμενο MJML για εξαγωγή"
 
-#: src/components/blog/AuthorsField.tsx:137
+#: src/components/blog/AuthorsField.tsx:140
 msgid "No name"
 msgstr "Κανένα όνομα"
 
@@ -16460,7 +16508,7 @@ msgid "No sender"
 msgstr ""
 
 #: src/components/settings/integrations/EmailProviderCard.tsx:300
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:942
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:979
 msgid "No senders configured"
 msgstr "Δεν έχουν διαμορφωθεί αποστολείς"
 
@@ -16543,7 +16591,7 @@ msgstr ""
 msgid "No template matches."
 msgstr ""
 
-#: src/components/broadcasts/BroadcastsTable.tsx:327
+#: src/components/broadcasts/BroadcastsTable.tsx:349
 #: src/components/broadcasts/detail/BroadcastAside.tsx:92
 #: src/components/templates/TemplateSelectorModal.tsx:241
 msgid "No template yet"
@@ -16671,7 +16719,7 @@ msgstr ""
 #: src/components/email_builder/blocks/MjTextBlock.tsx:96
 #: src/components/email_builder/ui/fields/BorderField.tsx:90
 #: src/components/email_builder/ui/fields/ColorField.tsx:93
-#: src/components/integrations/LLMIntegration.tsx:260
+#: src/components/integrations/LLMIntegration.tsx:290
 #: src/components/settings/Integrations.tsx:340
 #: src/components/transactional/TransactionalDetail.tsx:383
 #: src/components/transactional/UpsertTransactionalNotificationDrawer.tsx:333
@@ -17186,7 +17234,7 @@ msgstr ""
 msgid "On the card"
 msgstr ""
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:871
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:908
 msgid "On the card, and in every sender picker"
 msgstr ""
 
@@ -17307,7 +17355,7 @@ msgid "Only when the same content lives at another address"
 msgstr ""
 
 #: src/components/integrations/FirecrawlIntegration.tsx:54
-#: src/components/integrations/LLMIntegration.tsx:105
+#: src/components/integrations/LLMIntegration.tsx:122
 #: src/components/integrations/SupabaseIntegration.tsx:84
 msgid "Only workspace owners can modify integrations"
 msgstr "Μόνο οι κάτοχοι χώρων εργασίας μπορούν να τροποποιήσουν τις ενσωματώσεις"
@@ -17408,7 +17456,7 @@ msgstr ""
 #: src/components/analytics/DashboardKpis.tsx:315
 #: src/components/automations/list/AutomationsTable.tsx:250
 #: src/components/broadcasts/BroadcastKpis.tsx:140
-#: src/components/broadcasts/BroadcastsTable.tsx:290
+#: src/components/broadcasts/BroadcastsTable.tsx:311
 #: src/components/broadcasts/compose/ContentCard.tsx:327
 #: src/components/broadcasts/detail/BroadcastFunnel.tsx:62
 #: src/components/contacts/sheet/ContactKpis.tsx:43
@@ -17499,7 +17547,7 @@ msgstr ""
 #~ msgstr "ανοίγει"
 
 #: src/components/analytics/OriginVolumeChart.tsx:190
-#: src/components/broadcasts/BroadcastsTable.tsx:350
+#: src/components/broadcasts/BroadcastsTable.tsx:388
 #: src/components/broadcasts/detail/AbTestPanel.tsx:168
 #: src/components/broadcasts/detail/EngagementChart.tsx:86
 #: src/components/contacts/TrackingConsent.tsx:29
@@ -17696,7 +17744,7 @@ msgstr "ή"
 msgid "OR"
 msgstr ""
 
-#: src/components/settings/integrations/IntegrationCatalogue.tsx:63
+#: src/components/settings/integrations/IntegrationCatalogue.tsx:64
 msgid "Or any OpenAI-compatible endpoint"
 msgstr ""
 
@@ -17799,7 +17847,7 @@ msgstr "Αντικαταστήστε τον προεπιλεγμένο πάρο�
 msgid "Overwrite with mine"
 msgstr "Αντικατάσταση με το δικό μου"
 
-#: src/components/settings/WorkspaceMembers.tsx:81
+#: src/components/settings/WorkspaceMembers.tsx:82
 #: src/layouts/app-shell/AccountMenu.tsx:75
 msgid "Owner"
 msgstr ""
@@ -17992,10 +18040,10 @@ msgstr "Πρόσβαση σε στυλ μονοπατιού"
 
 #: src/components/automations/AutomationEditor.tsx:495
 #: src/components/automations/AutomationEditor.tsx:538
-#: src/components/broadcasts/BroadcastsTable.tsx:199
-#: src/components/broadcasts/BroadcastsTable.tsx:461
-#: src/components/broadcasts/BroadcastsTable.tsx:464
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:307
+#: src/components/broadcasts/BroadcastsTable.tsx:220
+#: src/components/broadcasts/BroadcastsTable.tsx:499
+#: src/components/broadcasts/BroadcastsTable.tsx:502
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:309
 #: src/components/contacts/BulkActionProgressModal.tsx:50
 #: src/components/contacts/BulkUpdateDrawer.tsx:215
 #: src/components/contacts/ContactsCsvUploadDrawer.tsx:221
@@ -18039,7 +18087,7 @@ msgstr ""
 #: src/components/automations/AutomationStatusPill.tsx:14
 #: src/components/broadcasts/detail/BroadcastAside.tsx:223
 #: src/components/broadcasts/detail/BroadcastAside.tsx:278
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:211
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:213
 #: src/components/contacts/BulkUpdateDrawer.tsx:184
 #: src/components/contacts/ContactsCsvUploadDrawer.tsx:187
 #: src/components/templates/templateUsage.ts:86
@@ -18047,7 +18095,7 @@ msgstr ""
 msgid "Paused"
 msgstr "Σε παύση"
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:61
+#: src/components/broadcasts/BroadcastStatusPill.tsx:62
 msgctxt "newsletter status"
 msgid "Paused"
 msgstr ""
@@ -18060,7 +18108,7 @@ msgstr ""
 msgid "Paused the newsletter <0>{target}</0>"
 msgstr ""
 
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:211
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:213
 msgid "Paused: {reason}"
 msgstr ""
 
@@ -18093,7 +18141,7 @@ msgstr ""
 #: src/components/contacts/contactDisplay.ts:36
 #: src/components/lists/ListHeader.tsx:39
 #: src/components/logs/labels.ts:37
-#: src/components/settings/WorkspaceMembers.tsx:85
+#: src/components/settings/WorkspaceMembers.tsx:86
 msgid "Pending"
 msgstr "Σε εκκρεμότητα"
 
@@ -18165,7 +18213,7 @@ msgstr "Περίοδος — {detail}"
 msgid "Permanently delete any contact"
 msgstr "Διαγράψτε οριστικά οποιαδήποτε επαφή"
 
-#: src/components/settings/WorkspaceMembers.tsx:64
+#: src/components/settings/WorkspaceMembers.tsx:65
 msgid "Permission details"
 msgstr ""
 
@@ -18174,8 +18222,8 @@ msgstr ""
 #~ msgid "Permission Details"
 #~ msgstr "Λεπτομέρειες άδειας"
 
-#: src/components/settings/WorkspaceMembers.tsx:583
-#: src/components/settings/WorkspaceMembers.tsx:653
+#: src/components/settings/WorkspaceMembers.tsx:633
+#: src/components/settings/WorkspaceMembers.tsx:703
 msgid "Permissions"
 msgstr "Άδειες"
 
@@ -18231,7 +18279,7 @@ msgstr ""
 msgid "Pick a template to preview it"
 msgstr ""
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:43
+#: src/components/broadcasts/BroadcastStatusPill.tsx:44
 msgctxt "newsletter status"
 msgid "Pick a winner"
 msgstr ""
@@ -18246,7 +18294,7 @@ msgctxt "newsletter A/B"
 msgid "Pick as winner"
 msgstr ""
 
-#: src/components/integrations/LLMIntegration.tsx:220
+#: src/components/integrations/LLMIntegration.tsx:250
 msgid "Pick one, or type any Anthropic model ID"
 msgstr ""
 
@@ -18258,7 +18306,7 @@ msgstr ""
 msgid "Pick the dimensions to break this row down by: each one gets its own table."
 msgstr ""
 
-#: src/components/integrations/LLMIntegration.tsx:276
+#: src/components/integrations/LLMIntegration.tsx:329
 msgid "Pick the suggestion, or type any Gemini model ID"
 msgstr ""
 
@@ -18290,7 +18338,7 @@ msgstr "Απλό κείμενο (ασφαλές μόνο πίσω από δια�
 msgid "Plan"
 msgstr "Σχέδιο"
 
-#: src/components/settings/WorkspaceMembers.tsx:260
+#: src/components/settings/WorkspaceMembers.tsx:310
 msgid "Platform admin"
 msgstr ""
 
@@ -18359,7 +18407,7 @@ msgstr "Εισαγάγετε ένα αναγνωριστικό λίστας"
 msgid "Please enter a list name"
 msgstr "Εισαγάγετε ένα όνομα λίστας"
 
-#: src/components/integrations/LLMIntegration.tsx:236
+#: src/components/integrations/LLMIntegration.tsx:266
 msgid "Please enter a model name"
 msgstr "Εισαγάγετε ένα όνομα μοντέλου"
 
@@ -18387,7 +18435,7 @@ msgstr "Εισαγάγετε έναν τίτλο ανάρτησης"
 #~ msgid "Please enter a property name"
 #~ msgstr "Εισαγάγετε ένα όνομα ακινήτου"
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:962
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:999
 msgid "Please enter a rate limit"
 msgstr ""
 
@@ -18409,7 +18457,7 @@ msgid "Please enter a valid 6-digit code!"
 msgstr "Εισαγάγετε έναν έγκυρο 6ψήφιο κωδικό!"
 
 #: src/components/contacts/ContactUpsertDrawer.tsx:538
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:1001
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:1038
 msgid "Please enter a valid email"
 msgstr "Εισαγάγετε ένα έγκυρο email"
 
@@ -18445,8 +18493,8 @@ msgstr "Εισαγάγετε ένα όνομα χώρου εργασίας"
 msgid "Please enter an API identifier"
 msgstr "Εισαγάγετε ένα αναγνωριστικό API"
 
-#: src/components/settings/WorkspaceMembers.tsx:348
-#: src/components/settings/WorkspaceMembers.tsx:638
+#: src/components/settings/WorkspaceMembers.tsx:398
+#: src/components/settings/WorkspaceMembers.tsx:688
 msgid "Please enter an API key name"
 msgstr "Εισαγάγετε ένα όνομα κλειδιού API"
 
@@ -18455,13 +18503,13 @@ msgstr "Εισαγάγετε ένα όνομα κλειδιού API"
 msgid "Please enter an automation name"
 msgstr "Εισαγάγετε ένα όνομα αυτοματισμού"
 
-#: src/components/settings/WorkspaceMembers.tsx:314
-#: src/components/settings/WorkspaceMembers.tsx:574
+#: src/components/settings/WorkspaceMembers.tsx:364
+#: src/components/settings/WorkspaceMembers.tsx:624
 msgid "Please enter an email address"
 msgstr "Εισαγάγετε μια διεύθυνση email"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:90
-#: src/components/integrations/LLMIntegration.tsx:183
+#: src/components/integrations/LLMIntegration.tsx:211
 #: src/components/integrations/SupabaseIntegration.tsx:179
 msgid "Please enter integration name"
 msgstr "Εισαγάγετε το όνομα ενσωμάτωσης"
@@ -18475,7 +18523,7 @@ msgid "Please enter workspace name"
 msgstr "Εισαγάγετε όνομα χώρου εργασίας"
 
 #: src/components/integrations/FirecrawlIntegration.tsx:107
-#: src/components/integrations/LLMIntegration.tsx:208
+#: src/components/integrations/LLMIntegration.tsx:238
 msgid "Please enter your API key"
 msgstr "Εισαγάγετε το κλειδί API σας"
 
@@ -18591,8 +18639,9 @@ msgstr "Επιλέξτε τουλάχιστον έναν τύπο συμβάντ
 msgid "Please select operator"
 msgstr "Επιλέξτε χειριστή"
 
-#: src/components/integrations/LLMIntegration.tsx:223
-#: src/components/integrations/LLMIntegration.tsx:279
+#: src/components/integrations/LLMIntegration.tsx:253
+#: src/components/integrations/LLMIntegration.tsx:310
+#: src/components/integrations/LLMIntegration.tsx:332
 msgid "Please select or enter a model"
 msgstr "Επιλέξτε ή εισαγάγετε ένα μοντέλο"
 
@@ -18606,6 +18655,8 @@ msgstr ""
 
 #: src/components/settings/integrations/EmailProviderDrawer.tsx:575
 #: src/components/settings/integrations/EmailProviderDrawer.tsx:579
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:819
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:820
 #: src/components/setup/SmtpPanel.tsx:171
 #: src/components/transactional/ApiCommandDrawer.tsx:144
 msgid "Port"
@@ -18726,7 +18777,7 @@ msgstr ""
 msgid "Preparing backfill..."
 msgstr "Προετοιμασία επίχωσης..."
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:51
+#: src/components/broadcasts/BroadcastStatusPill.tsx:52
 msgid "Preparing emails for delivery. Contacts are being added to the sending queue."
 msgstr ""
 
@@ -18752,6 +18803,8 @@ msgstr "Πατήστε Enter για επιβεβαίωση, Escape για ακύ
 #~ msgstr "προεπισκόπηση"
 
 #: src/components/blog/ThemeEditorDrawer.tsx:521
+#: src/components/broadcasts/BroadcastsTable.tsx:358
+#: src/components/broadcasts/BroadcastsTable.tsx:369
 #: src/components/broadcasts/compose/PreviewPanel.tsx:57
 #: src/components/broadcasts/detail/BroadcastAside.tsx:71
 #: src/components/common/ImageURLInput.tsx:58
@@ -19118,6 +19171,10 @@ msgstr ""
 msgid "Published the blog theme <0>{target}</0>"
 msgstr ""
 
+#: src/components/logs/auditPhrases.ts:103
+msgid "Published the campaign archive"
+msgstr ""
+
 #: src/components/segment/segmentLabels.ts:273
 #: src/components/settings/WebhooksSettings.tsx:614
 msgid "Purchase"
@@ -19147,7 +19204,7 @@ msgstr ""
 msgid "Quick test"
 msgstr ""
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:955
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:992
 msgid "Rate for marketing"
 msgstr ""
 
@@ -19163,7 +19220,7 @@ msgstr ""
 #~ msgid "Rate limit for marketing emails (emails per minute)"
 #~ msgstr "Όριο τιμών για μηνύματα ηλεκτρονικού ταχυδρομείου μάρκετινγκ (email ανά λεπτό)"
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:963
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:1000
 msgid "Rate limit must be at least 1"
 msgstr ""
 
@@ -19434,7 +19491,7 @@ msgstr ""
 #~ msgid "Reason:"
 #~ msgstr "Λόγος:"
 
-#: src/components/integrations/LLMIntegration.tsx:252
+#: src/components/integrations/LLMIntegration.tsx:282
 #: src/components/settings/Integrations.tsx:458
 msgid "Reasoning effort"
 msgstr "Προσπάθεια συλλογισμού"
@@ -19503,7 +19560,7 @@ msgstr "Η δοκιμή ροής παραλήπτη ολοκληρώθηκε μ�
 msgid "recipient@example.com"
 msgstr "recipient@example.com"
 
-#: src/components/broadcasts/BroadcastsTable.tsx:347
+#: src/components/broadcasts/BroadcastsTable.tsx:385
 msgid "Recipients"
 msgstr ""
 
@@ -19650,8 +19707,8 @@ msgstr "Ανανέωση"
 #~ msgid "Refresh Broadcast"
 #~ msgstr "Ανανέωση εκπομπής"
 
-#: src/pages/BroadcastsPage.tsx:363
-#: src/pages/BroadcastsPage.tsx:366
+#: src/pages/BroadcastsPage.tsx:395
+#: src/pages/BroadcastsPage.tsx:398
 msgid "Refresh stats"
 msgstr ""
 
@@ -19788,13 +19845,13 @@ msgstr ""
 #: src/components/automations/config/ConditionsField.tsx:123
 #: src/components/automations/config/ConditionsField.tsx:128
 #: src/components/blog_editor/toolbars/components/LinkPopover.tsx:119
-#: src/components/blog/AuthorsField.tsx:155
+#: src/components/blog/AuthorsField.tsx:158
 #: src/components/contacts/BulkUpdateDrawer.tsx:339
 #: src/components/contacts/sheet/ContactListsCard.tsx:113
 #: src/components/email_builder/ui/DisplayConditionSummary.tsx:77
 #: src/components/settings/CustomFieldsConfiguration.tsx:171
 #: src/components/settings/LogoInput.tsx:111
-#: src/components/settings/WorkspaceMembers.tsx:191
+#: src/components/settings/WorkspaceMembers.tsx:195
 msgid "Remove"
 msgstr "Αφαίρεση"
 
@@ -19813,8 +19870,8 @@ msgstr ""
 msgid "Remove {label}"
 msgstr ""
 
-#: src/components/blog/AuthorsField.tsx:151
-#: src/components/blog/AuthorsField.tsx:162
+#: src/components/blog/AuthorsField.tsx:154
+#: src/components/blog/AuthorsField.tsx:165
 msgid "Remove {name}"
 msgstr ""
 
@@ -19870,7 +19927,7 @@ msgstr "Αφαίρεση από τη λίστα"
 #~ msgid "Remove from List"
 #~ msgstr "Αφαίρεση από τη λίστα"
 
-#: src/components/settings/WorkspaceMembers.tsx:221
+#: src/components/settings/WorkspaceMembers.tsx:251
 msgid "Remove from workspace"
 msgstr ""
 
@@ -19882,12 +19939,12 @@ msgstr ""
 msgid "Remove Link"
 msgstr "Κατάργηση συνδέσμου"
 
-#: src/components/settings/WorkspaceMembers.tsx:186
+#: src/components/settings/WorkspaceMembers.tsx:190
 msgid "Remove member"
 msgstr "Κατάργηση μέλους"
 
 #. placeholder {0}: sender.email
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:932
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:969
 msgid "Remove sender {0}"
 msgstr ""
 
@@ -19903,7 +19960,7 @@ msgstr ""
 msgid "Remove the display condition?"
 msgstr ""
 
-#: src/components/blog/AuthorsField.tsx:152
+#: src/components/blog/AuthorsField.tsx:155
 msgid "Remove this author?"
 msgstr "Κατάργηση αυτού του συγγραφέα;"
 
@@ -19947,6 +20004,10 @@ msgstr ""
 
 #: src/components/contacts/sheet/describeActivity.tsx:169
 msgid "Removed from {name}"
+msgstr ""
+
+#: src/components/logs/auditPhrases.ts:105
+msgid "Removed the campaign archive"
 msgstr ""
 
 #: src/components/logs/auditPhrases.ts:90
@@ -20168,6 +20229,10 @@ msgstr "Απαιτείται όταν είναι ενεργοποιημένο τ
 msgid "Requires a padding"
 msgstr "Απαιτεί γέμισμα"
 
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:812
+msgid "Resend"
+msgstr ""
+
 #: src/components/settings/Integrations.tsx:2230
 #~ msgid "Resend API Key"
 #~ msgstr "Κλειδί API του Resend"
@@ -20176,9 +20241,17 @@ msgstr "Απαιτεί γέμισμα"
 msgid "Resend code"
 msgstr "Επανάληψη αποστολής κωδικού"
 
-#: src/components/settings/WorkspaceMembers.tsx:214
+#: src/components/settings/WorkspaceMembers.tsx:244
 msgid "Resend invitation"
 msgstr "Επανάληψη αποστολής πρόσκλησης"
+
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:825
+msgid "Resend uses \"resend\""
+msgstr ""
+
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:815
+msgid "Resend's SMTP host"
+msgstr ""
 
 #: src/components/templates/TemplateTranslationsTab.tsx:362
 #: src/components/templates/TemplateTranslationsTab.tsx:367
@@ -20218,11 +20291,12 @@ msgstr "Επαναφορά μορφοποίησης"
 msgid "Reset H{level}"
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:226
-#: src/components/settings/WorkspaceMembers.tsx:651
-#: src/components/settings/WorkspaceMembers.tsx:669
-#~ msgid "Reset password"
-#~ msgstr "Επαναφορά κωδικού"
+#: src/components/settings/WorkspaceMembers.tsx:267
+#: src/components/settings/WorkspaceMembers.tsx:270
+#: src/components/settings/WorkspaceMembers.tsx:750
+#: src/components/settings/WorkspaceMembers.tsx:763
+msgid "Reset password"
+msgstr "Επαναφορά κωδικού"
 
 #: src/components/templates/TemplateTranslationsTab.tsx:430
 msgid "Reset replaces all the content with the default language's."
@@ -20231,6 +20305,10 @@ msgstr ""
 #: src/pages/TemplatesPage.tsx:558
 msgid "reset the filter"
 msgstr "επαναφέρετε το φίλτρο"
+
+#: src/components/logs/auditPhrases.ts:99
+msgid "Reset the password of <0>{target}</0>"
+msgstr ""
 
 #: src/components/email_builder/ui/fields/SettingsRow.tsx:51
 msgid "Reset to the default value"
@@ -20322,8 +20400,8 @@ msgstr ""
 msgid "Results:"
 msgstr "Αποτελέσματα:"
 
-#: src/components/broadcasts/BroadcastsTable.tsx:200
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:314
+#: src/components/broadcasts/BroadcastsTable.tsx:221
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:316
 #: src/components/contacts/BulkActionProgressModal.tsx:55
 #: src/components/contacts/BulkUpdateDrawer.tsx:232
 #: src/components/contacts/BulkUpdateDrawer.tsx:240
@@ -20388,7 +20466,7 @@ msgstr ""
 #: src/components/blog/PostsTable.tsx:461
 #: src/components/broadcasts/compose/BroadcastCompose.tsx:95
 #: src/components/broadcasts/compose/BroadcastCompose.tsx:568
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:170
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:171
 #: src/components/contacts/BlockError.tsx:11
 #: src/components/file_manager/FileExplorer.tsx:812
 #: src/components/logs/AuditLogTab.tsx:559
@@ -20399,24 +20477,24 @@ msgstr ""
 #: src/components/segment/SegmentCountCard.tsx:124
 #: src/components/settings/WebhookDetail.tsx:431
 #: src/components/settings/WebhooksSettings.tsx:398
-#: src/components/settings/WorkspaceMembers.tsx:496
+#: src/components/settings/WorkspaceMembers.tsx:546
 #: src/components/templates/TemplateSelectorModal.tsx:234
 #: src/components/transactional/LoadError.tsx:22
 #: src/components/web_analytics/explore/BreakdownTableCard.tsx:66
 #: src/pages/AutomationsPage.tsx:208
-#: src/pages/BroadcastsPage.tsx:245
+#: src/pages/BroadcastsPage.tsx:276
 #: src/pages/TemplatesPage.tsx:514
 #: src/pages/TransactionalNotificationsPage.tsx:189
 msgid "Retry"
 msgstr ""
 
-#: src/components/broadcasts/BroadcastsTable.tsx:209
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:327
+#: src/components/broadcasts/BroadcastsTable.tsx:230
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:329
 #: src/components/contacts/BulkUpdateDrawer.tsx:242
 msgid "Retry failed"
 msgstr ""
 
-#: src/components/broadcasts/BroadcastsTable.tsx:211
+#: src/components/broadcasts/BroadcastsTable.tsx:232
 msgid "Retry failed…"
 msgstr ""
 
@@ -20716,7 +20794,7 @@ msgstr ""
 #~ msgstr "Λειτουργία Sandbox"
 
 #: src/components/automations/AutomationEditor.tsx:514
-#: src/components/blog/AuthorsField.tsx:185
+#: src/components/blog/AuthorsField.tsx:188
 #: src/components/blog/ThemeEditorDrawer.tsx:492
 #: src/components/blog/ThemeEditorDrawer.tsx:565
 #: src/components/broadcasts/ChangeVariationSenderModal.tsx:137
@@ -20732,8 +20810,8 @@ msgstr ""
 #: src/components/segment/SegmentDrawer.tsx:302
 #: src/components/settings/CustomFieldsConfiguration.tsx:388
 #: src/components/settings/Integrations.tsx:600
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:852
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:991
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:889
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:1028
 #: src/components/settings/SystemSettingsDrawer.tsx:249
 #: src/components/settings/WebhooksSettings.tsx:512
 #: src/components/web_analytics/annotations/AnnotationFormModal.tsx:136
@@ -20908,6 +20986,10 @@ msgstr ""
 msgid "Saved the block <0>{target}</0>"
 msgstr ""
 
+#: src/components/logs/auditPhrases.ts:107
+msgid "Saved the Mailchimp API key"
+msgstr ""
+
 #: src/components/settings/SystemSettingsDrawer.tsx:159
 msgid "Saving settings will restart the server. You will need to sign in again."
 msgstr ""
@@ -20937,16 +21019,16 @@ msgstr ""
 #: src/components/blog/PostsTable.tsx:346
 #: src/components/blog/PostsTable.tsx:434
 #: src/components/broadcasts/compose/SendingCard.tsx:39
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:202
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:204
 msgid "Scheduled"
 msgstr "Προγραμματισμένο"
 
-#: src/pages/BroadcastsPage.tsx:189
+#: src/pages/BroadcastsPage.tsx:220
 msgctxt "newsletter filter"
 msgid "Scheduled"
 msgstr ""
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:35
+#: src/components/broadcasts/BroadcastStatusPill.tsx:36
 #: src/components/templates/templateUsage.ts:84
 msgctxt "newsletter status"
 msgid "Scheduled"
@@ -20961,7 +21043,7 @@ msgid "Scheduled for {date}"
 msgstr ""
 
 #: src/components/broadcasts/compose/SendingCard.tsx:44
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:207
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:209
 msgid "Scheduled for {date} at {time} {zone}"
 msgstr ""
 
@@ -21026,8 +21108,8 @@ msgstr ""
 msgid "Search by"
 msgstr ""
 
-#: src/pages/BroadcastsPage.tsx:305
-#: src/pages/BroadcastsPage.tsx:306
+#: src/pages/BroadcastsPage.tsx:336
+#: src/pages/BroadcastsPage.tsx:337
 msgid "Search by name"
 msgstr "Αναζήτηση με όνομα"
 
@@ -21380,7 +21462,7 @@ msgstr "Επιλέξτε μια λίστα για να ενεργοποιήσε�
 msgid "Select a list..."
 msgstr "Επιλέξτε μια λίστα..."
 
-#: src/components/integrations/LLMIntegration.tsx:224
+#: src/components/integrations/LLMIntegration.tsx:254
 msgid "Select a model"
 msgstr "Επιλέξτε ένα μοντέλο"
 
@@ -21432,7 +21514,7 @@ msgstr "Επιλέξτε μια εκδήλωση..."
 msgid "Select another metric to view chart"
 msgstr "Επιλέξτε μια άλλη μέτρηση για προβολή γραφήματος"
 
-#: src/components/blog/AuthorsField.tsx:216
+#: src/components/blog/AuthorsField.tsx:219
 msgid "Select Avatar"
 msgstr "Επιλέξτε Avatar"
 
@@ -21666,8 +21748,8 @@ msgstr "Επιλεγμένες διαστάσεις, με τη σειρά:"
 msgid "Selected: {0}"
 msgstr "Επιλεγμένο: {0}"
 
-#: src/components/broadcasts/BroadcastsTable.tsx:451
-#: src/components/broadcasts/BroadcastsTable.tsx:454
+#: src/components/broadcasts/BroadcastsTable.tsx:489
+#: src/components/broadcasts/BroadcastsTable.tsx:492
 msgid "Send"
 msgstr ""
 
@@ -21695,7 +21777,7 @@ msgstr ""
 msgid "Send a scheduled broadcast back to draft, before it starts sending"
 msgstr ""
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:849
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:886
 #: src/components/settings/integrations/TestEmailModal.tsx:62
 msgid "Send a test email"
 msgstr ""
@@ -21728,7 +21810,7 @@ msgstr "Στείλτε μια ειδοποίηση συναλλαγής χρησ
 msgid "Send a transactional notification using TypeScript/JavaScript:"
 msgstr "Στείλτε μια ειδοποίηση συναλλαγής χρησιμοποιώντας TypeScript/JavaScript:"
 
-#: src/components/settings/integrations/IntegrationCatalogue.tsx:120
+#: src/components/settings/integrations/IntegrationCatalogue.tsx:122
 msgid "Send auth emails, add new users as contacts"
 msgstr ""
 
@@ -21740,7 +21822,7 @@ msgstr ""
 msgid "Send emails and update lists when contacts do something"
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:564
+#: src/components/settings/WorkspaceMembers.tsx:614
 msgid "Send invitation"
 msgstr ""
 
@@ -21774,7 +21856,7 @@ msgstr ""
 #~ msgstr "Αποστολή ή Προγραμματισμός εκπομπής"
 
 #: src/components/broadcasts/compose/BroadcastCompose.tsx:416
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:299
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:301
 #: src/components/settings/integrations/EmailProviderCard.tsx:350
 #: src/components/settings/WebhookDetail.tsx:324
 #: src/components/templates/TemplateDrawerBar.tsx:115
@@ -21837,7 +21919,7 @@ msgstr ""
 msgid "Send your first email"
 msgstr ""
 
-#: src/pages/BroadcastsPage.tsx:281
+#: src/pages/BroadcastsPage.tsx:312
 msgid "Send your first newsletter to a list"
 msgstr ""
 
@@ -21856,7 +21938,7 @@ msgstr "Αποστολέας"
 msgid "Sender changed. You can now resume the broadcast."
 msgstr ""
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:1007
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:1044
 msgid "Sender name"
 msgstr ""
 
@@ -21870,8 +21952,8 @@ msgid "Sender of variation {name}"
 msgstr ""
 
 #: src/components/settings/integrations/EmailProviderCard.tsx:287
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:880
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:883
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:917
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:920
 msgid "Senders"
 msgstr "Αποστολείς"
 
@@ -21883,21 +21965,21 @@ msgstr ""
 #~ msgid "Sending"
 #~ msgstr "Αποστολή"
 
-#: src/pages/BroadcastsPage.tsx:194
+#: src/pages/BroadcastsPage.tsx:225
 msgctxt "newsletter filter"
 msgid "Sending"
 msgstr ""
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:50
-#: src/components/broadcasts/BroadcastStatusPill.tsx:54
-#: src/components/broadcasts/BroadcastStatusPill.tsx:65
+#: src/components/broadcasts/BroadcastStatusPill.tsx:51
+#: src/components/broadcasts/BroadcastStatusPill.tsx:55
+#: src/components/broadcasts/BroadcastStatusPill.tsx:66
 #: src/components/templates/templateUsage.ts:85
 msgctxt "newsletter status"
 msgid "Sending"
 msgstr ""
 
 #: src/components/analytics/SendingCard.tsx:54
-#: src/components/broadcasts/BroadcastsTable.tsx:346
+#: src/components/broadcasts/BroadcastsTable.tsx:384
 #: src/components/broadcasts/compose/SendingCard.tsx:47
 #: src/components/broadcasts/compose/SendingCard.tsx:85
 #: src/components/settings/SettingsSidebar.tsx:30
@@ -21916,7 +21998,7 @@ msgstr ""
 msgid "Sending emails..."
 msgstr "Αποστολή email..."
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:62
+#: src/components/broadcasts/BroadcastStatusPill.tsx:63
 msgid "Sending has been paused. You can resume at any time."
 msgstr ""
 
@@ -21924,11 +22006,11 @@ msgstr ""
 msgid "Sending it needs an email provider"
 msgstr ""
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:952
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:989
 msgid "Sending rate"
 msgstr ""
 
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:230
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:232
 msgid "Sending since {since}"
 msgstr ""
 
@@ -21979,12 +22061,13 @@ msgstr ""
 msgid "Sent"
 msgstr "Στάλθηκε"
 
-#: src/pages/BroadcastsPage.tsx:199
+#: src/pages/BroadcastsPage.tsx:230
 msgctxt "newsletter filter"
 msgid "Sent"
 msgstr ""
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:69
+#: src/components/broadcasts/BroadcastStatusPill.tsx:70
+#: src/components/broadcasts/BroadcastStatusPill.tsx:97
 msgctxt "newsletter status"
 msgid "Sent"
 msgstr ""
@@ -22002,6 +22085,10 @@ msgstr ""
 #: src/pages/BroadcastsPage.tsx:179
 #~ msgid "Sent by Mailchimp in {0}. Imported for the record — this platform did not send it and cannot re-send it."
 #~ msgstr ""
+
+#: src/components/broadcasts/BroadcastStatusPill.tsx:98
+msgid "Sent by Mailchimp in {sentOn}. Imported for the record — this platform did not send it and cannot re-send it."
+msgstr ""
 
 #. placeholder {0}: automationName ?? message.automation_id ?? ''
 #: src/components/logs/MessageDetail.tsx:273
@@ -22031,7 +22118,7 @@ msgstr ""
 msgid "Sent content"
 msgstr ""
 
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:218
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:220
 msgid "Sent on {date} at {time}"
 msgstr ""
 
@@ -22185,7 +22272,7 @@ msgstr "Συνεδρίες (αλλαγή %)"
 msgid "Sessions (previous)"
 msgstr "Συνεδρίες (προηγούμενες)"
 
-#: src/components/broadcasts/BroadcastsTable.tsx:412
+#: src/components/broadcasts/BroadcastsTable.tsx:450
 msgid "Sessions from the broadcast's UTM campaign, from the day it was sent to 7 days after it completed."
 msgstr ""
 
@@ -22452,7 +22539,7 @@ msgstr ""
 msgid "Setup was not saved"
 msgstr ""
 
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:241
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:243
 msgid "Several senders"
 msgstr ""
 
@@ -22586,7 +22673,7 @@ msgstr ""
 msgid "Shown in post lists, and as the description when no meta description is set"
 msgstr ""
 
-#: src/components/integrations/LLMIntegration.tsx:180
+#: src/components/integrations/LLMIntegration.tsx:208
 msgid "Shown in the assistant's model picker"
 msgstr ""
 
@@ -22743,7 +22830,7 @@ msgstr ""
 msgid "Site visits"
 msgstr ""
 
-#: src/components/broadcasts/BroadcastsTable.tsx:413
+#: src/components/broadcasts/BroadcastsTable.tsx:451
 msgctxt "table column"
 msgid "Site visits"
 msgstr ""
@@ -23246,14 +23333,14 @@ msgstr "Κατάσταση"
 msgid "Stats"
 msgstr ""
 
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:389
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:397
 msgid "Stats appear once the broadcast starts sending"
 msgstr ""
 
 #: src/components/automations/list/AutomationsTable.tsx:118
 #: src/components/blog/PostsTable.tsx:337
 #: src/components/blog/RecentThemesTable.tsx:116
-#: src/components/broadcasts/BroadcastsTable.tsx:230
+#: src/components/broadcasts/BroadcastsTable.tsx:251
 #: src/components/broadcasts/detail/BroadcastAside.tsx:238
 #: src/components/contacts/csv-import/ColumnsStep.tsx:174
 #: src/components/logs/MessagesTab.tsx:679
@@ -23745,7 +23832,7 @@ msgstr ""
 #~ msgstr "Ομάδα"
 
 #: src/components/settings/SettingsSidebar.tsx:68
-#: src/components/settings/WorkspaceMembers.tsx:474
+#: src/components/settings/WorkspaceMembers.tsx:524
 msgid "Team & API keys"
 msgstr ""
 
@@ -23753,7 +23840,7 @@ msgstr ""
 msgid "Team invitation"
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:335
+#: src/components/settings/WorkspaceMembers.tsx:385
 msgid "Team member limit reached. Please upgrade your plan to add more members."
 msgstr ""
 
@@ -23958,7 +24045,7 @@ msgstr "Πρότυπα"
 msgid "Templates that already contain this block do not change."
 msgstr ""
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:923
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:960
 msgid "Templates using this sender will need to be updated to use a different sender."
 msgstr "Τα πρότυπα που χρησιμοποιούν αυτόν τον αποστολέα θα πρέπει να ενημερωθούν για να χρησιμοποιούν διαφορετικό αποστολέα."
 
@@ -24054,7 +24141,7 @@ msgstr "Τα δεδομένα δοκιμής ενημερώθηκαν με επ�
 msgid "Test deliveries are unavailable here: Zapier's hook URLs always answer with success, so a test would report a green tick even for a Zap that no longer exists."
 msgstr "Οι δοκιμαστικές παραδόσεις δεν είναι διαθέσιμες εδώ: οι διευθύνσεις URL του Zapier απαντούν πάντα με επιτυχία, επομένως μια δοκιμή θα αναφέρει ένα πράσινο σημάδι ακόμη και για ένα Zap που δεν υπάρχει πλέον."
 
-#: src/components/broadcasts/BroadcastsTable.tsx:295
+#: src/components/broadcasts/BroadcastsTable.tsx:316
 #: src/components/broadcasts/compose/ContentCard.tsx:333
 #: src/components/broadcasts/compose/ContentCard.tsx:335
 msgid "Test duration (hours)"
@@ -24069,7 +24156,7 @@ msgstr "Διάρκεια δοκιμής (ώρες)"
 msgid "Test email sent successfully"
 msgstr "Το δοκιμαστικό email στάλθηκε με επιτυχία"
 
-#: src/components/broadcasts/BroadcastsTable.tsx:141
+#: src/components/broadcasts/BroadcastsTable.tsx:162
 msgid "Test ends in {duration}"
 msgstr ""
 
@@ -24107,7 +24194,7 @@ msgstr "Δοκιμαστική ροή παραλήπτη"
 msgid "Test rule"
 msgstr "Κανόνας δοκιμής"
 
-#: src/components/broadcasts/BroadcastsTable.tsx:282
+#: src/components/broadcasts/BroadcastsTable.tsx:303
 #: src/components/broadcasts/compose/ContentCard.tsx:287
 #: src/components/broadcasts/compose/ContentCard.tsx:294
 msgid "Test sample"
@@ -24138,7 +24225,7 @@ msgstr "Δοκιμή Webhook"
 msgid "Tested with:"
 msgstr "Δοκιμασμένο με:"
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:39
+#: src/components/broadcasts/BroadcastStatusPill.tsx:40
 #: src/components/templates/templateUsage.ts:87
 msgctxt "newsletter status"
 msgid "Testing"
@@ -24588,7 +24675,7 @@ msgstr ""
 msgid "The font is imported once it has a name and a stylesheet."
 msgstr ""
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:884
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:921
 msgid "The From addresses of this provider. The default one is used when a template names none"
 msgstr ""
 
@@ -24751,9 +24838,9 @@ msgstr "Το αρχείο καταγραφής εξερχόμενων μηνυμ
 msgid "The pages stop being served; posts and settings are kept"
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:678
-#~ msgid "The password was changed"
-#~ msgstr "Ο κωδικός πρόσβασης άλλαξε"
+#: src/components/settings/WorkspaceMembers.tsx:772
+msgid "The password was changed"
+msgstr "Ο κωδικός πρόσβασης άλλαξε"
 
 #: src/components/settings/SecuritySettings.tsx:76
 msgid "The passwords do not match"
@@ -24771,7 +24858,7 @@ msgstr ""
 msgid "The post goes back to drafts and will not be published on its date."
 msgstr ""
 
-#: src/components/blog/AuthorsField.tsx:153
+#: src/components/blog/AuthorsField.tsx:156
 msgid "The post no longer credits {name} once it is saved."
 msgstr ""
 
@@ -24908,6 +24995,10 @@ msgstr ""
 
 #: src/components/templates/gallery/labels.ts:14
 msgid "The summary sent right after a purchase: items, totals, address."
+msgstr ""
+
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:837
+msgid "The Svix signing secret Resend shows for the webhook (starts with whsec_)"
 msgstr ""
 
 #: src/components/logs/MessageDetail.tsx:772
@@ -25173,13 +25264,13 @@ msgstr ""
 msgid "This block holds a Liquid block, which a condition could cut off from the rest of the email. Move the Liquid block out of it first."
 msgstr ""
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:85
+#: src/components/broadcasts/BroadcastStatusPill.tsx:86
 msgid "This broadcast failed due to an error. Check the logs for details."
 msgstr ""
 
 #: src/components/broadcasts/BroadcastAnalyticsLinks.tsx:79
-#: src/components/broadcasts/BroadcastsTable.tsx:422
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:193
+#: src/components/broadcasts/BroadcastsTable.tsx:460
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:194
 msgid "This broadcast has no UTM campaign, so its website traffic can't be identified"
 msgstr "Αυτή η μετάδοση δεν έχει καμπάνια UTM, επομένως η επισκεψιμότητα του ιστότοπού της δεν μπορεί να προσδιοριστεί"
 
@@ -25187,7 +25278,7 @@ msgstr "Αυτή η μετάδοση δεν έχει καμπάνια UTM, επ�
 msgid "This broadcast has started sending, so it can no longer go back to draft. Cancel it instead."
 msgstr ""
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:32
+#: src/components/broadcasts/BroadcastStatusPill.tsx:33
 msgid "This broadcast is a draft and has not been scheduled or sent yet."
 msgstr "Αυτή η εκπομπή είναι προσχέδιο και δεν έχει προγραμματιστεί ή σταλεί ακόμα."
 
@@ -25195,7 +25286,7 @@ msgstr "Αυτή η εκπομπή είναι προσχέδιο και δεν �
 msgid "This broadcast is no longer a draft, so it can't be edited here."
 msgstr ""
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:36
+#: src/components/broadcasts/BroadcastStatusPill.tsx:37
 msgid "This broadcast is scheduled and will start sending at the specified time."
 msgstr "Αυτή η μετάδοση είναι προγραμματισμένη και θα ξεκινήσει να αποστέλλεται την καθορισμένη ώρα."
 
@@ -25203,7 +25294,7 @@ msgstr "Αυτή η μετάδοση είναι προγραμματισμένη
 msgid "This broadcast sets a fixed UTM content, so its variations can't be told apart in web analytics"
 msgstr "Αυτή η μετάδοση ορίζει ένα σταθερό περιεχόμενο UTM, επομένως οι παραλλαγές του δεν μπορούν να διαχωριστούν στα αναλυτικά στοιχεία ιστού"
 
-#: src/components/broadcasts/BroadcastStatusPill.tsx:81
+#: src/components/broadcasts/BroadcastStatusPill.tsx:82
 msgid "This broadcast was cancelled before completion."
 msgstr "Αυτή η μετάδοση ακυρώθηκε πριν από την ολοκλήρωση."
 
@@ -25297,7 +25388,7 @@ msgstr ""
 msgid "This image couldn't be loaded"
 msgstr ""
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:834
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:871
 msgid "This integration is not created yet."
 msgstr ""
 
@@ -25405,9 +25496,9 @@ msgid "This pane shows the template you point at, with its subject, sender and l
 msgstr ""
 
 #. placeholder {0}: resetTarget?.email ?? ''
-#: src/components/settings/WorkspaceMembers.tsx:679
-#~ msgid "This password is shown once and cannot be retrieved again. Tell {0} out of band; they are signed out everywhere and must choose a new password before they can use the console."
-#~ msgstr "Ο κωδικός εμφανίζεται μία μόνο φορά και δεν μπορεί να ανακτηθεί ξανά. Ενημερώστε τον/την {0} με άλλο μέσο· έχει αποσυνδεθεί από παντού και πρέπει να επιλέξει νέο κωδικό πριν χρησιμοποιήσει την κονσόλα."
+#: src/components/settings/WorkspaceMembers.tsx:773
+msgid "This password is shown once and cannot be retrieved again. Tell {0} out of band; they are signed out everywhere and must choose a new password before they can use the console."
+msgstr "Ο κωδικός εμφανίζεται μία μόνο φορά και δεν μπορεί να ανακτηθεί ξανά. Ενημερώστε τον/την {0} με άλλο μέσο· έχει αποσυνδεθεί από παντού και πρέπει να επιλέξει νέο κωδικό πριν χρησιμοποιήσει την κονσόλα."
 
 #: src/components/settings/PermissionsMatrix.tsx:83
 msgid "This permission gates no endpoint today."
@@ -25483,9 +25574,9 @@ msgstr ""
 msgid "This session is too long to show in full: only its first pages and goals are listed."
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:702
-#~ msgid "This signs them out immediately"
-#~ msgstr "Η ενέργεια αποσυνδέει τον χρήστη αμέσως"
+#: src/components/settings/WorkspaceMembers.tsx:791
+msgid "This signs them out immediately"
+msgstr "Η ενέργεια αποσυνδέει τον χρήστη αμέσως"
 
 #: src/components/automations/NodeConfigPanel.tsx:189
 msgid "This step is edited through the API."
@@ -25541,7 +25632,7 @@ msgstr ""
 msgid "This token is displayed once and cannot be retrieved again. Copy it now and paste it into Zapier."
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:673
+#: src/components/settings/WorkspaceMembers.tsx:723
 msgid "This token will only be displayed once. Please save it in a secure location. It cannot be retrieved again."
 msgstr ""
 
@@ -26158,7 +26249,7 @@ msgstr "Η ειδοποίηση συναλλαγής διαγράφηκε με �
 #~ msgid "Transactional Notifications"
 #~ msgstr "Ειδοποιήσεις συναλλαγών"
 
-#: src/components/settings/integrations/IntegrationCatalogue.tsx:81
+#: src/components/settings/integrations/IntegrationCatalogue.tsx:83
 msgid "Transactional only"
 msgstr ""
 
@@ -26217,7 +26308,7 @@ msgstr "Ενεργοποίηση σε συγκεκριμένες αλλαγές 
 msgid "Triggers and actions"
 msgstr ""
 
-#: src/components/settings/integrations/IntegrationCatalogue.tsx:127
+#: src/components/settings/integrations/IntegrationCatalogue.tsx:129
 msgid "Triggers and actions in your Zaps"
 msgstr ""
 
@@ -26531,7 +26622,7 @@ msgstr "απενεργοποίηση"
 #~ msgid "Unsub"
 #~ msgstr "Κατάργηση υπο"
 
-#: src/components/broadcasts/BroadcastsTable.tsx:376
+#: src/components/broadcasts/BroadcastsTable.tsx:414
 msgid "Unsub."
 msgstr "Κατάργηση υπο."
 
@@ -26729,7 +26820,11 @@ msgstr ""
 msgid "Updated the blog theme <0>{target}</0>"
 msgstr ""
 
-#: src/components/logs/auditPhrases.ts:101
+#: src/components/logs/auditPhrases.ts:104
+msgid "Updated the campaign archive settings"
+msgstr ""
+
+#: src/components/logs/auditPhrases.ts:102
 msgid "Updated the integration <0>{target}</0>"
 msgstr ""
 
@@ -26777,7 +26872,7 @@ msgstr ""
 msgid "Updated the webhook <0>{target}</0>"
 msgstr ""
 
-#: src/components/logs/auditPhrases.ts:100
+#: src/components/logs/auditPhrases.ts:101
 msgid "Updated the workspace settings of <0>{target}</0>"
 msgstr ""
 
@@ -27049,6 +27144,7 @@ msgid "User Metadata Field"
 msgstr "Πεδίο μεταδεδομένων χρήστη"
 
 #: src/components/settings/integrations/EmailProviderDrawer.tsx:687
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:824
 #: src/components/setup/SmtpPanel.tsx:191
 #: src/components/transactional/ApiCommandDrawer.tsx:146
 msgid "Username"
@@ -27254,7 +27350,7 @@ msgstr ""
 msgid "Variant name"
 msgstr "Όνομα παραλλαγής"
 
-#: src/components/broadcasts/BroadcastsTable.tsx:260
+#: src/components/broadcasts/BroadcastsTable.tsx:281
 #: src/components/broadcasts/compose/ContentCard.tsx:125
 msgid "Variants"
 msgstr ""
@@ -27394,7 +27490,7 @@ msgstr ""
 #~ msgid "View Raw JSON"
 #~ msgstr "Προβολή Raw JSON"
 
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:258
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:260
 msgid "View sending logs"
 msgstr ""
 
@@ -27659,6 +27755,10 @@ msgstr ""
 msgid "Webhook Events"
 msgstr "Εκδηλώσεις Webhook"
 
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:836
+msgid "Webhook secret"
+msgstr ""
+
 #: src/components/settings/Integrations.tsx:2563
 #~ msgid "Webhook Secret"
 #~ msgstr "Μυστικό webhook"
@@ -27722,7 +27822,7 @@ msgstr "Τα webhook εγγράφηκαν με επιτυχία"
 msgid "Website"
 msgstr "Ιστοσελίδα"
 
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:264
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:266
 msgid "Website conversions"
 msgstr ""
 
@@ -27743,8 +27843,8 @@ msgid "Website tracked"
 msgstr ""
 
 #: src/components/broadcasts/BroadcastKpis.tsx:168
-#: src/components/broadcasts/BroadcastsTable.tsx:219
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:289
+#: src/components/broadcasts/BroadcastsTable.tsx:240
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:291
 msgid "Website traffic"
 msgstr ""
 
@@ -27961,7 +28061,7 @@ msgstr "Ποιες σελίδες προορισμού προσφέρουν τι
 msgid "Which provider sends what"
 msgstr ""
 
-#: src/components/settings/WorkspaceMembers.tsx:474
+#: src/components/settings/WorkspaceMembers.tsx:524
 msgid "Who can do what in this workspace"
 msgstr ""
 
@@ -27977,9 +28077,9 @@ msgstr ""
 msgid "Whole deployment"
 msgstr ""
 
-#: src/components/settings/Integrations.tsx:2243
-#~ msgid "whsec_…"
-#~ msgstr ""
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:840
+msgid "whsec_…"
+msgstr ""
 
 #: src/components/web_analytics/WebAnalyticsAIAssistant.tsx:466
 msgid "Why did traffic change?"
@@ -28024,13 +28124,13 @@ msgstr ""
 #~ msgid "Winner"
 #~ msgstr "Νικητής"
 
-#: src/components/broadcasts/BroadcastsTable.tsx:274
+#: src/components/broadcasts/BroadcastsTable.tsx:295
 #: src/components/broadcasts/detail/AbTestPanel.tsx:143
 msgctxt "newsletter A/B"
 msgid "Winner"
 msgstr ""
 
-#: src/components/broadcasts/BroadcastsTable.tsx:288
+#: src/components/broadcasts/BroadcastsTable.tsx:309
 #: src/components/broadcasts/compose/ContentCard.tsx:323
 msgid "Winner metric"
 msgstr ""
@@ -28385,7 +28485,7 @@ msgstr "Δεν έχετε πρόσβαση ανάγνωσης στο {resource}.
 msgid "You do not have write access to {resource}."
 msgstr "Δεν έχετε πρόσβαση εγγραφής στο {resource}."
 
-#: src/pages/BroadcastsPage.tsx:264
+#: src/pages/BroadcastsPage.tsx:295
 msgid "You don't have a marketing email provider configured. Please set up an email provider in your workspace settings to send broadcasts."
 msgstr ""
 
@@ -28417,11 +28517,11 @@ msgstr ""
 msgid "You don't have write permission for automations"
 msgstr "Δεν έχετε άδεια εγγραφής για αυτοματισμούς"
 
-#: src/components/broadcasts/BroadcastsTable.tsx:91
+#: src/components/broadcasts/BroadcastsTable.tsx:112
 #: src/components/broadcasts/compose/BroadcastCompose.tsx:369
 #: src/components/broadcasts/detail/AbTestPanel.tsx:200
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:176
-#: src/pages/BroadcastsPage.tsx:47
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:177
+#: src/pages/BroadcastsPage.tsx:50
 msgid "You don't have write permission for broadcasts"
 msgstr "Δεν έχετε άδεια εγγραφής για εκπομπές"
 
@@ -28516,7 +28616,7 @@ msgstr ""
 #~ msgstr "Χρειάζεστε δικαιώματα ανάγνωσης προτύπου και εγγραφής επαφών για να στείλετε δοκιμαστικά μηνύματα ηλεκτρονικού ταχυδρομείου"
 
 #: src/components/broadcasts/compose/BroadcastCompose.tsx:408
-#: src/components/broadcasts/detail/BroadcastDetail.tsx:296
+#: src/components/broadcasts/detail/BroadcastDetail.tsx:298
 #: src/components/templates/CreateTemplateDrawer.tsx:908
 #: src/components/templates/SendTestEmailButton.tsx:25
 #: src/components/transactional/notificationRules.ts:49
@@ -28580,7 +28680,7 @@ msgstr ""
 msgid "Your changes to this category will be lost."
 msgstr ""
 
-#: src/components/settings/integrations/EmailProviderDrawer.tsx:833
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:870
 msgid "Your changes to this integration will be lost."
 msgstr ""
 
@@ -28630,6 +28730,10 @@ msgstr "Η άδεια Notifuse σας έχει λήξει και βρίσκετ�
 
 #: src/components/templates/TemplateSettingsAside.tsx:118
 msgid "Your October invoice"
+msgstr ""
+
+#: src/components/settings/integrations/EmailProviderDrawer.tsx:830
+msgid "Your Resend API key, used as the SMTP password"
 msgstr ""
 
 #: src/components/settings/integrations/EmailProviderDrawer.tsx:570
