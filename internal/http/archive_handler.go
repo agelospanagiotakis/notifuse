@@ -382,6 +382,7 @@ func (h *ArchiveHandler) renderCampaign(w http.ResponseWriter, r *http.Request, 
 	// Archived historical campaigns have no per-recipient token; point Mailchimp's link at the
 	// workspace's notification-center landing so the footer is not dead.
 	htmlOut = notifuse_mjml.RewriteMailchimpLinks(htmlOut, "/notification-center?wid="+workspace.ID, "/notification-center?wid="+workspace.ID)
+	htmlOut = notifuse_mjml.FillEmptyPreferenceLinks(htmlOut, "/notification-center?wid="+workspace.ID)
 
 	page := withToolbar(htmlOut, toolbarHTML(archiveBarOptions{
 		workspaceSlug: slugify(workspace.Name),
@@ -411,13 +412,20 @@ func compileForWeb(workspace *domain.Workspace, tpl *domain.Template, entry *dom
 		subject = entry.Title
 	}
 
+	landing := "/notification-center?wid=" + workspace.ID
 	data := map[string]any{
 		"workspace":       map[string]any{"name": workspace.Name},
 		"contact":         map[string]any{"email": "", "first_name": "", "last_name": ""},
 		"subject":         subject,
 		"subject_preview": entry.Subject,
-		// An archive has no subscription to cancel; Mailchimp's does the same.
-		"unsubscribe_url": "",
+		// An archived send has no per-recipient token, so unsubscribe/preferences cannot be
+		// personalised. Point them at the workspace's notification-center landing rather than
+		// leaving the footer dead (Mailchimp's own archive does the same).
+		"unsubscribe_url":          landing,
+		"notification_center_url":  landing,
+		"preferences_url":          landing,
+		"tracking_preferences_url": landing,
+		"tracking_optout_url":      landing,
 	}
 
 	compileReq := notifuse_mjml.CompileTemplateRequest{

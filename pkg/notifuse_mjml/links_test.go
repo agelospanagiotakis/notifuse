@@ -32,3 +32,22 @@ func TestRewriteMailchimpLinks(t *testing.T) {
 		t.Fatal("an unrelated link changed")
 	}
 }
+
+func TestFillEmptyPreferenceLinks(t *testing.T) {
+	in := `<a href="" target="_blank" style="color:#404040 !important;"><em>why did I get this?</em></a>` +
+		`<a href="" style="color:#404040 !important;">update subscription preferences</a>` +
+		`<a href="" target="_blank">Other</a>`
+	out := FillEmptyPreferenceLinks(in, "/notification-center?wid=ws")
+	if got := strings.Count(out, `href="/notification-center?wid=ws"`); got != 2 {
+		t.Fatalf("filled %d preference anchors, want 2: %s", got, out)
+	}
+	if !strings.Contains(out, `href="" target="_blank">Other</a>`) {
+		t.Fatalf("an unrelated empty anchor changed: %s", out)
+	}
+	if !strings.Contains(out, "<em>why did I get this?</em>") {
+		t.Fatalf("anchor content changed: %s", out)
+	}
+	if FillEmptyPreferenceLinks(in, "") != in {
+		t.Fatal("empty url must not change the document")
+	}
+}

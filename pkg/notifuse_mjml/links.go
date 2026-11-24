@@ -12,6 +12,9 @@ var (
 	viewInBrowserEmpty = regexp.MustCompile(`href=""([^>]*)>\s*View this email in your browser`)
 	// Mailchimp's per-list links (us1.list-manage.com/unsubscribe…, /profile…, mailchi.mp).
 	mailchimpHref = regexp.MustCompile(`(?i)href="(https?://[^"]*(?:list-manage\.com|mailchi\.mp)[^"]*)"`)
+	// Anchors Mailchimp's export leaves with an empty href; the visible text tells them apart.
+	emptyHrefAnchor = regexp.MustCompile(`(?is)<a\b([^>]*?)href=""([^>]*)>(.*?)</a>`)
+	htmlTag         = regexp.MustCompile(`(?s)<[^>]*>`)
 )
 
 // FillViewInBrowserLink points an empty "View this email in your browser" anchor at url: the
@@ -44,6 +47,31 @@ func RewriteMailchimpLinks(htmlDoc, unsubscribeURL, preferencesURL string) strin
 			if preferencesURL != "" {
 				return `href="` + preferencesURL + `"`
 			}
+		}
+		return m
+	})
+}
+
+// FillEmptyPreferenceLinks points the footer anchors Mailchimp's export leaves with an empty
+// href — "why did I get this?" and "update subscription preferences" — at preferencesURL, using
+// the visible text to tell them apart from anchors that are empty on purpose. An archived
+// campaign has no per-recipient token, so the destination is the workspace's notification-center
+// landing rather than a personalised preferences page.
+func FillEmptyPreferenceLinks(htmlDoc, preferencesURL string) string {
+	if htmlDoc == "" || preferencesURL == "" {
+		return htmlDoc
+	}
+	return emptyHrefAnchor.ReplaceAllStringFunc(htmlDoc, func(m string) string {
+		parts := emptyHrefAnchor.FindStringSubmatch(m)
+		if parts == nil {
+			return m
+		}
+		text := strings.ToLower(htmlTag.ReplaceAllString(parts[3], " "))
+		switch {
+		case strings.Contains(text, "why did i get this"),
+			strings.Contains(text, "update subscription preferences"),
+			strings.Contains(text, "update your preferences"):
+			return `<a` + parts[1] + `href="` + preferencesURL + `"` + parts[2] + `>` + parts[3] + `</a>`
 		}
 		return m
 	})
