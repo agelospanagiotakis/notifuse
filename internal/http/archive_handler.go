@@ -206,7 +206,10 @@ func (h *ArchiveHandler) authorized(w http.ResponseWriter, r *http.Request, sett
 // only one. It exists because the campaigns are not one stream: 105 of the 182 imported issues
 // went to one list and 69 to a different one, so "everything" and "this list" are genuinely
 // different pages, and a reader who lands on the wrong one needs a way across.
-func (h *ArchiveHandler) audienceNav(r *http.Request, workspace *domain.Workspace, current *domain.ArchiveAudience) string {
+func (h *ArchiveHandler) audienceNav(r *http.Request, workspace *domain.Workspace, current *domain.ArchiveAudience, show bool) string {
+	if !show {
+		return ""
+	}
 	audiences, err := h.archiveRepo.ListAudiences(r.Context(), workspace.ID)
 	if err != nil {
 		// The nav is a convenience; the page behind it is the product. A failure here renders
@@ -214,6 +217,14 @@ func (h *ArchiveHandler) audienceNav(r *http.Request, workspace *domain.Workspac
 		h.logger.WithField("workspace_id", workspace.ID).WithField("error", err.Error()).Warn("Failed to list archive audiences")
 		return ""
 	}
+	// Only audiences the operator has listed are offered publicly.
+	listed := audiences[:0]
+	for _, a := range audiences {
+		if a.Listed {
+			listed = append(listed, a)
+		}
+	}
+	audiences = listed
 	if len(audiences) < 2 {
 		return ""
 	}
@@ -310,7 +321,7 @@ func (h *ArchiveHandler) renderList(w http.ResponseWriter, r *http.Request, work
 	b.WriteString(fmt.Sprintf("<p class=\"count\">%d campaign%s</p></header>",
 		len(entries), plural(len(entries))))
 
-	if nav := h.audienceNav(r, workspace, audience); nav != "" {
+	if nav := h.audienceNav(r, workspace, audience, settings.ShowAudienceNav); nav != "" {
 		b.WriteString(`<div class="archive-nav">` + nav + `</div>`)
 	}
 

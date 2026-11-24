@@ -55,8 +55,12 @@ CREATE TABLE IF NOT EXISTS campaign_audience (
     list_id    TEXT PRIMARY KEY,
     slug       TEXT NOT NULL UNIQUE,
     name       TEXT NOT NULL,
+    is_listed  BOOLEAN NOT NULL DEFAULT true,
+    notifuse_list_id TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE campaign_audience ADD COLUMN IF NOT EXISTS is_listed BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE campaign_audience ADD COLUMN IF NOT EXISTS notifuse_list_id TEXT NOT NULL DEFAULT '';
 `
 
 func (r *campaignArchiveRepository) connection(ctx context.Context, workspaceID string) (*sql.DB, error) {
@@ -191,6 +195,8 @@ func (r *campaignArchiveRepository) ListAudiences(ctx context.Context, workspace
 		SELECT a.list_id,
 		       COALESCE(u.slug, ''),
 		       COALESCE(u.name, ''),
+		       COALESCE(u.is_listed, true),
+		       COALESCE(u.notifuse_list_id, ''),
 		       a.campaigns
 		FROM (SELECT list_id, COUNT(*) AS campaigns
 		      FROM campaign_archive
@@ -206,7 +212,7 @@ func (r *campaignArchiveRepository) ListAudiences(ctx context.Context, workspace
 	audiences := make([]*domain.ArchiveAudience, 0, 8)
 	for rows.Next() {
 		var a domain.ArchiveAudience
-		if err := rows.Scan(&a.ListID, &a.Slug, &a.Name, &a.Campaigns); err != nil {
+		if err := rows.Scan(&a.ListID, &a.Slug, &a.Name, &a.Listed, &a.NotifuseListID, &a.Campaigns); err != nil {
 			return nil, fmt.Errorf("failed to scan archive audience row: %w", err)
 		}
 		audiences = append(audiences, &a)
@@ -258,18 +264,38 @@ func (r *campaignArchiveRepository) GetAudience(ctx context.Context, workspaceID
 
 	var a domain.ArchiveAudience
 	err = db.QueryRowContext(ctx, `
-		SELECT u.list_id, u.slug, u.name,
+		SELECT u.list_id, u.slug, u.name, u.is_listed, u.notifuse_list_id,
 		       (SELECT COUNT(*) FROM campaign_archive c WHERE c.list_id = u.list_id)
 		FROM campaign_audience u
 		WHERE u.slug = $1 OR u.list_id = $1`, slug).
-		Scan(&a.ListID, &a.Slug, &a.Name, &a.Campaigns)
+		Scan(&a.ListID, &a.Slug, &a.Name, &a.Listed, &a.NotifuseListID, &a.Campaigns)
 	if err == sql.ErrNoRows {
 		return nil, domain.ErrArchiveAudienceNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get archive audience: %w", err)
 	}
+	if !a.Listed {
+		return nil, domain.ErrArchiveAudienceNotFound
+	}
 	return &a, nil
+}
+
+// SetAudienceListed ticks or unticks an audience's public listing.
+func (r *campaignArchiveRepository) SetAudienceListed(ctx context.Context, workspaceID, listID string, listed bool) error {
+	db, err := r.connection(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+	res, err := db.ExecContext(ctx, `UPDATE campaign_audience SET is_listed = $2 WHERE list_id = $1`, listID, listed)
+	if err != nil {
+		return fmt.Errorf("failed to set audience listing: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return domain.ErrArchiveAudienceNotFound
+	}
+	return nil
 }
 
 // UpsertAudience records an audience's slug and display name, so re-running the import is safe.

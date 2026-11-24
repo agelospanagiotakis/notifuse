@@ -221,11 +221,12 @@ var AuditedActions = map[string]AuditActionSpec{
 	"auditLogs.export": {Category: AuditCategoryAudit, TargetType: AuditTargetAuditLog},
 
 	// e-Pragma fork: campaign archive settings, the Mailchimp import and password sign-in
-	"archive.publish":  {Category: AuditCategoryWorkspaces, TargetType: AuditTargetWorkspace},
-	"archive.update":   {Category: AuditCategoryWorkspaces, TargetType: AuditTargetWorkspace},
-	"archive.remove":   {Category: AuditCategoryWorkspaces, TargetType: AuditTargetWorkspace},
-	"import.key":       {Category: AuditCategoryIntegrations, TargetType: AuditTargetIntegration},
-	"user.setPassword": {Category: AuditCategoryAuth, TargetType: AuditTargetUser},
+	"archive.publish":           {Category: AuditCategoryWorkspaces, TargetType: AuditTargetWorkspace},
+	"archive.update":            {Category: AuditCategoryWorkspaces, TargetType: AuditTargetWorkspace},
+	"archive.remove":            {Category: AuditCategoryWorkspaces, TargetType: AuditTargetWorkspace},
+	"archive.setAudienceListed": {Category: AuditCategoryWorkspaces, TargetType: AuditTargetWorkspace},
+	"import.key":                {Category: AuditCategoryIntegrations, TargetType: AuditTargetIntegration},
+	"user.setPassword":          {Category: AuditCategoryAuth, TargetType: AuditTargetUser},
 }
 
 // AuditLoggedRead is a GET route recorded under a different action name, and

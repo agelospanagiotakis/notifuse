@@ -53,6 +53,7 @@ func (h *ArchiveAdminHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/archive.get", requireAuth(http.HandlerFunc(h.handleGet)))
 	mux.Handle("/api/archive.update", requireAuth(http.HandlerFunc(h.handleUpdate)))
 	mux.Handle("/api/archive.remove", requireAuth(http.HandlerFunc(h.handleRemove)))
+	mux.Handle("/api/archive.setAudienceListed", requireAuth(http.HandlerFunc(h.handleSetAudienceListed)))
 	mux.Handle("/api/archive.publish", requireAuth(http.HandlerFunc(h.handlePublish)))
 }
 
@@ -112,10 +113,18 @@ func (h *ArchiveAdminHandler) handleGet(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	audiences := []*domain.ArchiveAudience{}
+	if err := h.archiveRepo.EnsureSchema(r.Context(), ws.ID); err == nil {
+		if list, err := h.archiveRepo.ListAudiences(r.Context(), ws.ID); err == nil {
+			audiences = list
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"settings":   settings,
 		"gate_set":   gateSet,
 		"entries":    entries,
+		"audiences":  audiences,
 		"public_url": "/archive/" + slugify(ws.Name) + "/",
 	})
 }
@@ -131,6 +140,7 @@ func (h *ArchiveAdminHandler) handleUpdate(w http.ResponseWriter, r *http.Reques
 		WorkspaceID string `json:"workspace_id"`
 		Settings    struct {
 			Enabled           bool     `json:"enabled"`
+			ShowAudienceNav   bool     `json:"show_audience_nav"`
 			Title             string   `json:"title"`
 			SubscribeURL      string   `json:"subscribe_url"`
 			SubscribeListIDs  []string `json:"subscribe_list_ids"`
@@ -152,6 +162,7 @@ func (h *ArchiveAdminHandler) handleUpdate(w http.ResponseWriter, r *http.Reques
 
 	next := domain.ArchiveSettings{
 		Enabled:          body.Settings.Enabled,
+		ShowAudienceNav:  body.Settings.ShowAudienceNav,
 		Title:            strings.TrimSpace(body.Settings.Title),
 		SubscribeURL:     strings.TrimSpace(body.Settings.SubscribeURL),
 		SubscribeListIDs: body.Settings.SubscribeListIDs,
@@ -279,4 +290,39 @@ func archiveSlug(sentAt time.Time, title, templateID string) string {
 		return date + "-" + strings.TrimPrefix(templateID, "mc_")[:6]
 	}
 	return date + "-" + slug
+}
+
+// handleSetAudienceListed ticks or unticks one audience's public listing.
+func (h *ArchiveAdminHandler) handleSetAudienceListed(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		WriteJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		WorkspaceID string `json:"workspace_id"`
+		ListID      string `json:"list_id"`
+		Listed      bool   `json:"listed"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		WriteJSONError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	ws, err := h.workspaceRepo.GetByID(r.Context(), body.WorkspaceID)
+	if err != nil || ws == nil {
+		WriteJSONError(w, "workspace not found", http.StatusNotFound)
+		return
+	}
+	if err := h.archiveRepo.EnsureSchema(r.Context(), ws.ID); err != nil {
+		WriteJSONError(w, "could not prepare the archive", http.StatusInternalServerError)
+		return
+	}
+	if err := h.archiveRepo.SetAudienceListed(r.Context(), ws.ID, body.ListID, body.Listed); err != nil {
+		if err == domain.ErrArchiveAudienceNotFound {
+			WriteJSONError(w, "audience not found", http.StatusNotFound)
+			return
+		}
+		WriteJSONError(w, "could not update the audience", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }

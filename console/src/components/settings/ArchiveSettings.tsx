@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Form,
   Input,
   Popconfirm,
@@ -26,9 +27,19 @@ interface ArchiveEntry {
   preview_url: string
 }
 
+interface ArchiveAudience {
+  list_id: string
+  slug: string
+  name: string
+  listed: boolean
+  notifuse_list_id?: string
+  campaigns: number
+}
+
 interface ArchiveState {
   settings: {
     enabled: boolean
+    show_audience_nav: boolean
     title: string
     subscribe_url: string
     subscribe_list_ids: string[]
@@ -36,6 +47,7 @@ interface ArchiveState {
   }
   gate_set: boolean
   entries: ArchiveEntry[]
+  audiences: ArchiveAudience[]
   public_url: string
 }
 
@@ -53,6 +65,7 @@ export function ArchiveSettings({ workspace }: { workspace: { id: string; name: 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [gateSet, setGateSet] = useState(false)
+  const [audiences, setAudiences] = useState<ArchiveAudience[]>([])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -60,8 +73,10 @@ export function ArchiveSettings({ workspace }: { workspace: { id: string; name: 
       const data = await api.get<ArchiveState>(`/api/archive.get?workspace_id=${workspace.id}`)
       setState(data)
       setGateSet(data.gate_set)
+      setAudiences(data.audiences ?? [])
       form.setFieldsValue({
         enabled: data.settings.enabled,
+        show_audience_nav: data.settings.show_audience_nav ?? false,
         title: data.settings.title,
         subscribe_url: data.settings.subscribe_url,
         subscribe_list_ids: (data.settings.subscribe_list_ids || []).join(', '),
@@ -87,6 +102,7 @@ export function ArchiveSettings({ workspace }: { workspace: { id: string; name: 
         workspace_id: workspace.id,
         settings: {
           enabled: values.enabled,
+          show_audience_nav: Boolean(values.show_audience_nav),
           title: values.title || '',
           subscribe_url: values.subscribe_url || '',
           subscribe_list_ids: String(values.subscribe_list_ids || '')
@@ -114,6 +130,19 @@ export function ArchiveSettings({ workspace }: { workspace: { id: string; name: 
       await load()
     } catch (error) {
       message.error((error as Error).message || 'Could not remove')
+    }
+  }
+
+  const setListed = async (listID: string, listed: boolean) => {
+    try {
+      await api.post('/api/archive.setAudienceListed', {
+        workspace_id: workspace.id,
+        list_id: listID,
+        listed
+      })
+      setAudiences((prev) => prev.map((a) => (a.list_id === listID ? { ...a, listed } : a)))
+    } catch (error) {
+      message.error((error as Error).message || 'Could not change the audience listing')
     }
   }
 
@@ -172,6 +201,14 @@ export function ArchiveSettings({ workspace }: { workspace: { id: string; name: 
             <Switch />
           </Form.Item>
           <Form.Item
+            name="show_audience_nav"
+            label="Show the audience switch on the public pages"
+            valuePropName="checked"
+            extra="Off by default: which list a campaign went to is running information, not something a reader needs. The per-audience pages stay available — they are listed below."
+          >
+            <Switch />
+          </Form.Item>
+          <Form.Item
             name="title"
             label="Page title"
             extra="The toolbar shows the part before the · separator."
@@ -213,6 +250,46 @@ export function ArchiveSettings({ workspace }: { workspace: { id: string; name: 
             )}
           </Space>
         </Form>
+      </Card>
+
+      <Card
+        title={`Audiences${state ? ` (${audiences.length})` : ''}`}
+        extra={
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            Unticked audiences are not listed publicly and their pages answer 404.
+          </Text>
+        }
+      >
+        <Table<ArchiveAudience>
+          size="small"
+          rowKey="list_id"
+          pagination={false}
+          dataSource={audiences}
+          locale={{ emptyText: 'No campaigns name an audience yet.' }}
+          columns={[
+            {
+              title: 'Audience',
+              dataIndex: 'name',
+              render: (name: string, row: ArchiveAudience) => (
+                <Space direction="vertical" size={0}>
+                  <Text strong>{name || row.list_id}</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {row.slug || row.list_id}
+                  </Text>
+                </Space>
+              )
+            },
+            {
+              title: 'Listed',
+              dataIndex: 'listed',
+              width: 90,
+              render: (listed: boolean, row: ArchiveAudience) => (
+                <Checkbox checked={listed} onChange={(e) => void setListed(row.list_id, e.target.checked)} />
+              )
+            },
+            { title: 'Campaigns', dataIndex: 'campaigns', width: 110, align: 'right' as const }
+          ]}
+        />
       </Card>
 
       <Card

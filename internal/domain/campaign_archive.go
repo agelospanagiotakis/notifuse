@@ -48,10 +48,14 @@ type ArchiveEntry struct {
 // The slug is stored rather than derived so a URL can be chosen once and stay stable: the
 // display name is whatever the sending platform called the list, and that name changes.
 type ArchiveAudience struct {
-	ListID    string `json:"list_id"`
-	Slug      string `json:"slug"`
-	Name      string `json:"name"`
-	Campaigns int    `json:"campaigns"`
+	ListID string `json:"list_id"`
+	Slug   string `json:"slug"`
+	Name   string `json:"name"`
+	// Listed is whether this audience is offered publicly (the switch and its page).
+	Listed bool `json:"listed"`
+	// NotifuseListID is the platform list this audience maps to, when one does.
+	NotifuseListID string `json:"notifuse_list_id,omitempty"`
+	Campaigns      int    `json:"campaigns"`
 }
 
 // ArchiveSettings is stored in the workspace settings blob under "archive".
@@ -61,7 +65,11 @@ type ArchiveAudience struct {
 // empty user means "no gate", which is also how the feature is turned public
 // later — no code change, just clear the field.
 type ArchiveSettings struct {
-	Enabled           bool   `json:"enabled"`
+	Enabled bool `json:"enabled"`
+	// ShowAudienceNav puts the audience switch on the PUBLIC archive pages. Off by default:
+	// which list a campaign went to is running information, not publishing information.
+	// The per-audience pages still exist and stay linkable.
+	ShowAudienceNav   bool   `json:"show_audience_nav,omitempty"`
 	Title             string `json:"title,omitempty"`
 	BasicAuthUser     string `json:"basic_auth_user,omitempty"`
 	BasicAuthPassword string `json:"basic_auth_password,omitempty"`
@@ -94,8 +102,11 @@ type CampaignArchiveRepository interface {
 	ListAudiences(ctx context.Context, workspaceID string) ([]*ArchiveAudience, error)
 	// ListByListID returns the campaigns sent to one audience, newest first.
 	ListByListID(ctx context.Context, workspaceID, listID string) ([]*ArchiveEntry, error)
-	// GetAudience resolves an audience by its URL slug.
+	// GetAudience resolves an audience by its URL slug. Unlisted audiences resolve to
+	// ErrArchiveAudienceNotFound so an unlisted page 404s.
 	GetAudience(ctx context.Context, workspaceID, slug string) (*ArchiveAudience, error)
+	// SetAudienceListed ticks or unticks an audience in the public archive.
+	SetAudienceListed(ctx context.Context, workspaceID, listID string, listed bool) error
 	// UpsertAudience records an audience's slug and display name.
 	UpsertAudience(ctx context.Context, workspaceID string, audience *ArchiveAudience) error
 }

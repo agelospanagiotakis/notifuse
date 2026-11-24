@@ -69,7 +69,7 @@ func (f *fakeArchiveRepo) ListAudiences(context.Context, string) ([]*domain.Arch
 	}
 	out := make([]*domain.ArchiveAudience, 0, len(order))
 	for _, id := range order {
-		out = append(out, &domain.ArchiveAudience{ListID: id, Slug: id, Name: id, Campaigns: counts[id]})
+		out = append(out, &domain.ArchiveAudience{ListID: id, Slug: id, Name: id, Listed: true, Campaigns: counts[id]})
 	}
 	return out, nil
 }
@@ -97,6 +97,16 @@ func (f *fakeArchiveRepo) GetAudience(_ context.Context, _ string, slug string) 
 func (f *fakeArchiveRepo) UpsertAudience(_ context.Context, _ string, a *domain.ArchiveAudience) error {
 	f.audiences = append(f.audiences, a)
 	return nil
+}
+
+func (f *fakeArchiveRepo) SetAudienceListed(_ context.Context, _ string, listID string, listed bool) error {
+	for _, a := range f.audiences {
+		if a.ListID == listID {
+			a.Listed = listed
+			return nil
+		}
+	}
+	return domain.ErrArchiveAudienceNotFound
 }
 
 func archiveWorkspace(settings *domain.ArchiveSettings) *domain.Workspace {
@@ -343,7 +353,7 @@ func TestArchive_SubscribeFormTakesBothNames(t *testing.T) {
 // A campaign and an audience are both one segment under the workspace, so the two must be told
 // apart by what exists rather than by the shape of the path.
 func TestArchive_AudiencePages(t *testing.T) {
-	ws := archiveWorkspace(&domain.ArchiveSettings{Enabled: true, Title: "Kois archive"})
+	ws := archiveWorkspace(&domain.ArchiveSettings{Enabled: true, ShowAudienceNav: true, Title: "Kois archive"})
 	repo := &fakeArchiveRepo{
 		entries: []*domain.ArchiveEntry{
 			{Slug: "2021-06-05-june", Title: "June 2021", SentAt: time.Date(2021, 6, 5, 0, 0, 0, 0, time.UTC), ListID: "kois"},
@@ -351,8 +361,8 @@ func TestArchive_AudiencePages(t *testing.T) {
 			{Slug: "2022-01-01-june", Title: "January 2022", SentAt: time.Date(2022, 1, 1, 0, 0, 0, 0, time.UTC), ListID: "kois"},
 		},
 		audiences: []*domain.ArchiveAudience{
-			{ListID: "kois", Slug: "kois", Name: "Kois Optics", Campaigns: 2},
-			{ListID: "syros", Slug: "syros", Name: "SYROS", Campaigns: 1},
+			{ListID: "kois", Slug: "kois", Name: "Kois Optics", Listed: true, Campaigns: 2},
+			{ListID: "syros", Slug: "syros", Name: "SYROS", Listed: true, Campaigns: 1},
 		},
 	}
 	h := archiveHandler(t, ws, repo)

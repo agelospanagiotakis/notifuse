@@ -103,6 +103,7 @@ export const AUDIT_PHRASES: Record<string, MessageDescriptor> = {
   'archive.publish': msg({ message: 'Published the campaign archive' }),
   'archive.update': msg({ message: 'Updated the campaign archive settings' }),
   'archive.remove': msg({ message: 'Removed the campaign archive' }),
+  'archive.setAudienceListed': msg({ message: 'Changed the public listing of an archive audience' }),
   'import.key': msg({ message: 'Saved the Mailchimp API key' }),
   'user.setPassword': msg({ message: 'Changed their password' })
 }
