@@ -8,7 +8,7 @@ vi.mock('../services/api/auth', () => ({
 
 describe('LANGUAGES', () => {
   it('lists every console locale with its own name', () => {
-    expect(LANGUAGES.map((language) => language.locale)).toEqual(['en', 'fr', 'es', 'de', 'ca', 'pt-BR', 'ja', 'it'])
+    expect(LANGUAGES.map((language) => language.locale)).toEqual(['en', 'fr', 'es', 'de', 'ca', 'pt-BR', 'ja', 'it', 'el'])
     expect(LANGUAGES.find((language) => language.locale === 'fr')?.name).toBe('Français')
   })
 })

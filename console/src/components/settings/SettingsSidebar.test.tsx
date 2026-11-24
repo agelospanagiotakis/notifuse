@@ -39,8 +39,8 @@ describe('SETTINGS_GROUPS', () => {
     expect(SETTINGS_GROUPS.map((group) => [...group.sections])).toEqual([
       ['general', 'team'],
       ['integrations', 'webhooks', 'smtp-bridge'],
-      ['custom-fields', 'blog', 'web-analytics'],
-      ['audit-logs', 'licence', 'danger-zone']
+      ['custom-fields', 'blog', 'archive', 'import', 'web-analytics'],
+      ['security', 'audit-logs', 'licence', 'danger-zone']
     ])
     expect(SETTINGS_SECTIONS).toEqual([
       'general',
@@ -50,7 +50,10 @@ describe('SETTINGS_GROUPS', () => {
       'smtp-bridge',
       'custom-fields',
       'blog',
+      'archive',
+      'import',
       'web-analytics',
+      'security',
       'audit-logs',
       'licence',
       'danger-zone'
@@ -73,7 +76,10 @@ describe('SettingsSidebar', () => {
       'SMTP bridge',
       'Custom fields',
       'Blog',
+      'Archive',
+      'Import from Mailchimp',
       'Web analytics',
+      'Password sign-in',
       'Audit log',
       'Licence',
       'Danger zone'
@@ -122,9 +128,10 @@ describe('SettingsSidebar', () => {
     expect(screen.queryByText('Audit log')).not.toBeInTheDocument()
   })
 
-  it('drops the Security group for a member who is neither owner nor root', () => {
+  it('keeps Security for a member who is neither owner nor root, for Password sign-in alone', () => {
     renderSidebar({ isOwner: false, isRoot: false })
-    expect(screen.queryByText('Security')).not.toBeInTheDocument()
+    expect(screen.getByText('Security')).toBeInTheDocument()
+    expect(screen.getByText('Password sign-in')).toBeInTheDocument()
     expect(screen.queryByText('Audit log')).not.toBeInTheDocument()
     expect(screen.queryByText('Danger zone')).not.toBeInTheDocument()
     expect(within(document.body).getByText('General')).toBeInTheDocument()

@@ -123,6 +123,16 @@ func (m *mockUserRepository) UpdateUserLanguage(ctx context.Context, userID stri
 	return nil
 }
 
+func (m *mockUserRepository) UpdatePasswordHash(ctx context.Context, userID string, hash string) error {
+	for _, u := range m.users {
+		if u.ID == userID {
+			u.PasswordHash = hash
+			return nil
+		}
+	}
+	return nil
+}
+
 func (m *mockUserRepository) CreateSession(ctx context.Context, session *domain.Session) error {
 	return nil
 }

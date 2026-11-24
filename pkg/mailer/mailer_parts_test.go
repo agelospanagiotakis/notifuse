@@ -16,11 +16,11 @@ func TestSMTPMailer_SystemEmailsSendTheTextPartFirst(t *testing.T) {
 	m := NewTestSMTPMailer(&Config{FromEmail: "noreply@example.com", FromName: "Notifuse", APIEndpoint: "https://api.example.com/"})
 	build := map[string]func() (*mail.Msg, error){
 		"invitation": func() (*mail.Msg, error) {
-			return m.invitationMessage("user@example.com", "Acme", "Ada", "tok123", "en")
+			return m.invitationMessage("user@example.com", "Acme", "Ada", "tok123", "en", "")
 		},
 		"magic code": func() (*mail.Msg, error) { return m.magicCodeMessage("user@example.com", "123456", "en") },
 		"circuit breaker alert": func() (*mail.Msg, error) {
-			return m.circuitBreakerAlertMessage("user@example.com", "Acme", "Launch", "bounce rate too high", "en")
+			return m.circuitBreakerAlertMessage("user@example.com", "Acme", "Launch", "bounce rate too high", "en", "")
 		},
 	}
 	for name, newMsg := range build {
@@ -45,7 +45,7 @@ func TestSMTPMailer_SystemEmailsSendTheTextPartFirst(t *testing.T) {
 
 func TestSMTPMailer_InvitationMessage_Content(t *testing.T) {
 	m := NewTestSMTPMailer(&Config{FromEmail: "noreply@example.com", FromName: "Notifuse", APIEndpoint: "https://api.example.com/"})
-	msg, err := m.invitationMessage("user@example.com", "Acme", "Ada", "tok123", "en")
+	msg, err := m.invitationMessage("user@example.com", "Acme", "Ada", "tok123", "en", "")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"You've been invited to join Acme on Notifuse"}, msg.GetGenHeader(mail.HeaderSubject))
 	var buf bytes.Buffer

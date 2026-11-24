@@ -218,6 +218,13 @@ var AuditedActions = map[string]AuditActionSpec{
 
 	// the audit log itself
 	"auditLogs.export": {Category: AuditCategoryAudit, TargetType: AuditTargetAuditLog},
+
+	// e-Pragma fork: campaign archive settings, the Mailchimp import and password sign-in
+	"archive.publish":  {Category: AuditCategoryWorkspaces, TargetType: AuditTargetWorkspace},
+	"archive.update":   {Category: AuditCategoryWorkspaces, TargetType: AuditTargetWorkspace},
+	"archive.remove":   {Category: AuditCategoryWorkspaces, TargetType: AuditTargetWorkspace},
+	"import.key":       {Category: AuditCategoryIntegrations, TargetType: AuditTargetIntegration},
+	"user.setPassword": {Category: AuditCategoryAuth, TargetType: AuditTargetUser},
 }
 
 // AuditLoggedRead is a GET route recorded under a different action name, and
@@ -281,6 +288,9 @@ var AuditExcludedRoutes = map[string]struct{}{
 	"analytics.schemas":                {},
 	"annotations.get":                  {},
 	"annotations.list":                 {},
+	"archive.get":                      {},
+	"import.status":                    {},
+	"import.inventory":                 {},
 	"auditLogs.actions":                {},
 	"auditLogs.get":                    {},
 	"auditLogs.list":                   {},

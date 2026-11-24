@@ -539,7 +539,7 @@ describe('Page Smoke Tests', () => {
       const Wrapper = createWrapper()
       render(<SignInPage />, { wrapper: Wrapper })
       await waitFor(() => {
-        expect(screen.getByText(/Sign In/i)).toBeTruthy()
+        expect(screen.getAllByText(/Sign In/i).length).toBeGreaterThan(0)
       })
     })
 
