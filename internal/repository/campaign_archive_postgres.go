@@ -287,13 +287,17 @@ func (r *campaignArchiveRepository) SetAudienceListed(ctx context.Context, works
 	if err != nil {
 		return err
 	}
-	res, err := db.ExecContext(ctx, `UPDATE campaign_audience SET is_listed = $2 WHERE list_id = $1`, listID, listed)
+	// An audience can appear on the settings table from campaign_archive alone (for
+	// example the test list, whose campaigns were sent by this platform) before any
+	// campaign_audience row exists. Create it on first toggle; otherwise the UPDATE
+	// would affect no rows and the endpoint would answer 404.
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO campaign_audience (list_id, slug, name, is_listed)
+		VALUES ($1, $1, $1, $2)
+		ON CONFLICT (list_id) DO UPDATE SET is_listed = EXCLUDED.is_listed`,
+		listID, listed)
 	if err != nil {
 		return fmt.Errorf("failed to set audience listing: %w", err)
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return domain.ErrArchiveAudienceNotFound
 	}
 	return nil
 }
