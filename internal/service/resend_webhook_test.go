@@ -114,6 +114,23 @@ func TestVerifySvixSignature_RejectsWrongSecret(t *testing.T) {
 	assert.Error(t, verifySvixSignature(h, body, other, time.Now()))
 }
 
+func TestProcessResendWebhook_DeliveredUsesXMessageID(t *testing.T) {
+	body := []byte(`{
+		"type":"email.delivered",
+		"created_at":"2026-11-24T17:52:52.000Z",
+		"data":{"email_id":"em_1","to":["Delivered@Example.com"],
+		        "headers":[{"name":"X-Message-ID","value":"internal-message-1"}]}
+	}`)
+	svc := &InboundWebhookEventService{}
+
+	events, err := svc.processResendWebhook(resendIntegration(testSvixSecret), svixHeaders(t, testSvixSecret, body), body)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.NotNil(t, events[0].MessageID, "X-Message-ID must map the provider event to the internal message row")
+	assert.Equal(t, "internal-message-1", *events[0].MessageID)
+	assert.Equal(t, "delivered@example.com", events[0].RecipientEmail)
+}
+
 func TestProcessResendWebhook_HardBounce(t *testing.T) {
 	body := []byte(`{
 		"type":"email.bounced",

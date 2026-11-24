@@ -29,10 +29,18 @@ type resendWebhookPayload struct {
 	Type      string `json:"type"`
 	CreatedAt string `json:"created_at"`
 	Data      struct {
-		EmailID string   `json:"email_id"`
-		To      []string `json:"to"`
-		Subject string   `json:"subject"`
-		Bounce  struct {
+		EmailID   string   `json:"email_id"`
+		MessageID string   `json:"message_id"`
+		To        []string `json:"to"`
+		Subject   string   `json:"subject"`
+		// Resend copies the X-Message-ID header Notifuse set on the send; it is the
+		// internal message id the rest of the pipeline updates by. email_id/message_id
+		// are Resend's/RFC's, which no row is keyed by.
+		Headers []struct {
+			Name  string `json:"name"`
+			Value string `json:"value"`
+		} `json:"headers"`
+		Bounce struct {
 			Type    string `json:"type"`
 			SubType string `json:"subType"`
 			Message string `json:"message"`
@@ -85,6 +93,17 @@ func (s *InboundWebhookEventService) processResendWebhook(integration *domain.In
 		}
 	}
 
+	// The internal message id, from the X-Message-ID header Notifuse set on the send.
+	// Without it the event cannot be tied to a message_history row, so delivered events
+	// would be stored (or filtered) with no status update.
+	notifuseMessageID := ""
+	for _, h := range payload.Data.Headers {
+		if strings.EqualFold(h.Name, "X-Message-ID") {
+			notifuseMessageID = strings.TrimSpace(h.Value)
+			break
+		}
+	}
+
 	events := make([]*domain.InboundWebhookEvent, 0, len(payload.Data.To))
 	for _, recipient := range payload.Data.To {
 		if recipient == "" {
@@ -98,6 +117,10 @@ func (s *InboundWebhookEventService) processResendWebhook(integration *domain.In
 			RecipientEmail: strings.ToLower(strings.TrimSpace(recipient)),
 			Timestamp:      ts,
 			RawPayload:     string(rawPayload),
+		}
+		if notifuseMessageID != "" {
+			id := notifuseMessageID
+			event.MessageID = &id
 		}
 
 		switch eventType {
