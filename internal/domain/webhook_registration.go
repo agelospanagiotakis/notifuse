@@ -2,8 +2,13 @@ package domain
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
+
+// ErrWebhookProviderRestricted means the provider API key cannot manage webhooks (for Resend,
+// a "Sending access" key). Sending still works; only listing/creating webhooks is denied.
+var ErrWebhookProviderRestricted = errors.New("the provider API key cannot manage webhooks")
 
 //go:generate mockgen -destination mocks/mock_webhook_registration_service.go -package mocks github.com/Notifuse/notifuse/internal/domain WebhookRegistrationService
 

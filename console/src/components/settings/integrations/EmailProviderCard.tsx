@@ -102,6 +102,9 @@ export function EmailProviderCard({
   const registered = webhookStatus?.is_registered === true
   const endpoints = webhookStatus?.endpoints ?? []
   const inactive = endpoints.filter((endpoint) => !endpoint.active).length
+  // A sending-only provider key cannot list or create webhooks. The status came back as a
+  // normal response with this explanation, so say that rather than "not registered".
+  const restricted = Boolean(webhookStatus?.error)
 
   // Every endpoint on hover: its event, its state, its address and its id. The documentation
   // sends operators here to read the address each endpoint uses.
@@ -127,6 +130,15 @@ export function EmailProviderCard({
     if (!hasWebhooks) return null
     if (loadingWebhooks) return <Pill tone="neutral">{t`Checking webhooks…`}</Pill>
     if (webhookStatusFailed) return <Pill tone="neutral">{t`Webhook status unavailable`}</Pill>
+    if (restricted) {
+      return (
+        <Tooltip title={webhookStatus?.error}>
+          <span data-webhook-status className="cursor-help">
+            <Pill tone="warning">{t`Webhooks need a full-access key`}</Pill>
+          </span>
+        </Tooltip>
+      )
+    }
     const pill = !registered ? (
       <Pill tone="warning">{t`Webhooks not registered`}</Pill>
     ) : inactive > 0 ? (
@@ -202,7 +214,7 @@ export function EmailProviderCard({
           {
             key: 'register',
             label: registered ? t`Re-register webhooks` : t`Register webhooks`,
-            disabled: registrationInProgress,
+            disabled: registrationInProgress || restricted,
             onClick: confirmRegister
           }
         ]

@@ -179,6 +179,23 @@ describe('EmailProviderCard', () => {
     expect(screen.queryByText('Webhooks not registered')).toBeNull()
   })
 
+  it('explains a sending-only key and does not offer registration', async () => {
+    vi.mocked(getWebhookStatus).mockResolvedValue({
+      status: status({
+        is_registered: false,
+        endpoints: [],
+        error: 'This provider API key can only send email, so webhook status cannot be read.'
+      })
+    })
+    renderCard()
+
+    expect(await screen.findByText('Webhooks need a full-access key')).toBeInTheDocument()
+    await openMenu()
+    const item = screen.getByText('Register webhooks').closest('li')
+    expect(item).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.queryByText('Register webhooks?')).toBeNull()
+  })
+
   it('names no provider under the title of an SMTP server', () => {
     const smtp = (name: string) =>
       mailgun({

@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/Notifuse/notifuse/internal/domain"
@@ -74,6 +75,12 @@ func (h *WebhookRegistrationHandler) handleRegister(w http.ResponseWriter, r *ht
 			WithField("workspace_id", req.WorkspaceID).
 			WithField("integration_id", req.IntegrationID).
 			Error("Failed to register webhooks")
+		// A sending-only provider key cannot list or create webhooks. That is the caller's
+		// choice of key, not a server failure: explain it as a 400.
+		if errors.Is(err, domain.ErrWebhookProviderRestricted) {
+			WriteJSONError(w, "This provider API key can only send email. Use a key with webhook access, or add the webhook in the provider.", http.StatusBadRequest)
+			return
+		}
 		// Registering with the ESP is owner-only, and that denial belongs to the
 		// caller as a 403 rather than to the operator as a 500.
 		if writeServiceError(w, err, "Only a workspace owner may register webhooks") {

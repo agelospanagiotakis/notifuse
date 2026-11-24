@@ -37,6 +37,17 @@ func withStubResend(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	return srv
 }
 
+func TestResendWebhookProvider_RestrictedKey(t *testing.T) {
+	withStubResend(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"name":"restricted_api_key","message":"This API key is restricted to only send emails","statusCode":401}`))
+	})
+
+	p := NewResendWebhookProvider(logger.NewLogger())
+	_, err := p.GetWebhookStatus(context.Background(), "koisoptics", "int-1", resendProviderForTest("re_send_only"))
+	require.ErrorIs(t, err, domain.ErrWebhookProviderRestricted)
+}
+
 func TestResendWebhookProvider_RegistersMissingEndpoint(t *testing.T) {
 	var created map[string]interface{}
 	withStubResend(t, func(w http.ResponseWriter, r *http.Request) {

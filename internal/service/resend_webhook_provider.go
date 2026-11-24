@@ -114,6 +114,9 @@ func (p *ResendWebhookProvider) list(ctx context.Context, key string) ([]resendW
 	if err != nil {
 		return nil, err
 	}
+	if code == http.StatusUnauthorized || code == http.StatusForbidden {
+		return nil, fmt.Errorf("%w: %d %s", domain.ErrWebhookProviderRestricted, code, strings.TrimSpace(string(data)))
+	}
 	if code != http.StatusOK {
 		return nil, fmt.Errorf("resend list webhooks failed: %d %s", code, strings.TrimSpace(string(data)))
 	}
@@ -173,6 +176,9 @@ func (p *ResendWebhookProvider) RegisterWebhooks(
 	})
 	if err != nil {
 		return nil, err
+	}
+	if code == http.StatusUnauthorized || code == http.StatusForbidden {
+		return nil, fmt.Errorf("%w: %d %s", domain.ErrWebhookProviderRestricted, code, strings.TrimSpace(string(data)))
 	}
 	if code != http.StatusOK && code != http.StatusCreated {
 		return nil, fmt.Errorf("resend create webhook failed: %d %s", code, strings.TrimSpace(string(data)))
