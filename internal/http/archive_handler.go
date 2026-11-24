@@ -312,6 +312,7 @@ func (h *ArchiveHandler) renderList(w http.ResponseWriter, r *http.Request, work
 	b.WriteString(toolbarHTML(archiveBarOptions{
 		workspaceSlug: slugify(workspace.Name),
 		workspaceName: barName(workspace, settings),
+		logoURL:       workspace.Settings.LogoURL,
 		pageURL:       absoluteURL(r, r.URL.Path),
 		subscribeURL:  subscribeTarget(workspace, settings),
 		public:        settings.BasicAuthUser == "",
@@ -379,6 +380,7 @@ func (h *ArchiveHandler) renderCampaign(w http.ResponseWriter, r *http.Request, 
 	page := withToolbar(htmlOut, toolbarHTML(archiveBarOptions{
 		workspaceSlug: slugify(workspace.Name),
 		workspaceName: barName(workspace, settings),
+		logoURL:       workspace.Settings.LogoURL,
 		pageURL:       absoluteURL(r, r.URL.Path),
 		subscribeURL:  subscribeTarget(workspace, settings),
 		public:        settings.BasicAuthUser == "",
@@ -480,6 +482,7 @@ footer a{color:var(--brand)}
 type archiveBarOptions struct {
 	workspaceSlug string
 	workspaceName string
+	logoURL       string
 	pageURL       string
 	subscribeURL  string
 	public        bool
@@ -540,8 +543,12 @@ func absoluteURL(r *http.Request, path string) string {
 func toolbarHTML(o archiveBarOptions) string {
 	var b strings.Builder
 	b.WriteString(`<div class="mca-bar"><div class="mca-bar-inner">`)
+	logo := ""
+	if o.logoURL != "" {
+		logo = `<img class="mca-logo" src="` + html.EscapeString(o.logoURL) + `" alt="">`
+	}
 	b.WriteString(`<a class="mca-name" href="/archive/` + html.EscapeString(o.workspaceSlug) + `/">` +
-		html.EscapeString(o.workspaceName) + `</a>`)
+		logo + html.EscapeString(o.workspaceName) + `</a>`)
 	b.WriteString(`<nav>`)
 	if o.subscribeURL != "" {
 		b.WriteString(`<a class="mca-cta" href="` + html.EscapeString(o.subscribeURL) + `">Subscribe</a>`)
@@ -639,7 +646,8 @@ func xmlEscape(s string) string {
 const archiveBarCSS = `<style>
 .mca-bar{position:relative;z-index:2147483647;background:#12132e;color:#eef0f6;font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
 .mca-bar-inner{max-width:760px;margin:0 auto;padding:10px 20px;display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap}
-.mca-name{color:#fff;text-decoration:none;font-weight:600;letter-spacing:.01em}
+.mca-name{color:#fff;text-decoration:none;font-weight:600;letter-spacing:.01em;display:inline-flex;align-items:center}
+.mca-logo{height:22px;width:auto;max-width:120px;object-fit:contain;border-radius:4px;margin-right:8px}
 .mca-bar nav{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
 .mca-bar nav a{color:#b9c0da;text-decoration:none}
 .mca-bar nav a:hover{color:#fff;text-decoration:underline}
@@ -713,6 +721,7 @@ func (h *ArchiveHandler) renderSubscribeForm(w http.ResponseWriter, workspace *d
 	b.WriteString(toolbarHTML(archiveBarOptions{
 		workspaceSlug: slugify(workspace.Name),
 		workspaceName: barName(workspace, settings),
+		logoURL:       workspace.Settings.LogoURL,
 		subscribeURL:  "/archive/" + slugify(workspace.Name) + "/subscribe",
 	}))
 	b.WriteString("<main><header><h1>Subscribe to " + html.EscapeString(barName(workspace, settings)) + "</h1>")

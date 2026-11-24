@@ -413,6 +413,9 @@ func (s *BroadcastService) ScheduleBroadcast(ctx context.Context, request *domai
 			s.logger.Error("Failed to get broadcast for scheduling")
 			return err
 		}
+		if bcast.IsImported() {
+			return domain.ErrImportedBroadcastNotSendable
+		}
 
 		// Only draft broadcasts can be scheduled
 		if bcast.Status != domain.BroadcastStatusDraft {
@@ -1466,6 +1469,9 @@ func (s *BroadcastService) SendToIndividual(ctx context.Context, request *domain
 	if err != nil {
 		s.logger.Error("Failed to get broadcast for individual sending")
 		return err
+	}
+	if broadcast.IsImported() {
+		return domain.ErrImportedBroadcastNotSendable
 	}
 
 	// Determine which variation to use

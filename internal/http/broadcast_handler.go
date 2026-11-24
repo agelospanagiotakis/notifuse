@@ -308,6 +308,10 @@ func (h *BroadcastHandler) HandleSchedule(w http.ResponseWriter, r *http.Request
 			WriteJSONError(w, "Broadcast not found", http.StatusNotFound)
 			return
 		}
+		if errors.Is(err, domain.ErrImportedBroadcastNotSendable) {
+			WriteJSONError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		h.logger.WithField("error", err.Error()).Error("Failed to schedule broadcast")
 		WriteJSONError(w, "Failed to schedule broadcast", http.StatusInternalServerError)
 		return

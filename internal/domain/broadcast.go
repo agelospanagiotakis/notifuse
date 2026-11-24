@@ -1591,3 +1591,16 @@ func (b *Broadcast) SetTemplateForVariation(variationIndex int, template *Templa
 
 	b.TestSettings.Variations[variationIndex].Template = template
 }
+
+// ErrImportedBroadcastNotSendable is returned when a campaign imported from another
+// platform is asked to be sent. It was sent there; it must never be sent from here.
+var ErrImportedBroadcastNotSendable = fmt.Errorf("this campaign was imported from Mailchimp and cannot be sent")
+
+// IsImported reports whether the broadcast was imported from another platform.
+func (b *Broadcast) IsImported() bool {
+	if b == nil || b.Metadata == nil {
+		return false
+	}
+	_, ok := b.Metadata["mailchimp"]
+	return ok
+}
