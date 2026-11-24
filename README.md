@@ -1,19 +1,18 @@
-> **This is a fork.** It is the **e-Pragma fork of Notifuse**, based on upstream **v40.0**, and it
-> runs `newsletters.e-pragma.gr` and `blog.e-pragma.gr`.
+> **This is a fork.** It is the **e-Pragma fork of Notifuse**, based on upstream **v44.0**, and it
+> runs `newsletters.e-pragma.gr`, `blog.e-pragma.gr` and `newsletters.kois-optics.gr`.
 >
-> **What it adds** — Greek notification centre (upstream has 11 languages, no Greek), e-Pragma
-> branding for the notification centre and blog, and **password sign-in** alongside the magic
-> codes (`users.password_hash`, bcrypt; `POST /api/user.signin` accepts an optional `password`).
-> Everything else is upstream, untouched.
+> **What it adds** — Greek console/locale, white-label branding for the console and public pages,
+> **password sign-in** alongside the magic codes (`users.password_hash`, bcrypt;
+> `POST /api/user.signin` accepts an optional `password`), Mailchimp campaign import (read-only),
+> a public campaign archive, and DeepSeek/Resend email/LLM providers. Everything else is upstream.
 >
-> **Branch and image:** work lives on `epragma`; images are built by CI for `linux/amd64` and
-> published as `ghcr.io/agelospanagiotakis/notifuse-epragma:v40.0-el.N`, where `N` counts our
-> builds on that upstream base.
+> **Branch and image:** work lives on `main` (the v44 port); the release branch is
+> `epragma-v44-min`. CI builds `linux/amd64` images as
+> `ghcr.io/agelospanagiotakis/notifuse-epragma:v44.0-el.N` (latest `v44.0-el.12`).
 >
 > **Licence:** Business Source License 1.1 — production use is permitted within the Additional Use
-> Grant, but each *Licensed Feature* needs a paid key. v39.x and earlier remain AGPL-3.0. Note that
-> upstream **v42.1 adds a sixth Licensed Feature** (administrative audit logs), which is one reason
-> this fork is pinned to v40.0.
+> Grant, but each *Licensed Feature* needs a paid key. v39.x and earlier remain AGPL-3.0. Check the
+> licence before adding any Licensed Feature.
 >
 > Full detail, including how to rebase onto a new upstream release: **[FORK.md](FORK.md)**.
 
