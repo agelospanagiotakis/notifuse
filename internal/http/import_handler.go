@@ -284,7 +284,9 @@ func (h *ImportHandler) broadcastCount(ctx context.Context, workspaceID string) 
 		return 0
 	}
 	var n int
-	_ = db.QueryRowContext(ctx, `SELECT count(*) FROM broadcasts WHERE status = 'draft'`).Scan(&n)
+	// Imported campaigns are now stored as processed (they were sent by Mailchimp), so count
+	// the import marker rather than the draft status.
+	_ = db.QueryRowContext(ctx, `SELECT count(*) FROM broadcasts WHERE metadata->'mailchimp' IS NOT NULL`).Scan(&n)
 	return n
 }
 
