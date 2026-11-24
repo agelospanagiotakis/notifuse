@@ -184,6 +184,10 @@ func (r *inboundWebhookEventRepository) ListEvents(ctx context.Context, workspac
 		queryBuilder = queryBuilder.Where(sq.Eq{"type": params.EventType})
 	}
 
+	if params.Source != "" {
+		queryBuilder = queryBuilder.Where(sq.Eq{"source": params.Source})
+	}
+
 	if params.RecipientEmail != "" {
 		queryBuilder = queryBuilder.Where(sq.Eq{"recipient_email": params.RecipientEmail})
 	}
@@ -358,17 +362,20 @@ func (r *inboundWebhookEventRepository) ListEvents(ctx context.Context, workspac
 	}, nil
 }
 
-// countConsecutiveSoftBouncesSQL counts bounce events that count toward the
-// soft-bounce threshold for each recipient email since that email's last
-// successful delivery.
+// countConsecutiveSoftBouncesSQL counts, for each recipient email, the emails
+// sent to it that bounced since its last successful delivery, toward the
+// soft-bounce threshold. It counts emails, not events: a provider that reports
+// each attempt to deliver one email (Mailgun's temporary failures) or reports
+// it twice counts it once.
 //
 // We do not filter on bounce_type because the per-provider string varies
 // (`Transient` for SES, `Failed` for Mailgun, `Bounce` for SparkPost/SMTP,
 // `bounce`/`blocked`/`dropped` for SendGrid, etc.) — a strict allow-list would
-// silently exclude most providers' soft bounces. Instead we count every
-// `type='bounce'` event in the window minus message-level rejections, and rely
-// on the per-event `domain.ClassifyBounce` call in the service to have already
-// gated which events become a count attempt.
+// silently exclude most providers' soft bounces. Instead we count the emails with
+// a `type='bounce'` event in the window, leaving out SES's message-level
+// rejections and the Postmark reports ClassifyBounce ignores, and rely on the
+// per-event `domain.ClassifyBounce` call in the service to have already gated
+// which events become a count attempt.
 //
 // Edge case: a hard bounce since last delivery would also be counted, but a
 // hard bounce already flipped contact_lists.status='bounced', so the eventual
@@ -378,8 +385,8 @@ func (r *inboundWebhookEventRepository) ListEvents(ctx context.Context, workspac
 // stores no other event, so this only leaves out what was stored before it checked
 // that. Its addresses are the ones stored on the emails, so the match is exact.
 //
-// The ignored-subtype filter must stay in sync with the SoftIgnore branch of
-// ClassifyBounce.
+// The ignored-subtype filters, SES's and Postmark's, must stay in sync with the
+// SoftIgnore branches of ClassifyBounce.
 const countConsecutiveSoftBouncesSQL = `
 WITH last_delivery AS (
   SELECT contact_email AS email, MAX(delivered_at) AS ts
@@ -388,7 +395,7 @@ WITH last_delivery AS (
      AND delivered_at IS NOT NULL
    GROUP BY contact_email
 )
-SELECT e.recipient_email, COUNT(*)::int
+SELECT e.recipient_email, COUNT(DISTINCT e.message_id)::int
   FROM inbound_webhook_events e
   JOIN message_history mh ON mh.id = e.message_id AND mh.contact_email = e.recipient_email
   LEFT JOIN last_delivery d ON d.email = e.recipient_email
@@ -396,11 +403,70 @@ SELECT e.recipient_email, COUNT(*)::int
    AND e.type = 'bounce'
    AND lower(coalesce(e.bounce_category, '')) NOT IN
         ('messagetoolarge','contentrejected','attachmentrejected')
+   AND NOT (e.source = 'postmark' AND lower(coalesce(e.bounce_category, '')) IN
+        ('autoresponder','addresschange','subscribe','unsubscribe','spamnotification',
+         'openrelaytest','virusnotification','challengeverification','smtpapierror',
+         'inbounderror','dmarcpolicy','templaterenderingfailed','unconfirmed',
+         'manuallydeactivated','spamcomplaint','messagecontent','ruleblocked'))
    AND e.timestamp > COALESCE(d.ts, 'epoch'::timestamptz)
  GROUP BY e.recipient_email`
 
-// CountConsecutiveSoftBounces returns, per email, the number of countable soft
-// bounces recorded since that email's last successful delivery.
+// FirstStoredAt returns the created_at of each given event ID that has a row:
+// when Notifuse first received the event, since StoreEvents keeps the first row
+// on a conflict.
+func (r *inboundWebhookEventRepository) FirstStoredAt(ctx context.Context, workspaceID string, ids []string) (map[string]time.Time, error) {
+	// codecov:ignore:start
+	ctx, span := tracing.StartServiceSpan(ctx, "InboundWebhookEventRepository", "FirstStoredAt")
+	defer tracing.EndSpan(span, nil)
+	tracing.AddAttribute(ctx, "workspaceID", workspaceID)
+	tracing.AddAttribute(ctx, "idCount", len(ids))
+	// codecov:ignore:end
+
+	result := map[string]time.Time{}
+	if len(ids) == 0 {
+		return result, nil
+	}
+
+	workspaceDB, err := r.workspaceRepo.GetConnection(ctx, workspaceID)
+	if err != nil {
+		// codecov:ignore:start
+		tracing.MarkSpanError(ctx, err)
+		// codecov:ignore:end
+		return nil, fmt.Errorf("failed to get workspace connection: %w", err)
+	}
+
+	rows, err := workspaceDB.QueryContext(ctx,
+		`SELECT id, created_at FROM inbound_webhook_events WHERE id = ANY($1)`, pq.Array(ids))
+	if err != nil {
+		// codecov:ignore:start
+		tracing.MarkSpanError(ctx, err)
+		// codecov:ignore:end
+		return nil, fmt.Errorf("failed to read when the events were first stored: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var id string
+		var createdAt time.Time
+		if err := rows.Scan(&id, &createdAt); err != nil {
+			// codecov:ignore:start
+			tracing.MarkSpanError(ctx, err)
+			// codecov:ignore:end
+			return nil, fmt.Errorf("failed to scan stored event row: %w", err)
+		}
+		result[id] = createdAt
+	}
+	if err := rows.Err(); err != nil {
+		// codecov:ignore:start
+		tracing.MarkSpanError(ctx, err)
+		// codecov:ignore:end
+		return nil, fmt.Errorf("failed to read stored event rows: %w", err)
+	}
+	return result, nil
+}
+
+// CountConsecutiveSoftBounces returns, per email, the number of emails sent to it
+// with a countable soft bounce recorded since its last successful delivery.
 func (r *inboundWebhookEventRepository) CountConsecutiveSoftBounces(ctx context.Context, workspaceID string, emails []string) (map[string]int, error) {
 	// codecov:ignore:start
 	ctx, span := tracing.StartServiceSpan(ctx, "InboundWebhookEventRepository", "CountConsecutiveSoftBounces")

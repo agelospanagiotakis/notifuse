@@ -10,13 +10,19 @@ const WORKSPACE_ID = 'test-workspace'
 // antd 6 dropped .ant-drawer-content / .ant-modal-content: the drawer's role="dialog" now sits on
 // div.ant-drawer-section and takes its accessible name from the drawer title. Addressing the
 // dialog by role+name therefore pins both "the drawer is open" and "it is the right drawer".
-const segmentDrawer = (page: Page, title: 'New segment' | 'Update segment') =>
+const segmentDrawer = (page: Page, title: 'New segment' | 'Edit segment') =>
   page.getByRole('dialog', { name: title, exact: true })
 
-// The drawer footer buttons live in the header "extra" slot, next to the title; the leaf editor
-// has its own Confirm inside the body, so submitting the segment has to be scoped to the header.
+// The full-screen drawer's bar carries Create (a new segment) or Save (an existing one); the
+// condition editor has its own Confirm in the body.
 const drawerSubmit = (drawer: ReturnType<typeof segmentDrawer>) =>
-  drawer.locator('.ant-drawer-header').getByRole('button', { name: 'Confirm', exact: true })
+  drawer.getByRole('button', { name: /^(Create|Save)$/ })
+
+// The name field sits in the bar.
+const nameField = (drawer: ReturnType<typeof segmentDrawer>) => drawer.getByRole('textbox', { name: 'Segment name' })
+
+// What still blocks the save, as the summary lists it.
+const summary = (drawer: ReturnType<typeof segmentDrawer>) => drawer.locator('[data-summary-tone]')
 
 const EMPTY_TREE = { kind: 'branch', branch: { operator: 'and', leaves: [] } }
 
@@ -28,6 +34,29 @@ const readTree = async (page: Page) => JSON.parse((await page.locator('pre').inn
 // debug page's form.
 const builderForm = (page: Page) => page.locator('form')
 
+// The all / at least one control of the root group.
+const rootOperator = (page: Page) => builderForm(page).locator('.ant-segmented').first()
+
+// The add menu lists one entry per condition type the page passes in.
+const addConditionMenu = async (page: Page) => {
+  await builderForm(page).getByRole('button', { name: 'Condition', exact: true }).click()
+  // Scoped to the dropdown: the sidebar is a menu too
+  return page.locator('.ant-dropdown:not(.ant-dropdown-hidden)').getByRole('menuitem')
+}
+
+// The field picker of the filter row being edited: typing narrows it, then the option is clicked.
+const pickField = async (page: Page, search: string, label: string) => {
+  const picker = page.locator('.ant-select').filter({ hasText: 'Choose a field' }).first()
+  await picker.click()
+  await page.keyboard.type(search)
+  await page.locator('.ant-select-item-option').filter({ hasText: label }).first().click()
+}
+
+const pickOperator = async (page: Page, label: RegExp) => {
+  await page.locator('.ant-select').filter({ hasText: 'Operator' }).last().click()
+  await page.locator('.ant-select-item-option').filter({ hasText: label }).first().click()
+}
+
 test.describe('Segments Feature', () => {
   test.describe('Page Load & Empty State', () => {
     test('loads contacts page with segment button', async ({ authenticatedPage }) => {
@@ -36,8 +65,9 @@ test.describe('Segments Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/contacts`)
       await waitForLoading(page)
 
-      // The segments filter always offers the create button, even with no segment yet
-      await expect(page.getByRole('button', { name: 'Segment', exact: true })).toBeVisible()
+      // The rail's Segments section always offers the create button, even with no segment yet
+      await expect(page.getByRole('button', { name: 'New segment', exact: true })).toBeVisible()
+      await expect(page.getByText('No segments yet')).toBeVisible()
     })
 
     test('loads debug segment page', async ({ authenticatedPage }) => {
@@ -69,13 +99,13 @@ test.describe('Segments Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/contacts`)
       await waitForLoading(page)
 
-      await page.getByRole('button', { name: 'Segment', exact: true }).click()
+      await page.getByRole('button', { name: 'New segment', exact: true }).click()
 
       const drawer = segmentDrawer(page, 'New segment')
       await expect(drawer).toBeVisible()
 
-      // The creation form: name, colour, timezone and the condition builder
-      await expect(drawer.getByPlaceholder('i.e: Big spenders...')).toBeVisible()
+      // The creation form: name and colour in the bar, timezone and the condition builder
+      await expect(nameField(drawer)).toBeVisible()
       await expect(drawer.getByLabel('Timezone used for dates')).toBeVisible()
       await expect(drawer.getByRole('button', { name: 'Condition', exact: true })).toBeVisible()
     })
@@ -86,18 +116,18 @@ test.describe('Segments Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/contacts`)
       await waitForLoading(page)
 
-      await page.getByRole('button', { name: 'Segment', exact: true }).click()
+      await page.getByRole('button', { name: 'New segment', exact: true }).click()
 
       const drawer = segmentDrawer(page, 'New segment')
       await expect(drawer).toBeVisible()
 
-      const nameInput = drawer.getByPlaceholder('i.e: Big spenders...')
+      const nameInput = nameField(drawer)
       await nameInput.fill('Active Subscribers')
       await expect(nameInput).toHaveValue('Active Subscribers')
 
-      // The tree condition builder is exercised in the builder tests; here we only pin that the
-      // form is complete enough to be submitted from the header.
-      await expect(drawerSubmit(drawer)).toBeVisible()
+      // Without a condition, Create waits and the summary says why
+      await expect(drawerSubmit(drawer)).toBeDisabled()
+      await expect(summary(drawer).filter({ hasText: 'Add at least one condition.' })).toBeVisible()
     })
   })
 
@@ -108,9 +138,9 @@ test.describe('Segments Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/debug-segment`)
       await waitForLoading(page)
 
-      // The root branch: an operator select reading ALL, its sentence, and the add button
-      await expect(builderForm(page).locator('.ant-select-content')).toHaveText('ALL')
-      await expect(page.getByText('of the following conditions match:')).toBeVisible()
+      // The root group: its all / at least one control on « all », its sentence, and the add button
+      await expect(rootOperator(page).locator('.ant-segmented-item-selected')).toHaveText('all')
+      await expect(page.getByText('of the following conditions', { exact: true })).toBeVisible()
       await expect(page.getByRole('button', { name: 'Condition', exact: true })).toBeEnabled()
     })
 
@@ -120,10 +150,9 @@ test.describe('Segments Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/debug-segment`)
       await waitForLoading(page)
 
-      // Adding a nested AND | OR group is the one cascader entry that needs no further form,
-      // so it shows the builder writing a rule into the tree.
-      await page.getByRole('button', { name: 'Condition', exact: true }).click()
-      await page.locator('.ant-cascader-menu-item').filter({ hasText: 'AND | OR' }).click()
+      // Adding a nested group needs no further form, so it shows the builder writing a rule
+      // into the tree.
+      await builderForm(page).getByRole('button', { name: 'Group', exact: true }).click()
 
       await expect
         .poll(() => readTree(page))
@@ -132,8 +161,9 @@ test.describe('Segments Feature', () => {
           branch: { operator: 'and', leaves: [EMPTY_TREE] }
         })
 
-      // The nested group is drawn too: two branch sentences instead of one
-      await expect(page.getByText('of the following conditions match:')).toHaveCount(2)
+      // The nested group is drawn too, empty
+      await expect(page.getByText('Group:')).toBeVisible()
+      await expect(page.getByText('Empty: add a condition or a subgroup.')).toBeVisible()
     })
   })
 
@@ -144,12 +174,9 @@ test.describe('Segments Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/debug-segment`)
       await waitForLoading(page)
 
-      await page.getByRole('button', { name: 'Condition', exact: true }).click()
-
-      // One entry per table schema the debug page passes in, plus the nested group
-      const items = page.locator('.ant-cascader-menu-item')
-      await expect(items).toHaveCount(4)
-      await expect(items.filter({ hasText: 'AND | OR' })).toBeVisible()
+      // One entry per table schema the debug page passes in; groups have their own button
+      const items = await addConditionMenu(page)
+      await expect(items).toHaveCount(3)
       await expect(items.filter({ hasText: 'Contact property' })).toBeVisible()
       await expect(items.filter({ hasText: 'List subscription' })).toBeVisible()
       await expect(items.filter({ hasText: 'Activity' })).toBeVisible()
@@ -161,11 +188,10 @@ test.describe('Segments Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/debug-segment`)
       await waitForLoading(page)
 
-      // Switching the branch operator has to reach the produced tree, not just the label
-      await builderForm(page).getByRole('combobox').click()
-      await page.locator('.ant-select-item-option').filter({ hasText: 'ANY' }).click()
+      // Switching the group operator has to reach the produced tree, not just the label
+      await rootOperator(page).getByText('at least one', { exact: true }).click()
 
-      await expect(builderForm(page).locator('.ant-select-content')).toHaveText('ANY')
+      await expect(rootOperator(page).locator('.ant-segmented-item-selected')).toHaveText('at least one')
       await expect.poll(() => readTree(page)).toEqual({
         kind: 'branch',
         branch: { operator: 'or', leaves: [] }
@@ -180,10 +206,10 @@ test.describe('Segments Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/contacts`)
       await waitForLoading(page)
 
-      // Every segment in the filter bar carries a status dot next to its name
-      const segmentButton = page.getByRole('button').filter({ hasText: 'Active Users' })
-      await expect(segmentButton).toBeVisible()
-      await expect(segmentButton.locator('.ant-badge-status-dot')).toBeVisible()
+      // Every segment in the rail carries its colour dot and, once computed, its contacts count
+      const segmentItem = page.locator('[data-rail-item]').filter({ hasText: 'Active Users' })
+      await expect(segmentItem).toBeVisible()
+      await expect(segmentItem.locator('span.rounded-full').first()).toBeVisible()
     })
   })
 
@@ -194,12 +220,12 @@ test.describe('Segments Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/contacts`)
       await waitForLoading(page)
 
-      await page.getByRole('button', { name: 'Segment', exact: true }).click()
+      await page.getByRole('button', { name: 'New segment', exact: true }).click()
       const drawer = segmentDrawer(page, 'New segment')
       await expect(drawer).toBeVisible()
 
-      // The matching-contacts circle is offered from the start but cannot be counted until the
-      // tree is queryable, so on a fresh drawer it is present and refuses to run.
+      // The count card offers to count from the start but cannot until the tree is queryable,
+      // so on a fresh drawer the button is present and refuses to run.
       const previewButton = drawer.getByRole('button', { name: 'Preview', exact: true })
       await expect(previewButton).toBeVisible()
       await expect(previewButton).toBeDisabled()
@@ -207,17 +233,16 @@ test.describe('Segments Feature', () => {
   })
 
   test.describe('Integration', () => {
-    test('segment page accessible from contacts filter', async ({ authenticatedPageWithData }) => {
+    test('segments are listed in the contacts rail', async ({ authenticatedPageWithData }) => {
       const page = authenticatedPageWithData
 
       // Start at contacts
       await page.goto(`/console/workspace/${WORKSPACE_ID}/contacts`)
       await waitForLoading(page)
 
-      // The segments the workspace owns are listed as filters above the contacts table
-      await expect(page.getByText('Segments:')).toBeVisible()
+      // The segments the workspace owns are views in the rail, beside the lists
       for (const name of ['Active Users', 'US Customers', 'Enterprise Plans']) {
-        await expect(page.getByRole('button').filter({ hasText: name })).toBeVisible()
+        await expect(page.locator('[data-rail-item]').filter({ hasText: name })).toBeVisible()
       }
     })
   })
@@ -258,24 +283,21 @@ test.describe('Segments Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/debug-segment`)
       await waitForLoading(page)
 
-      // The branch operator offers exactly the two logical operators
-      await builderForm(page).getByRole('combobox').click()
-      const options = page.locator('.ant-select-item-option')
+      // The group operator offers exactly the two logical operators
+      const options = rootOperator(page).locator('.ant-segmented-item')
       await expect(options).toHaveCount(2)
-      await expect(options.nth(0)).toHaveText('ALL')
-      await expect(options.nth(1)).toHaveText('ANY')
+      await expect(options.nth(0)).toHaveText('all')
+      await expect(options.nth(1)).toHaveText('at least one')
     })
   })
 
   test.describe('Edit Form Prefill', () => {
-    // The segment actions hang off the ellipsis button that sits next to each segment filter.
+    // A segment opens as a view from the rail; its « Defined by » bar carries « Edit segment ».
     const openSegmentEditor = async (page: Page, segmentName: string) => {
-      const segmentGroup = page.locator('.ant-space-compact').filter({ hasText: segmentName })
-      await expect(segmentGroup).toBeVisible()
-      await segmentGroup.getByRole('button').last().click()
-      await page.getByRole('menuitem', { name: 'Update', exact: true }).click()
+      await page.locator('[data-rail-item]').filter({ hasText: segmentName }).click()
+      await page.getByRole('button', { name: 'Edit segment', exact: true }).click()
 
-      const drawer = segmentDrawer(page, 'Update segment')
+      const drawer = segmentDrawer(page, 'Edit segment')
       await expect(drawer).toBeVisible()
       return drawer
     }
@@ -288,7 +310,7 @@ test.describe('Segments Feature', () => {
 
       const drawer = await openSegmentEditor(page, 'Active Users')
 
-      await expect(drawer.getByPlaceholder('i.e: Big spenders...')).toHaveValue('Active Users')
+      await expect(nameField(drawer)).toHaveValue('Active Users')
     })
 
     test('edit segment preserves color selection', async ({ authenticatedPageWithData }) => {
@@ -299,9 +321,8 @@ test.describe('Segments Feature', () => {
 
       const drawer = await openSegmentEditor(page, 'Active Users')
 
-      // The colour select sits next to the name; an existing segment opens on its own colour
-      const colorSelect = drawer.locator('.ant-select-content').first()
-      await expect(colorSelect).toHaveText('blue')
+      // The colour dot sits before the name; an existing segment opens on its own colour
+      await expect(drawer.getByRole('button', { name: 'Colour: Blue', exact: true })).toBeVisible()
     })
 
     test('edit segment preserves timezone selection', async ({ authenticatedPageWithData }) => {
@@ -320,6 +341,28 @@ test.describe('Segments Feature', () => {
     })
   })
 
+  test.describe('Closing with changes', () => {
+    test('Escape asks before discarding a renamed segment', async ({ authenticatedPageWithData }) => {
+      const page = authenticatedPageWithData
+
+      await page.goto(`/console/workspace/${WORKSPACE_ID}/contacts`)
+      await waitForLoading(page)
+      await page.locator('[data-rail-item]').filter({ hasText: 'Active Users' }).click()
+      await page.getByRole('button', { name: 'Edit segment', exact: true }).click()
+
+      const drawer = segmentDrawer(page, 'Edit segment')
+      await nameField(drawer).fill('Active Users renamed')
+      await page.keyboard.press('Escape')
+
+      // One confirmation, not two (× and the blocker share one question)
+      await expect(page.locator('.ant-modal-confirm')).toHaveCount(1)
+      await expect(page.locator('.ant-modal-confirm')).toContainText('Discard your changes?')
+      await page.getByRole('button', { name: 'Keep editing' }).click()
+      await expect(drawer).toBeVisible()
+      await expect(nameField(drawer)).toHaveValue('Active Users renamed')
+    })
+  })
+
   test.describe('Form Validation', () => {
     test('requires segment name', async ({ authenticatedPage }) => {
       const page = authenticatedPage
@@ -327,14 +370,13 @@ test.describe('Segments Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/contacts`)
       await waitForLoading(page)
 
-      await page.getByRole('button', { name: 'Segment', exact: true }).click()
+      await page.getByRole('button', { name: 'New segment', exact: true }).click()
       const drawer = segmentDrawer(page, 'New segment')
       await expect(drawer).toBeVisible()
 
-      // Submitting an untouched form reports the missing name and sends nothing
-      await drawerSubmit(drawer).click()
-
-      await expect(drawer.locator('.ant-form-item-explain-error')).toHaveText('Please enter name')
+      // An untouched form cannot be submitted: the summary names what is missing
+      await expect(drawerSubmit(drawer)).toBeDisabled()
+      await expect(summary(drawer).filter({ hasText: 'Give the segment a name.' })).toBeVisible()
       expect(requestCapture.getRequestCount(API_PATTERNS.SEGMENT_CREATE)).toBe(0)
     })
 
@@ -344,19 +386,15 @@ test.describe('Segments Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/contacts`)
       await waitForLoading(page)
 
-      await page.getByRole('button', { name: 'Segment', exact: true }).click()
+      await page.getByRole('button', { name: 'New segment', exact: true }).click()
       const drawer = segmentDrawer(page, 'New segment')
       await expect(drawer).toBeVisible()
 
-      await drawer.getByPlaceholder('i.e: Big spenders...').fill('Test Segment')
+      await nameField(drawer).fill('Test Segment')
 
-      // A named segment with an empty tree is rejected by the tree validator: the drawer stays
-      // open and nothing is sent. The validator is declared noStyle, so the rejection is only
-      // observable through the request that never happens.
-      await drawerSubmit(drawer).click()
-      await page.waitForTimeout(1000)
-
-      await expect(drawer).toBeVisible()
+      // A named segment with an empty tree cannot be created, and says so (it used to do nothing)
+      await expect(drawerSubmit(drawer)).toBeDisabled()
+      await expect(summary(drawer).filter({ hasText: 'Add at least one condition.' })).toBeVisible()
       expect(requestCapture.getRequestCount(API_PATTERNS.SEGMENT_CREATE)).toBe(0)
     })
   })
@@ -370,52 +408,25 @@ test.describe('Segments Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/debug-segment`)
       await waitForLoading(page)
 
-      // Add a contact condition
-      await page.getByRole('button', { name: 'Condition', exact: true }).click()
-      await page.locator('.ant-cascader-menu-item').filter({ hasText: 'Contact property' }).click()
+      // Add a contact condition: it opens on an empty filter row
+      const items = await addConditionMenu(page)
+      await items.filter({ hasText: 'Contact property' }).click()
 
-      // Click "+ Add filter" button
-      await page.getByRole('button', { name: '+ Add filter' }).click()
+      await pickField(page, 'json', 'Custom JSON 1')
 
-      const modal = page.getByRole('dialog', { name: 'Add a filter', exact: true })
-      await expect(modal).toBeVisible()
+      // The path to read: one key
+      await page.getByRole('button', { name: /add path/i }).click()
+      await page.getByPlaceholder('key or index').fill('test_number')
+      await page.keyboard.press('Enter')
 
-      // Select Custom JSON 1 field - type to search
-      await modal.getByRole('combobox').first().click()
-      await page.keyboard.type('json')
+      // Read the value as a number - THIS IS THE KEY STEP
+      await builderForm(page).locator('.ant-segmented-item').filter({ hasText: /^Number$/ }).click()
 
-      const jsonFieldOption = page
-        .locator('.ant-select-item-option')
-        .filter({ hasText: 'Custom JSON 1' })
-        .first()
-      await expect(jsonFieldOption).toBeVisible()
-      await jsonFieldOption.click()
+      await pickOperator(page, /^equals$/)
 
-      // Click "Add path" button
-      const addPathBtn = modal.getByRole('button', { name: /add path/i })
-      await expect(addPathBtn).toBeVisible()
-      await addPathBtn.click()
-
-      // Fill JSON path
-      await modal.locator('.ant-input').first().fill('test_number')
-
-      // Select "Number" as the value type - THIS IS THE KEY STEP
-      const numberRadio = modal.locator('.ant-radio-button-wrapper').filter({ hasText: /Number/i })
-      await expect(numberRadio).toBeVisible()
-      await numberRadio.click()
-
-      // Select equals operator
-      await modal.locator('.ant-select').last().click()
-      await page.locator('.ant-select-item-option').filter({ hasText: /^equals$/i }).first().click()
-
-      // Fill number value
-      const numberInput = modal.locator('.ant-input-number input')
+      const numberInput = page.getByPlaceholder('Enter a number')
       await expect(numberInput).toBeVisible()
       await numberInput.fill('42')
-
-      // Confirm the filter modal
-      await modal.getByRole('button', { name: 'Confirm', exact: true }).click()
-      await expect(modal).toBeHidden()
 
       // Confirm the leaf condition form
       const leafConfirmBtn = page.getByRole('button', { name: 'Confirm', exact: true })
@@ -427,9 +438,7 @@ test.describe('Segments Feature', () => {
       const filter = (await readTree(page)).branch.leaves[0].leaf.contact.filters[0]
 
       // KEY ASSERTION: field_type should be "number" (NOT "json")
-      // Before the fix, this would be "json" because input_dimension_filters.tsx
-      // always overwrote field_type with the schema type.
-      // After the fix, JSON fields preserve the user-selected field_type.
+      // A JSON row saves the type its value is read as, never the column's « json ».
       expect(filter).toBeDefined()
       expect(filter.field_type).toBe('number')
       expect(filter.number_values).toBeDefined()
@@ -446,33 +455,32 @@ test.describe('Segments Feature', () => {
       await waitForLoading(page)
 
       // Open segment drawer
-      await page.getByRole('button', { name: 'Segment', exact: true }).click()
+      await page.getByRole('button', { name: 'New segment', exact: true }).click()
       const drawer = segmentDrawer(page, 'New segment')
       await expect(drawer).toBeVisible()
 
       // Fill segment name
-      await drawer.getByPlaceholder('i.e: Big spenders...').fill(testSegmentData.name)
+      await nameField(drawer).fill(testSegmentData.name)
 
       // A segment is only submittable with a queryable tree, so build the simplest complete
       // condition: contact email is set.
       await drawer.getByRole('button', { name: 'Condition', exact: true }).click()
-      await page.locator('.ant-cascader-menu-item').filter({ hasText: 'Contact property' }).click()
+      await page
+        .locator('.ant-dropdown:not(.ant-dropdown-hidden)')
+        .getByRole('menuitem')
+        .filter({ hasText: 'Contact property' })
+        .click()
 
-      await page.getByRole('button', { name: '+ Add filter' }).click()
-      const modal = page.getByRole('dialog', { name: 'Add a filter', exact: true })
-      await expect(modal).toBeVisible()
-
-      await modal.getByRole('combobox').first().click()
-      await page.locator('.ant-select-item-option').filter({ hasText: 'Email' }).first().click()
-
-      await modal.getByRole('combobox').last().click()
-      await page.locator('.ant-select-item-option').filter({ hasText: 'is set' }).first().click()
-
-      await modal.getByRole('button', { name: 'Confirm', exact: true }).click()
-      await expect(modal).toBeHidden()
+      await pickField(page, 'email', 'Email')
+      await pickOperator(page, /^is set$/)
 
       // Confirm the condition, then the segment
+      // While the condition is open, Create waits for it
+      await expect(drawerSubmit(drawer)).toBeDisabled()
+      await expect(summary(drawer).filter({ hasText: 'A condition is open: confirm or cancel it.' })).toBeVisible()
+
       await drawer.locator('.ant-drawer-body').getByRole('button', { name: 'Confirm', exact: true }).click()
+      await expect(drawerSubmit(drawer)).toBeEnabled()
       await drawerSubmit(drawer).click()
 
       await expect

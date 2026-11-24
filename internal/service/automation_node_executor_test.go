@@ -21,6 +21,7 @@ import (
 	pkgmocks "github.com/Notifuse/notifuse/pkg/mocks"
 	"github.com/Notifuse/notifuse/pkg/notifuse_mjml"
 	"github.com/Notifuse/notifuse/pkg/safehttpclient"
+	"github.com/Notifuse/notifuse/pkg/trackingtoken"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1091,6 +1092,74 @@ func TestEmailNodeExecutor_NodeType(t *testing.T) {
 
 	executor := NewEmailNodeExecutor(mockEmailQueueRepo, mockTemplateRepo, mockWorkspaceRepo, mockListRepo, mockContactListRepo, "https://api.example.com", mockLogger)
 	assert.Equal(t, domain.NodeTypeEmail, executor.NodeType())
+}
+
+// parseFirstClickToken finds the first /r/{token} link under endpoint in html and parses
+// the token the way the click route does.
+func parseFirstClickToken(t *testing.T, html, endpoint string) trackingtoken.Token {
+	t.Helper()
+	m := regexp.MustCompile(regexp.QuoteMeta(endpoint) + `/r/([A-Za-z0-9_-]+)`).FindStringSubmatch(html)
+	require.NotNil(t, m, "expected a /r/{token} tracking link, got: %s", html)
+	tok, err := trackingtoken.Parse(m[1], trackingtoken.PurposeClick)
+	require.NoError(t, err)
+	return tok
+}
+
+// TestEmailNodeExecutor_Execute_SignsTrackedLinks pins that an automation email's
+// tracked links are signed with the workspace's tracking key.
+func TestEmailNodeExecutor_Execute_SignsTrackedLinks(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEmailQueueRepo := mocks.NewMockEmailQueueRepository(ctrl)
+	mockTemplateRepo := mocks.NewMockTemplateRepository(ctrl)
+	mockWorkspaceRepo := mocks.NewMockWorkspaceRepository(ctrl)
+	mockListRepo := mocks.NewMockListRepository(ctrl)
+	mockContactListRepo := mocks.NewMockContactListRepository(ctrl)
+	mockLogger := setupMockLoggerForNodeExecutor(ctrl)
+
+	executor := NewEmailNodeExecutor(mockEmailQueueRepo, mockTemplateRepo, mockWorkspaceRepo, mockListRepo, mockContactListRepo, "https://api.example.com", mockLogger)
+
+	workspace := createTestWorkspaceWithEmailProvider()
+	require.True(t, workspace.Settings.EmailTrackingEnabled)
+	key := domain.TrackingSigningKey(workspace.Settings.SecretKey)
+	require.NotEmpty(t, key)
+
+	template := createTestTemplate()
+	template.Email.VisualEditorTree = createValidMJMLTree(createTestTextBlock("txt1", `Visit <a href="https://example.com/promo">our shop</a>`))
+
+	mockWorkspaceRepo.EXPECT().GetByID(gomock.Any(), "ws1").Return(workspace, nil)
+	mockTemplateRepo.EXPECT().GetTemplateByID(gomock.Any(), "ws1", "tpl123", int64(0)).Return(template, nil)
+
+	var html string
+	mockEmailQueueRepo.EXPECT().
+		Enqueue(gomock.Any(), "ws1", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, entries []*domain.EmailQueueEntry) error {
+			require.Len(t, entries, 1)
+			html = entries[0].Payload.HTMLContent
+			return nil
+		})
+
+	params := NodeExecutionParams{
+		WorkspaceID: "ws1",
+		Node: &domain.AutomationNode{
+			ID:         "email_node1",
+			Type:       domain.NodeTypeEmail,
+			NextNodeID: strPtr("next_node"),
+			Config:     map[string]interface{}{"template_id": "tpl123"},
+		},
+		Contact:     &domain.ContactAutomation{ID: "ca1", ContactEmail: "recipient@example.com"},
+		ContactData: &domain.Contact{Email: "recipient@example.com"},
+		Automation:  &domain.Automation{ID: "auto1", Name: "Test Automation"},
+	}
+
+	_, err := executor.Execute(context.Background(), params)
+	require.NoError(t, err)
+
+	tok := parseFirstClickToken(t, html, "https://api.example.com")
+	assert.Equal(t, "ws1", tok.WorkspaceID)
+	assert.NotEmpty(t, tok.Tag, "the tracked link must carry a signature")
+	assert.True(t, tok.Verify(key, trackingtoken.PurposeClick), "the tracked link must verify under the workspace's tracking key")
 }
 
 func TestEmailNodeExecutor_Execute_PreservesReplyTo(t *testing.T) {
@@ -2540,15 +2609,16 @@ func TestAddToListNodeExecutor_Execute_Success(t *testing.T) {
 	assert.NotContains(t, result.Output, "error")
 }
 
-func TestAddToListNodeExecutor_Execute_AlreadyInList(t *testing.T) {
+func TestAddToListNodeExecutor_Execute_RepositoryError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	mockContactListRepo := mocks.NewMockContactListRepository(ctrl)
-	// Returns error (contact already in list) but executor should not fail
+	// Adding a contact already in the list is an upsert, not an error: an error here is a write
+	// that did not happen, and the step must fail so the journey retries it.
 	mockContactListRepo.EXPECT().
 		AddContactToList(gomock.Any(), "ws1", gomock.Any()).
-		Return(errors.New("contact already exists in list"))
+		Return(errors.New("connection reset"))
 
 	executor := NewAddToListNodeExecutor(mockContactListRepo)
 
@@ -2570,13 +2640,9 @@ func TestAddToListNodeExecutor_Execute_AlreadyInList(t *testing.T) {
 	}
 
 	result, err := executor.Execute(context.Background(), params)
-	require.NoError(t, err) // Should not return error
-	require.NotNil(t, result)
-
-	assert.Equal(t, "next_node", *result.NextNodeID)
-	assert.Equal(t, domain.ContactAutomationStatusActive, result.Status)
-	assert.Equal(t, "list123", result.Output["list_id"])
-	assert.Contains(t, result.Output, "error") // Error logged in output
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "connection reset")
 }
 
 func TestAddToListNodeExecutor_Execute_InvalidConfig(t *testing.T) {
@@ -2661,14 +2727,43 @@ func TestRemoveFromListNodeExecutor_Execute_NotInList(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockContactListRepo := mocks.NewMockContactListRepository(ctrl)
-	// Returns error (contact not in list) but executor should not fail
+	// A contact with no row for the list is already where the step wants it: success.
 	mockContactListRepo.EXPECT().
 		RemoveContactFromList(gomock.Any(), "ws1", "test@example.com", "list123").
-		Return(errors.New("contact not found in list"))
+		Return(&domain.ErrContactListNotFound{Message: "contact list not found"})
 
 	executor := NewRemoveFromListNodeExecutor(mockContactListRepo)
 
-	params := NodeExecutionParams{
+	result, err := executor.Execute(context.Background(), removeFromListParams())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	assert.Equal(t, "next_node", *result.NextNodeID)
+	assert.Equal(t, domain.ContactAutomationStatusActive, result.Status)
+	assert.Equal(t, "list123", result.Output["list_id"])
+	assert.Equal(t, true, result.Output["not_in_list"])
+	assert.NotContains(t, result.Output, "error")
+}
+
+func TestRemoveFromListNodeExecutor_Execute_RepositoryError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockContactListRepo := mocks.NewMockContactListRepository(ctrl)
+	mockContactListRepo.EXPECT().
+		RemoveContactFromList(gomock.Any(), "ws1", "test@example.com", "list123").
+		Return(errors.New("connection reset"))
+
+	executor := NewRemoveFromListNodeExecutor(mockContactListRepo)
+
+	result, err := executor.Execute(context.Background(), removeFromListParams())
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "connection reset")
+}
+
+func removeFromListParams() NodeExecutionParams {
+	return NodeExecutionParams{
 		WorkspaceID: "ws1",
 		Node: &domain.AutomationNode{
 			ID:         "remove_from_list1",
@@ -2683,15 +2778,6 @@ func TestRemoveFromListNodeExecutor_Execute_NotInList(t *testing.T) {
 			ContactEmail: "test@example.com",
 		},
 	}
-
-	result, err := executor.Execute(context.Background(), params)
-	require.NoError(t, err) // Should not return error
-	require.NotNil(t, result)
-
-	assert.Equal(t, "next_node", *result.NextNodeID)
-	assert.Equal(t, domain.ContactAutomationStatusActive, result.Status)
-	assert.Equal(t, "list123", result.Output["list_id"])
-	assert.Contains(t, result.Output, "error") // Error logged in output
 }
 
 func TestRemoveFromListNodeExecutor_Execute_InvalidConfig(t *testing.T) {
@@ -4002,6 +4088,49 @@ func TestWebhookNodeExecutor_Execute_RefusesARedirectIntoThePrivateNetwork(t *te
 	assert.Equal(t, int32(0), atomic.LoadInt32(&hits), "the redirect target must never be contacted")
 }
 
+// The node bounds its call itself, whatever client it is given: a client with no timeout still
+// gets a request whose context ends at the node's timeout.
+func TestWebhookNodeExecutor_Execute_BoundedByItsTimeout(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	t.Run("the request carries the node's deadline", func(t *testing.T) {
+		transport := &recordingTransport{}
+		executor := NewWebhookNodeExecutor(setupMockLoggerForNodeExecutor(ctrl), &http.Client{Transport: transport})
+		before := time.Now()
+		_, err := executor.Execute(context.Background(), webhookNodeTestParams(map[string]interface{}{"url": "https://receiver.invalid/hook"}))
+		require.NoError(t, err)
+		require.Len(t, transport.requests, 1)
+		deadline, ok := transport.requests[0].Context().Deadline()
+		require.True(t, ok, "the request has a deadline although the client has no timeout")
+		assert.WithinDuration(t, before.Add(WebhookNodeTimeout), deadline, time.Second)
+	})
+
+	t.Run("an endpoint that does not answer fails the node at its timeout", func(t *testing.T) {
+		release := make(chan struct{})
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+		}))
+		defer server.Close()
+		defer close(release)
+
+		executor := NewWebhookNodeExecutor(setupMockLoggerForNodeExecutor(ctrl), &http.Client{})
+		executor.timeout = 50 * time.Millisecond
+		var result *NodeExecutionResult
+		err := sendWithin(t, 5*time.Second, func() error {
+			var err error
+			result, err = executor.Execute(context.Background(), webhookNodeTestParams(map[string]interface{}{"url": server.URL}))
+			return err
+		})
+		assert.Nil(t, result)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
+	})
+}
+
 func TestNewWebhookNodeExecutor_NilClientFailsClosed(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -4014,7 +4143,7 @@ func TestNewWebhookNodeExecutor_NilClientFailsClosed(t *testing.T) {
 	defer server.Close()
 
 	executor := NewWebhookNodeExecutor(setupMockLoggerForNodeExecutor(ctrl), nil)
-	assert.Equal(t, 30*time.Second, executor.httpClient.Timeout, "the node's timeout is unchanged")
+	assert.Equal(t, WebhookNodeTimeout, executor.httpClient.Timeout, "the node's own timeout")
 
 	_, err := executor.Execute(context.Background(), webhookNodeTestParams(map[string]interface{}{"url": server.URL}))
 	assert.ErrorIs(t, err, safehttpclient.ErrPrivateIP, "a caller that passes no client gets the guarded one")
@@ -4141,11 +4270,12 @@ func TestEmailNodeExecutor_buildTrackingSettings_WebIdentityGate(t *testing.T) {
 		workspace := createTestWorkspaceWithEmailProvider()
 		workspace.Settings.WebAnalytics = webAnalytics
 
-		return executor.buildTrackingSettings(NodeExecutionParams{
+		settings, _ := executor.buildTrackingSettings(NodeExecutionParams{
 			WorkspaceID: "ws1",
 			ContactData: &domain.Contact{Email: "recipient@example.com"},
 			Automation:  &domain.Automation{ID: "auto1", Name: "Test Automation"},
 		}, workspace, "tpl123", "msg1")
+		return settings
 	}
 
 	// assertBuiltWithoutIdentity is the control every closed-gate case shares:
@@ -4213,5 +4343,386 @@ func TestEmailNodeExecutor_buildTrackingSettings_WebIdentityGate(t *testing.T) {
 
 	t.Run("no web analytics settings mint nothing", func(t *testing.T) {
 		assertBuiltWithoutIdentity(t, build(t, nil))
+	})
+}
+
+func TestEmailNodeExecutor_buildTrackingSettings_FollowsTrackingConsent(t *testing.T) {
+	webAnalytics := &domain.WebAnalyticsSettings{
+		Enabled:                true,
+		IdentifyFromEmailLinks: true,
+		AllowedDomains:         []string{"shop.example.com"},
+	}
+
+	build := func(t *testing.T, contact *domain.Contact, tracking *domain.EmailTrackingSettings) (notifuse_mjml.TrackingSettings, domain.EmailTrackingDecision) {
+		t.Helper()
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		executor := NewEmailNodeExecutor(nil, nil, nil, nil, nil, "https://api.example.com", setupMockLoggerForNodeExecutor(ctrl))
+		workspace := createTestWorkspaceWithEmailProvider()
+		workspace.Settings.EmailTrackingEnabled = true
+		workspace.Settings.EmailTracking = tracking
+		workspace.Settings.WebAnalytics = webAnalytics
+
+		return executor.buildTrackingSettings(NodeExecutionParams{
+			WorkspaceID: "ws1",
+			ContactData: contact,
+			Automation:  &domain.Automation{ID: "auto1", Name: "Test Automation"},
+		}, workspace, "tpl123", "msg1")
+	}
+
+	t.Run("denied clicks suppress clicks and the identity token", func(t *testing.T) {
+		settings, decision := build(t, &domain.Contact{
+			Email:                 "recipient@example.com",
+			TrackingClicksConsent: &domain.NullableString{String: domain.TrackingConsentDenied},
+		}, domain.DefaultEmailTrackingSettings())
+
+		assert.True(t, decision.Opens)
+		assert.False(t, decision.Clicks)
+		assert.True(t, settings.EnableTracking)
+		assert.False(t, settings.SuppressOpens)
+		assert.True(t, settings.SuppressClicks)
+		assert.True(t, settings.SuppressIdentify)
+		assert.Empty(t, settings.IdentifyToken)
+	})
+
+	t.Run("unknown consent with no_track tracks nothing", func(t *testing.T) {
+		settings, decision := build(t, &domain.Contact{Email: "recipient@example.com"},
+			&domain.EmailTrackingSettings{OpensEnabled: true, ClicksEnabled: true, UnknownConsent: domain.UnknownConsentNoTrack})
+
+		assert.Equal(t, domain.EmailTrackingDecision{UTM: true}, decision)
+		assert.False(t, settings.EnableTracking)
+		assert.Empty(t, settings.IdentifyToken)
+		assert.Equal(t, "automation", settings.UTMSource, "UTM tagging is not tracking and stays")
+	})
+
+	t.Run("granted consent tracks and identifies", func(t *testing.T) {
+		granted := &domain.NullableString{String: domain.TrackingConsentGranted}
+		settings, decision := build(t, &domain.Contact{Email: "recipient@example.com", TrackingOpensConsent: granted, TrackingClicksConsent: granted},
+			&domain.EmailTrackingSettings{OpensEnabled: true, ClicksEnabled: true, UnknownConsent: domain.UnknownConsentNoTrack})
+
+		assert.True(t, decision.Opens)
+		assert.True(t, decision.Clicks)
+		assert.True(t, settings.EnableTracking)
+		assert.NotEmpty(t, settings.IdentifyToken)
+	})
+}
+
+// A translation's own sender wins over the template's for a contact in its language; a
+// translation without one keeps the template's. Neither is the integration's default.
+func TestEmailNodeExecutor_Execute_TranslationSender(t *testing.T) {
+	for contactLanguage, want := range map[string]string{"fr": "bonjour@example.com", "de": "news@example.com", "": "news@example.com"} {
+		t.Run("contact language "+contactLanguage, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockEmailQueueRepo := mocks.NewMockEmailQueueRepository(ctrl)
+			mockTemplateRepo := mocks.NewMockTemplateRepository(ctrl)
+			mockWorkspaceRepo := mocks.NewMockWorkspaceRepository(ctrl)
+			mockListRepo := mocks.NewMockListRepository(ctrl)
+			executor := NewEmailNodeExecutor(mockEmailQueueRepo, mockTemplateRepo, mockWorkspaceRepo, mockListRepo,
+				mocks.NewMockContactListRepository(ctrl), "https://api.example.com", setupMockLoggerForNodeExecutor(ctrl))
+
+			workspace := createTestWorkspaceWithEmailProvider()
+			workspace.Settings.DefaultLanguage = "en"
+			provider := &workspace.Integrations[0].EmailProvider
+			provider.Senders = append(provider.Senders,
+				domain.EmailSender{ID: "sender-news", Email: "news@example.com", Name: "Newsletter"},
+				domain.EmailSender{ID: "sender-fr", Email: "bonjour@example.com", Name: "France"},
+			)
+			base := &domain.EmailTemplate{
+				Subject:          "Hello",
+				SenderID:         "sender-news",
+				VisualEditorTree: createValidMJMLTree(createTestTextBlock("txt1", "Hello")),
+			}
+			french := *base
+			french.SenderID = "sender-fr"
+			german := *base
+			german.SenderID = ""
+			template := &domain.Template{
+				ID: "tpl123", Name: "Test Template", Version: 1, Channel: "email", Email: base,
+				Translations: map[string]domain.TemplateTranslation{"fr": {Email: &french}, "de": {Email: &german}},
+			}
+
+			mockWorkspaceRepo.EXPECT().GetByID(gomock.Any(), "ws1").Return(workspace, nil)
+			mockTemplateRepo.EXPECT().GetTemplateByID(gomock.Any(), "ws1", "tpl123", int64(0)).Return(template, nil)
+			mockListRepo.EXPECT().GetListByID(gomock.Any(), "ws1", "list1").Return(&domain.List{ID: "list1", Name: "Test List"}, nil)
+			mockEmailQueueRepo.EXPECT().Enqueue(gomock.Any(), "ws1", gomock.Any()).
+				DoAndReturn(func(_ context.Context, _ string, entries []*domain.EmailQueueEntry) error {
+					require.Len(t, entries, 1)
+					assert.Equal(t, want, entries[0].Payload.FromAddress)
+					return nil
+				})
+
+			contact := &domain.Contact{Email: "recipient@example.com"}
+			if contactLanguage != "" {
+				contact.Language = &domain.NullableString{String: contactLanguage}
+			}
+			_, err := executor.Execute(context.Background(), NodeExecutionParams{
+				WorkspaceID: "ws1",
+				Node: &domain.AutomationNode{
+					ID: "email_node1", Type: domain.NodeTypeEmail, NextNodeID: strPtr("next_node"),
+					Config: map[string]interface{}{"template_id": "tpl123"},
+				},
+				Contact:     &domain.ContactAutomation{ID: "ca1", ContactEmail: "recipient@example.com"},
+				ContactData: contact,
+				Automation:  &domain.Automation{ID: "auto1", Name: "Test Automation", ListID: "list1"},
+			})
+			require.NoError(t, err)
+		})
+	}
+}
+
+// The queue entry records the translation the automation email was rendered in, "" for
+// the base content, so its web version shows the language that was sent.
+func TestEmailNodeExecutor_Execute_RecordsTheRenderedLanguage(t *testing.T) {
+	for contactLanguage, want := range map[string]string{"fr": "fr", "de": "", "": ""} {
+		t.Run("contact language "+contactLanguage, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockEmailQueueRepo := mocks.NewMockEmailQueueRepository(ctrl)
+			mockTemplateRepo := mocks.NewMockTemplateRepository(ctrl)
+			mockWorkspaceRepo := mocks.NewMockWorkspaceRepository(ctrl)
+			mockListRepo := mocks.NewMockListRepository(ctrl)
+			executor := NewEmailNodeExecutor(mockEmailQueueRepo, mockTemplateRepo, mockWorkspaceRepo, mockListRepo,
+				mocks.NewMockContactListRepository(ctrl), "https://api.example.com", setupMockLoggerForNodeExecutor(ctrl))
+
+			workspace := createTestWorkspaceWithEmailProvider()
+			workspace.Settings.DefaultLanguage = "en"
+			base := &domain.EmailTemplate{
+				Subject:          "Hello",
+				SenderID:         "sender1",
+				VisualEditorTree: createValidMJMLTree(createTestTextBlock("txt1", "Hello")),
+			}
+			french := *base
+			french.Subject = "Bonjour"
+			french.VisualEditorTree = createValidMJMLTree(createTestTextBlock("txt1", "Bonjour"))
+			template := &domain.Template{
+				ID: "tpl123", Name: "Test Template", Version: 1, Channel: "email", Email: base,
+				Translations: map[string]domain.TemplateTranslation{"fr": {Email: &french}},
+			}
+
+			mockWorkspaceRepo.EXPECT().GetByID(gomock.Any(), "ws1").Return(workspace, nil)
+			mockTemplateRepo.EXPECT().GetTemplateByID(gomock.Any(), "ws1", "tpl123", int64(0)).Return(template, nil)
+			mockListRepo.EXPECT().GetListByID(gomock.Any(), "ws1", "list1").Return(&domain.List{ID: "list1", Name: "Test List"}, nil)
+			mockEmailQueueRepo.EXPECT().Enqueue(gomock.Any(), "ws1", gomock.Any()).
+				DoAndReturn(func(_ context.Context, _ string, entries []*domain.EmailQueueEntry) error {
+					require.Len(t, entries, 1)
+					require.NotNil(t, entries[0].Payload.RenderedLanguage)
+					assert.Equal(t, want, *entries[0].Payload.RenderedLanguage)
+					return nil
+				})
+
+			contact := &domain.Contact{Email: "recipient@example.com"}
+			if contactLanguage != "" {
+				contact.Language = &domain.NullableString{String: contactLanguage}
+			}
+			_, err := executor.Execute(context.Background(), NodeExecutionParams{
+				WorkspaceID: "ws1",
+				Node: &domain.AutomationNode{
+					ID: "email_node1", Type: domain.NodeTypeEmail, NextNodeID: strPtr("next_node"),
+					Config: map[string]interface{}{"template_id": "tpl123"},
+				},
+				Contact:     &domain.ContactAutomation{ID: "ca1", ContactEmail: "recipient@example.com"},
+				ContactData: contact,
+				Automation:  &domain.Automation{ID: "auto1", Name: "Test Automation", ListID: "list1"},
+			})
+			require.NoError(t, err)
+		})
+	}
+}
+
+// A list step whose write a shutdown cut short fails, so the journey stays on it and runs it
+// again after the restart.
+func TestListNodeExecutors_CancelledRunFailsTheStep(t *testing.T) {
+	params := func(nodeType domain.NodeType) NodeExecutionParams {
+		return NodeExecutionParams{
+			WorkspaceID: "ws1",
+			Node: &domain.AutomationNode{ID: "n1", Type: nodeType, NextNodeID: strPtr("next_node"),
+				Config: map[string]interface{}{"list_id": "list123", "status": "active"}},
+			Contact: &domain.ContactAutomation{ID: "ca1", ContactEmail: "test@example.com"},
+		}
+	}
+	steps := map[string]struct {
+		nodeType domain.NodeType
+		run      func(repo *mocks.MockContactListRepository, ctx context.Context, cancel context.CancelFunc, p NodeExecutionParams) (*NodeExecutionResult, error)
+	}{
+		"add_to_list": {domain.NodeTypeAddToList, func(repo *mocks.MockContactListRepository, ctx context.Context, cancel context.CancelFunc, p NodeExecutionParams) (*NodeExecutionResult, error) {
+			repo.EXPECT().AddContactToList(gomock.Any(), "ws1", gomock.Any()).DoAndReturn(
+				func(context.Context, string, *domain.ContactList) error { cancel(); return context.Canceled })
+			return NewAddToListNodeExecutor(repo).Execute(ctx, p)
+		}},
+		"remove_from_list": {domain.NodeTypeRemoveFromList, func(repo *mocks.MockContactListRepository, ctx context.Context, cancel context.CancelFunc, p NodeExecutionParams) (*NodeExecutionResult, error) {
+			repo.EXPECT().RemoveContactFromList(gomock.Any(), "ws1", "test@example.com", "list123").DoAndReturn(
+				func(context.Context, string, string, string) error { cancel(); return context.Canceled })
+			return NewRemoveFromListNodeExecutor(repo).Execute(ctx, p)
+		}},
+	}
+	for name, step := range steps {
+		t.Run(name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			repo := mocks.NewMockContactListRepository(ctrl)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			result, err := step.run(repo, ctx, cancel, params(step.nodeType))
+			assert.Nil(t, result)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, context.Canceled)
+		})
+	}
+}
+
+// The event that started the journey, stored by the enrolment in the journey's context,
+// reaches the template as {{ trigger_event }}; a journey without one sends without it.
+func TestEmailNodeExecutor_Execute_PassesTheTriggerEvent(t *testing.T) {
+	cases := []struct {
+		name    string
+		context map[string]interface{}
+		want    map[string]interface{}
+	}{
+		{
+			name: "a custom event's properties",
+			context: map[string]interface{}{"trigger": map[string]interface{}{
+				"kind":       "custom_event.cart_abandoned",
+				"name":       "cart_abandoned",
+				"properties": map[string]interface{}{"items": []interface{}{map[string]interface{}{"name": "Linen shirt"}}},
+			}},
+			want: map[string]interface{}{
+				"kind":       "custom_event.cart_abandoned",
+				"name":       "cart_abandoned",
+				"properties": map[string]interface{}{"items": []interface{}{map[string]interface{}{"name": "Linen shirt"}}},
+			},
+		},
+		{name: "a journey that started before 44.0", context: map[string]interface{}{}, want: nil},
+		{name: "no context at all", context: nil, want: nil},
+		{name: "a trigger that is not an object", context: map[string]interface{}{"trigger": "oops"}, want: nil},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockEmailQueueRepo := mocks.NewMockEmailQueueRepository(ctrl)
+			mockTemplateRepo := mocks.NewMockTemplateRepository(ctrl)
+			mockWorkspaceRepo := mocks.NewMockWorkspaceRepository(ctrl)
+			mockListRepo := mocks.NewMockListRepository(ctrl)
+			mockContactListRepo := mocks.NewMockContactListRepository(ctrl)
+			mockLogger := setupMockLoggerForNodeExecutor(ctrl)
+
+			executor := NewEmailNodeExecutor(mockEmailQueueRepo, mockTemplateRepo, mockWorkspaceRepo, mockListRepo, mockContactListRepo, "https://api.example.com", mockLogger)
+
+			mockWorkspaceRepo.EXPECT().GetByID(gomock.Any(), "ws1").Return(createTestWorkspaceWithEmailProvider(), nil)
+			mockTemplateRepo.EXPECT().GetTemplateByID(gomock.Any(), "ws1", "tpl123", int64(0)).Return(createTestTemplate(), nil)
+
+			var data map[string]interface{}
+			mockEmailQueueRepo.EXPECT().
+				Enqueue(gomock.Any(), "ws1", gomock.Any()).
+				DoAndReturn(func(ctx context.Context, workspaceID string, entries []*domain.EmailQueueEntry) error {
+					require.Len(t, entries, 1)
+					data = entries[0].Payload.TemplateData
+					return nil
+				})
+
+			_, err := executor.Execute(context.Background(), NodeExecutionParams{
+				WorkspaceID: "ws1",
+				Node: &domain.AutomationNode{
+					ID:         "email_node1",
+					Type:       domain.NodeTypeEmail,
+					NextNodeID: strPtr("next_node"),
+					Config:     map[string]interface{}{"template_id": "tpl123"},
+				},
+				Contact:     &domain.ContactAutomation{ID: "ca1", ContactEmail: "recipient@example.com", Context: tc.context},
+				ContactData: &domain.Contact{Email: "recipient@example.com"},
+				Automation:  &domain.Automation{ID: "auto1", Name: "Cart reminder"},
+			})
+			require.NoError(t, err)
+			require.NotNil(t, data)
+
+			assert.Equal(t, "auto1", data["automation_id"])
+			if tc.want == nil {
+				assert.NotContains(t, data, "trigger_event")
+				return
+			}
+			assert.Equal(t, tc.want, data["trigger_event"])
+		})
+	}
+}
+
+// jsonDateConditionMap compares custom_json_1.renewed_at as a date.
+func jsonDateConditionMap(operator string, values ...string) map[string]interface{} {
+	vals := make([]interface{}, len(values))
+	for i, v := range values {
+		vals[i] = v
+	}
+	return map[string]interface{}{
+		"kind": "leaf",
+		"leaf": map[string]interface{}{
+			"source": "contacts",
+			"contact": map[string]interface{}{
+				"filters": []interface{}{
+					map[string]interface{}{
+						"field_name": "custom_json_1", "field_type": "time", "operator": operator,
+						"json_path": []interface{}{"renewed_at"}, "string_values": vals,
+					},
+				},
+			},
+		},
+	}
+}
+
+// Branch and filter steps compile contact custom JSON filters defensively: the statement they
+// send tests the conversion before casting, so a value that cannot be converted reads as missing
+// instead of raising. What that answers on a real database (no match for « after », a match for
+// « not in the last N days ») is pinned by the integration test of segment value errors.
+func TestBranchAndFilterNodes_CastJSONValuesDefensively(t *testing.T) {
+	defensive := castTimestamp(`(custom_json_1['renewed_at'] #>> '{}')`, castDefensively)
+	expected := regexp.QuoteMeta("SELECT EXISTS (SELECT email FROM contacts WHERE (" + defensive + " > $1) AND email = $2)")
+
+	t.Run("filter", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer db.Close()
+		workspaceRepo := mocks.NewMockWorkspaceRepository(ctrl)
+		workspaceRepo.EXPECT().GetConnection(gomock.Any(), "ws1").Return(db, nil)
+		mock.ExpectQuery("^"+expected+"$").WithArgs(sqlmock.AnyArg(), "test@example.com").
+			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+		result, err := NewFilterNodeExecutor(NewQueryBuilder(), workspaceRepo).Execute(context.Background(), NodeExecutionParams{
+			WorkspaceID: "ws1",
+			Node: &domain.AutomationNode{ID: "filter1", Type: domain.NodeTypeFilter, Config: map[string]interface{}{
+				"continue_node_id": "continue_node", "exit_node_id": "exit_node",
+				"conditions": jsonDateConditionMap("after_date", "2026-01-01T00:00:00Z"),
+			}},
+			ContactData: &domain.Contact{Email: "test@example.com"},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "exit_node", *result.NextNodeID)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("branch", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer db.Close()
+		workspaceRepo := mocks.NewMockWorkspaceRepository(ctrl)
+		workspaceRepo.EXPECT().GetConnection(gomock.Any(), "ws1").Return(db, nil)
+		mock.ExpectQuery("^"+expected+"$").WithArgs(sqlmock.AnyArg(), "test@example.com").
+			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+		result, err := NewBranchNodeExecutor(NewQueryBuilder(), workspaceRepo).Execute(context.Background(), NodeExecutionParams{
+			WorkspaceID: "ws1",
+			Node: &domain.AutomationNode{ID: "branch1", Type: domain.NodeTypeBranch, Config: map[string]interface{}{
+				"paths": []interface{}{
+					map[string]interface{}{"id": "p1", "name": "Renewed", "next_node_id": "renewed_node",
+						"conditions": jsonDateConditionMap("after_date", "2026-01-01T00:00:00Z")},
+					map[string]interface{}{"id": "p2", "name": "Other", "next_node_id": "other_node"},
+				},
+				"default_path_id": "p2",
+			}},
+			ContactData: &domain.Contact{Email: "test@example.com"},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "renewed_node", *result.NextNodeID)
+		require.NoError(t, mock.ExpectationsWereMet())
 	})
 }

@@ -1,11 +1,12 @@
 import React, { useState, forwardRef, useImperativeHandle, useRef } from 'react'
+import { findSkips, htmlHeadingOutline } from '../utils/headingOutline'
 import { useLingui } from '@lingui/react/macro'
 import { Segmented, Tooltip, Tabs, Splitter, Button, App } from 'antd'
 import { OverlayScrollbarsComponent } from 'overlayscrollbars-react'
 import 'overlayscrollbars/overlayscrollbars.css'
 import { Highlight, themes } from 'prism-react-renderer'
 import { Editor } from '@monaco-editor/react'
-import { faDesktop, faMobileAlt } from '@fortawesome/free-solid-svg-icons'
+import { faCodeBranch, faDesktop, faMobileAlt } from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { insertAfterDoctype } from '../../../utils/previewDocument'
 
@@ -27,6 +28,8 @@ interface PreviewProps {
   testData?: Record<string, unknown>
   onTestDataChange: (testData: Record<string, unknown>) => void
   mobileDesktopSwitcherRef?: React.RefObject<HTMLDivElement>
+  // Blocks the test data hides through their display condition
+  hiddenBlockCount?: number
 }
 
 export interface PreviewRef {
@@ -39,9 +42,22 @@ export interface PreviewRef {
 }
 
 export const Preview = forwardRef<PreviewRef, PreviewProps>(
-  ({ html, mjml, errors, testData, onTestDataChange, mobileDesktopSwitcherRef }, ref) => {
+  (
+    {
+      html,
+      mjml,
+      errors,
+      testData,
+      onTestDataChange,
+      mobileDesktopSwitcherRef,
+      hiddenBlockCount = 0
+    },
+    ref
+  ) => {
     const { t } = useLingui()
     const { message } = App.useApp()
+    // Headings of the email as sent, those of mj-liquid blocks included
+    const headingSkips = React.useMemo(() => findSkips(htmlHeadingOutline(html)), [html])
     const [mobileView, setMobileView] = useState(true)
     const [leftPanelSize, setLeftPanelSize] = useState(500)
     const [isEditingTestData, setIsEditingTestData] = useState(false)
@@ -465,6 +481,30 @@ export const Preview = forwardRef<PreviewRef, PreviewProps>(
                   />
                 </div>
               </div>
+              {headingSkips.length > 0 && (
+                <div className="px-4 pt-4" data-testid="preview-heading-skips">
+                  <div className="rounded-lg border border-warning-fg/40 bg-warning-bg px-3 py-2 text-xs text-warning-fg">
+                    <div className="font-semibold">⚠ {t`Heading structure`}</div>
+                    <ul className="mt-1 list-disc pl-5">
+                      {headingSkips.map(({ heading, previousLevel }, index) => (
+                        <li key={index}>
+                          {t`“${heading.text}”: H${heading.level} after H${previousLevel} (H${previousLevel + 1} expected)`}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )}
+              {hiddenBlockCount > 0 && (
+                <div className="px-4 pt-4" data-testid="preview-hidden-blocks">
+                  <div className="inline-flex items-center gap-2 bg-white/95 border border-gray-200 rounded-lg shadow-sm px-3 py-1.5 text-xs text-slate-600">
+                    <FontAwesomeIcon icon={faCodeBranch} className="text-primary-500" />
+                    {hiddenBlockCount === 1
+                      ? t`1 block hidden by its condition with this test data.`
+                      : t`${hiddenBlockCount} blocks hidden by their condition with this test data.`}
+                  </div>
+                </div>
+              )}
               <div
                 className="flex-1"
                 style={{

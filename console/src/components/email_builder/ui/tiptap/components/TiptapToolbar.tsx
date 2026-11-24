@@ -1,5 +1,6 @@
 import React from 'react'
-import { Space, ColorPicker, Popover, Tooltip, Select, Input, Button } from 'antd'
+import { Space, ColorPicker, Popover, Tooltip, Select, Input, Button, Dropdown } from 'antd'
+import type { MenuProps } from 'antd'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faUndo,
@@ -13,11 +14,14 @@ import {
   faHighlighter,
   faFont,
   faSmile,
-  faLink
+  faLink,
+  faChevronDown
 } from '@fortawesome/free-solid-svg-icons'
 import data from '@emoji-mart/data'
 import Picker from '@emoji-mart/react'
 import { useLingui } from '@lingui/react/macro'
+import { useEditorState } from '@tiptap/react'
+import { HEADING_LEVELS } from '../../../utils/headingStyles'
 import type {
   TiptapToolbarProps,
   ToolbarButtonProps,
@@ -32,14 +36,18 @@ import {
   getToolbarButtonClasses,
   toolbarSeparatorClasses
 } from '../shared/styles'
-import { applyFormattingWithNodeSelection, applyInlineFormatting } from '../shared/utils'
 import {
   handleTextColorChange as handleTextColorChangeUtil,
   handleBackgroundColorChange as handleBackgroundColorChangeUtil,
   getEffectiveTextColor,
   getEffectiveBackgroundColor,
+  isFormattingActive,
+  pickerColor,
+  toggleFormatting,
   createLinkWithStyleMerging,
-  expandSelectionToLinkRange
+  expandSelectionToLinkRange,
+  parseLinkHref,
+  WEB_VERSION_LINK_HREF
 } from '../shared/utils'
 
 // Toolbar Button Component
@@ -54,6 +62,8 @@ export const ToolbarButton: React.FC<ToolbarButtonProps> = ({
     <Tooltip title={title}>
       <button
         type="button"
+        aria-label={title}
+        aria-pressed={isActive}
         onClick={onClick}
         disabled={disabled}
         style={{ width: 28, height: 28 }}
@@ -270,44 +280,29 @@ export const LinkButton: React.FC<LinkButtonProps> = ({ editor, title }) => {
   const [linkType, setLinkType] = React.useState<LinkType>('url')
   const [linkValue, setLinkValue] = React.useState('')
 
-  // Get current link if selection is inside a link
-  const getCurrentLink = () => {
-    const { href } = editor.getAttributes('link')
-    return href || ''
-  }
-
-  // Check if current selection is a link
-  const isActiveLink = editor.isActive('link')
+  // Follows the selection: the toolbar does not re-render on its own when it moves
+  const { isActiveLink, currentHref } = useEditorState({
+    editor,
+    selector: ({ editor: current }) => ({
+      isActiveLink: current.isActive('link'),
+      currentHref: (current.getAttributes('link').href as string | undefined) ?? ''
+    })
+  })
 
   React.useEffect(() => {
     if (visible) {
-      const currentHref = getCurrentLink()
-      if (currentHref) {
-        setLinkValue(currentHref)
-        // Try to determine link type based on current href
-        if (currentHref.startsWith('mailto:')) {
-          setLinkType('email')
-          setLinkValue(currentHref.replace('mailto:', ''))
-        } else if (currentHref.startsWith('tel:')) {
-          setLinkType('phone')
-          setLinkValue(currentHref.replace('tel:', ''))
-        } else if (currentHref.startsWith('#')) {
-          setLinkType('anchor')
-          setLinkValue(currentHref.replace('#', ''))
-        } else {
-          setLinkType('url')
-          setLinkValue(currentHref)
-        }
-      } else {
-        setLinkValue('')
-        setLinkType('url')
-      }
+      // Determine the link type and value from the current href, if any
+      const { type, value } = parseLinkHref(currentHref)
+      setLinkType(type)
+      setLinkValue(value)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- getCurrentLink is stable
-  }, [visible, isActiveLink])
+  }, [visible, isActiveLink, currentHref])
+
+  const isWebVersion = linkType === 'web_version'
 
   const handleInsertLink = () => {
-    if (!linkValue.trim()) {
+    // The web version link has a fixed target, so it never needs a value
+    if (!isWebVersion && !linkValue.trim()) {
       // Remove link if value is empty
       // Expand selection to full link range first to ensure entire link is removed
       expandSelectionToLinkRange(editor)
@@ -318,8 +313,13 @@ export const LinkButton: React.FC<LinkButtonProps> = ({ editor, title }) => {
       if (isActiveLink) {
         expandSelectionToLinkRange(editor)
       }
-      // Use our enhanced link creation that merges textStyle attributes
-      createLinkWithStyleMerging(editor, linkValue, linkType)
+      // With nothing selected, the link is inserted with its own text
+      createLinkWithStyleMerging(
+        editor,
+        linkValue,
+        linkType,
+        isWebVersion ? t`View in browser` : undefined
+      )
     }
     setVisible(false)
     setLinkValue('')
@@ -337,7 +337,8 @@ export const LinkButton: React.FC<LinkButtonProps> = ({ editor, title }) => {
     { value: 'url', label: t`URL` },
     { value: 'email', label: t`Email` },
     { value: 'phone', label: t`Phone` },
-    { value: 'anchor', label: t`Anchor` }
+    { value: 'anchor', label: t`Anchor` },
+    { value: 'web_version', label: t`Web version of the email` }
   ]
 
   // Placeholder strings contain Liquid template syntax - not translatable
@@ -383,15 +384,26 @@ export const LinkButton: React.FC<LinkButtonProps> = ({ editor, title }) => {
                   ? t`Email Address`
                   : linkType === 'phone'
                     ? t`Phone Number`
-                    : t`Anchor ID`}
+                    : linkType === 'web_version'
+                      ? t`Link target`
+                      : t`Anchor ID`}
             </label>
-            <Input
-              value={linkValue}
-              onChange={(e) => setLinkValue(e.target.value)}
-              placeholder={getPlaceholder()}
-              size="small"
-              onPressEnter={handleInsertLink}
-            />
+            {isWebVersion ? (
+              <>
+                <Input value={WEB_VERSION_LINK_HREF} disabled size="small" />
+                <div style={{ marginTop: '4px', fontSize: '12px', color: 'rgba(0, 0, 0, 0.45)' }}>
+                  {t`Opens this email in the browser. The link is filled in for broadcasts and automations, and left empty in other emails.`}
+                </div>
+              </>
+            ) : (
+              <Input
+                value={linkValue}
+                onChange={(e) => setLinkValue(e.target.value)}
+                placeholder={getPlaceholder()}
+                size="small"
+                onPressEnter={handleInsertLink}
+              />
+            )}
           </div>
           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
             <Button size="small" onClick={() => setVisible(false)}>
@@ -424,10 +436,110 @@ export const LinkButton: React.FC<LinkButtonProps> = ({ editor, title }) => {
   )
 }
 
-// Main Toolbar Component
-export const TiptapToolbar: React.FC<TiptapToolbarProps> = ({ editor, buttons, mode = 'rich' }) => {
+const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
+
+// Tiptap's shortcuts for paragraph (0) and heading levels (1-6)
+const styleShortcut = (level: number) => (isMac ? `⌘⌥${level}` : `Ctrl+Alt+${level}`)
+
+/**
+ * Paragraph or heading level of the block at the cursor. A level deeper than the
+ * heading before it + 1 skips one: it is marked, never refused (screen readers
+ * expect no skipped level, and the email's order can change afterwards anyway).
+ */
+export const TextStyleMenu: React.FC<{
+  editor: NonNullable<TiptapToolbarProps['editor']>
+  headingLevelBeforeBlock?: number | null
+}> = ({ editor, headingLevelBeforeBlock = null }) => {
   const { t } = useLingui()
-  if (!editor) {
+  const { level, previousLevel } = useEditorState({
+    editor,
+    selector: ({ editor: current }) => {
+      const { $from } = current.state.selection
+      const blockStart = $from.depth > 0 ? $from.before($from.depth) : 0
+      // The last heading earlier in this block, else the one above the block
+      let previous: number | null = null
+      current.state.doc.descendants((node, pos) => {
+        if (pos >= blockStart) return false
+        if (node.type.name === 'heading') previous = node.attrs.level as number
+        return !node.isTextblock
+      })
+      return {
+        level: $from.parent.type.name === 'heading' ? ($from.parent.attrs.level as number) : 0,
+        previousLevel: previous ?? headingLevelBeforeBlock
+      }
+    }
+  })
+
+  const labelOf = (value: number) => (value === 0 ? t`Paragraph` : t`Heading ${value}`)
+  const skips = (value: number) => previousLevel !== null && value > previousLevel + 1
+
+  const items: MenuProps['items'] = [0, ...HEADING_LEVELS].map((value) => ({
+    key: String(value),
+    label: (
+      <span className="flex items-center justify-between gap-4">
+        <span className={value === 0 ? undefined : 'font-semibold'}>{labelOf(value)}</span>
+        <span className="text-xs text-ink-4">
+          {skips(value) ? <span className="text-warning-fg">⚠ {t`skip`}</span> : styleShortcut(value)}
+        </span>
+      </span>
+    )
+  }))
+
+  const choose: MenuProps['onClick'] = ({ key }) => {
+    const value = Number(key)
+    if (value === 0) editor.chain().focus().setParagraph().run()
+    else editor.chain().focus().setHeading({ level: value as (typeof HEADING_LEVELS)[number] }).run()
+  }
+
+  return (
+    <Dropdown
+      menu={{ items, onClick: choose, selectable: true, selectedKeys: [String(level)] }}
+      trigger={['click']}
+    >
+      <button
+        type="button"
+        aria-label={`${t`Text style`}: ${labelOf(level)}`}
+        className="flex items-center justify-between gap-2 h-7 px-2 min-w-28 rounded-xs text-white text-xs cursor-pointer bg-transparent hover:bg-white/10"
+      >
+        <span>{labelOf(level)}</span>
+        <FontAwesomeIcon icon={faChevronDown} size="xs" />
+      </button>
+    </Dropdown>
+  )
+}
+
+// Main Toolbar Component
+export const TiptapToolbar: React.FC<TiptapToolbarProps> = ({
+  editor,
+  buttons,
+  mode = 'rich',
+  headingLevelBeforeBlock = null
+}) => {
+  const { t } = useLingui()
+  // Read on every transaction, so active states and colours follow the selection
+  const state = useEditorState({
+    editor,
+    selector: ({ editor: current }) =>
+      current
+        ? {
+            canUndo: current.can().undo(),
+            canRedo: current.can().redo(),
+            canBold: current.can().toggleBold(),
+            canItalic: current.can().toggleItalic(),
+            canUnderline: current.can().toggleUnderline(),
+            canStrike: current.can().toggleStrike(),
+            bold: isFormattingActive(current, 'bold'),
+            italic: isFormattingActive(current, 'italic'),
+            underline: isFormattingActive(current, 'underline'),
+            strike: isFormattingActive(current, 'strike'),
+            superscript: current.isActive('superscript'),
+            subscript: current.isActive('subscript'),
+            textColor: getEffectiveTextColor(current),
+            backgroundColor: getEffectiveBackgroundColor(current)
+          }
+        : null
+  })
+  if (!editor || !state) {
     return null
   }
 
@@ -454,15 +566,6 @@ export const TiptapToolbar: React.FC<TiptapToolbarProps> = ({ editor, buttons, m
     return activeButtons.includes(buttonName)
   }
 
-  // Get current text color and background color from editor (with link priority)
-  const getCurrentTextColor = () => {
-    return getEffectiveTextColor(editor)
-  }
-
-  const getCurrentBackgroundColor = () => {
-    return getEffectiveBackgroundColor(editor)
-  }
-
   const handleTextColorChange = (color: string) => {
     handleTextColorChangeUtil(editor, color)
   }
@@ -477,11 +580,6 @@ export const TiptapToolbar: React.FC<TiptapToolbarProps> = ({ editor, buttons, m
     }
   }
 
-  const getFormattingHandler = (action: () => void) => {
-    return mode === 'inline'
-      ? () => applyInlineFormatting(editor, action)
-      : () => applyFormattingWithNodeSelection(editor, action)
-  }
 
   return (
     <span style={defaultToolbarStyle} className={`${defaultToolbarClasses} tiptap-toolbar`}>
@@ -492,7 +590,7 @@ export const TiptapToolbar: React.FC<TiptapToolbarProps> = ({ editor, buttons, m
             {shouldShowButton('undo') && (
               <ToolbarButton
                 onClick={() => editor.chain().focus().undo().run()}
-                disabled={!editor.can().chain().focus().undo().run()}
+                disabled={!state.canUndo}
                 title={t`Undo`}
               >
                 <FontAwesomeIcon icon={faUndo} size="xs" />
@@ -501,13 +599,21 @@ export const TiptapToolbar: React.FC<TiptapToolbarProps> = ({ editor, buttons, m
             {shouldShowButton('redo') && (
               <ToolbarButton
                 onClick={() => editor.chain().focus().redo().run()}
-                disabled={!editor.can().chain().focus().redo().run()}
+                disabled={!state.canRedo}
                 title={t`Redo`}
               >
                 <FontAwesomeIcon icon={faRedo} size="xs" />
               </ToolbarButton>
             )}
           </Space>
+          <ToolbarSeparator />
+        </>
+      )}
+
+      {/* Paragraph or heading level, in Text blocks only */}
+      {mode === 'rich' && (
+        <>
+          <TextStyleMenu editor={editor} headingLevelBeforeBlock={headingLevelBeforeBlock} />
           <ToolbarSeparator />
         </>
       )}
@@ -521,9 +627,9 @@ export const TiptapToolbar: React.FC<TiptapToolbarProps> = ({ editor, buttons, m
           <Space size="small">
             {shouldShowButton('bold') && (
               <ToolbarButton
-                onClick={getFormattingHandler(() => editor.chain().focus().toggleBold().run())}
-                disabled={!editor.can().chain().focus().toggleBold().run()}
-                isActive={editor.isActive('bold')}
+                onClick={() => toggleFormatting(editor, 'bold')}
+                disabled={!state.canBold}
+                isActive={state.bold}
                 title={t`Bold`}
               >
                 <FontAwesomeIcon icon={faBold} size="xs" />
@@ -531,9 +637,9 @@ export const TiptapToolbar: React.FC<TiptapToolbarProps> = ({ editor, buttons, m
             )}
             {shouldShowButton('italic') && (
               <ToolbarButton
-                onClick={getFormattingHandler(() => editor.chain().focus().toggleItalic().run())}
-                disabled={!editor.can().chain().focus().toggleItalic().run()}
-                isActive={editor.isActive('italic')}
+                onClick={() => toggleFormatting(editor, 'italic')}
+                disabled={!state.canItalic}
+                isActive={state.italic}
                 title={t`Italic`}
               >
                 <FontAwesomeIcon icon={faItalic} size="xs" />
@@ -541,9 +647,9 @@ export const TiptapToolbar: React.FC<TiptapToolbarProps> = ({ editor, buttons, m
             )}
             {shouldShowButton('underline') && (
               <ToolbarButton
-                onClick={getFormattingHandler(() => editor.chain().focus().toggleUnderline().run())}
-                disabled={!editor.can().chain().focus().toggleUnderline().run()}
-                isActive={editor.isActive('underline')}
+                onClick={() => toggleFormatting(editor, 'underline')}
+                disabled={!state.canUnderline}
+                isActive={state.underline}
                 title={t`Underline`}
               >
                 <FontAwesomeIcon icon={faUnderline} size="xs" />
@@ -551,9 +657,9 @@ export const TiptapToolbar: React.FC<TiptapToolbarProps> = ({ editor, buttons, m
             )}
             {shouldShowButton('strikethrough') && (
               <ToolbarButton
-                onClick={getFormattingHandler(() => editor.chain().focus().toggleStrike().run())}
-                disabled={!editor.can().chain().focus().toggleStrike().run()}
-                isActive={editor.isActive('strike')}
+                onClick={() => toggleFormatting(editor, 'strike')}
+                disabled={!state.canStrike}
+                isActive={state.strike}
                 title={t`Strikethrough`}
               >
                 <FontAwesomeIcon icon={faStrikethrough} size="xs" />
@@ -571,19 +677,19 @@ export const TiptapToolbar: React.FC<TiptapToolbarProps> = ({ editor, buttons, m
             {shouldShowButton('textColor') && (
               <ColorButton
                 icon={faFont}
-                currentColor={getCurrentTextColor()}
+                currentColor={pickerColor(state.textColor)}
                 onColorChange={handleTextColorChange}
                 title={t`Text Color`}
-                isActive={!!getCurrentTextColor()}
+                isActive={!!state.textColor}
               />
             )}
             {shouldShowButton('backgroundColor') && (
               <ColorButton
                 icon={faHighlighter}
-                currentColor={getCurrentBackgroundColor()}
+                currentColor={pickerColor(state.backgroundColor)}
                 onColorChange={handleBackgroundColorChange}
                 title={t`Background Color`}
-                isActive={!!getCurrentBackgroundColor()}
+                isActive={!!state.backgroundColor}
               />
             )}
           </Space>
@@ -617,10 +723,8 @@ export const TiptapToolbar: React.FC<TiptapToolbarProps> = ({ editor, buttons, m
           <Space size="small">
             {shouldShowButton('superscript') && (
               <ToolbarButton
-                onClick={getFormattingHandler(() =>
-                  editor.chain().focus().toggleSuperscript().run()
-                )}
-                isActive={editor.isActive('superscript')}
+                onClick={() => editor.chain().focus().toggleSuperscript().run()}
+                isActive={state.superscript}
                 title={t`Superscript`}
               >
                 <FontAwesomeIcon icon={faSuperscript} size="xs" />
@@ -628,8 +732,8 @@ export const TiptapToolbar: React.FC<TiptapToolbarProps> = ({ editor, buttons, m
             )}
             {shouldShowButton('subscript') && (
               <ToolbarButton
-                onClick={getFormattingHandler(() => editor.chain().focus().toggleSubscript().run())}
-                isActive={editor.isActive('subscript')}
+                onClick={() => editor.chain().focus().toggleSubscript().run()}
+                isActive={state.subscript}
                 title={t`Subscript`}
               >
                 <FontAwesomeIcon icon={faSubscript} size="xs" />

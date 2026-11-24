@@ -89,7 +89,7 @@ describe('WebAnalyticsSettings', () => {
 
   it('renders a read-only view (no editor) when the user cannot manage', () => {
     renderComponent(false, makeWorkspace({ enabled: false }))
-    expect(screen.queryByRole('button', { name: /Save Changes/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
     expect(screen.getByText(/Disabled/)).toBeInTheDocument()
   })
 
@@ -120,8 +120,8 @@ describe('WebAnalyticsSettings', () => {
 
   it('holds the save bar back until the form is touched', () => {
     renderComponent(true)
-    expect(screen.queryByRole('button', { name: /Save Changes/i })).toBeNull()
-    expect(screen.queryByText('You have unsaved changes')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+    expect(screen.queryByText('Unsaved changes')).toBeNull()
   })
 
   it('raises the save bar as soon as a field changes', () => {
@@ -129,8 +129,8 @@ describe('WebAnalyticsSettings', () => {
 
     fireEvent.change(screen.getByLabelText(/Bounce threshold/i), { target: { value: '25' } })
 
-    expect(screen.getByText('You have unsaved changes')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Save Changes/i })).toBeEnabled()
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
   })
 
   it('restores the stored values on Discard instead of emptying the form', () => {
@@ -142,7 +142,7 @@ describe('WebAnalyticsSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Discard$/i }))
 
     expect(screen.getByLabelText(/Bounce threshold/i)).toHaveValue('10')
-    expect(screen.queryByText('You have unsaved changes')).toBeNull()
+    expect(screen.queryByText('Unsaved changes')).toBeNull()
   })
 
   it('saves on Cmd/Ctrl+S once there are changes to save', async () => {
@@ -166,7 +166,7 @@ describe('WebAnalyticsSettings', () => {
     renderComponent(true, makeWorkspace({ enabled: false, allowed_domains: [] }))
 
     fireEvent.click(screen.getByLabelText(/Enable web analytics/i))
-    fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() =>
       expect(
@@ -180,7 +180,7 @@ describe('WebAnalyticsSettings', () => {
     renderComponent(true, makeWorkspace({ enabled: false, allowed_domains: [] }))
 
     fireEvent.click(screen.getByLabelText(/Enable web analytics/i))
-    fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() =>
       expect(
         screen.getByText('List at least one domain to enable web analytics')
@@ -191,7 +191,7 @@ describe('WebAnalyticsSettings', () => {
     const domains = screen.getByLabelText(/Allowed domains/i)
     fireEvent.change(domains, { target: { value: 'example.com' } })
     fireEvent.keyDown(domains, { key: 'Enter', keyCode: 13 })
-    fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() =>
       expect(webAnalyticsService.setSettings).toHaveBeenCalledWith(
@@ -206,7 +206,7 @@ describe('WebAnalyticsSettings', () => {
     renderComponent(true, makeWorkspace({ enabled: false, allowed_domains: [] }))
 
     fireEvent.change(screen.getByLabelText(/Bounce threshold/i), { target: { value: '25' } })
-    fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() =>
       expect(webAnalyticsService.setSettings).toHaveBeenCalledWith(
@@ -222,7 +222,7 @@ describe('WebAnalyticsSettings', () => {
     fireEvent.change(screen.getByLabelText(/Bounce threshold/i), {
       target: { value: '25' }
     })
-    fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
       expect(webAnalyticsService.setSettings).toHaveBeenCalledWith(
@@ -255,7 +255,7 @@ describe('WebAnalyticsSettings', () => {
     fireEvent.change(screen.getByLabelText(/Bounce threshold/i), {
       target: { value: '25' }
     })
-    fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
       expect(webAnalyticsService.setSettings).toHaveBeenCalledWith(
@@ -271,7 +271,7 @@ describe('WebAnalyticsSettings', () => {
     fireEvent.change(screen.getByLabelText('custom_1'), {
       target: { value: 'Plan' }
     })
-    fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
       expect(webAnalyticsService.setSettings).toHaveBeenCalledWith(
@@ -288,10 +288,10 @@ describe('WebAnalyticsSettings', () => {
 
     // Form.useWatch batches on a macrotask, so the nested block appears a tick
     // after the stored settings are pushed into the form.
-    expect(await screen.findByLabelText('Store city name')).toBeInTheDocument()
-    expect(screen.getByLabelText('Store region/state name')).toBeInTheDocument()
+    expect(await screen.findByLabelText('Store the city')).toBeInTheDocument()
+    expect(screen.getByLabelText('Store the region')).toBeInTheDocument()
     // The raw decimal count means nothing to a reader; the picker spells it out.
-    expect(screen.getByText('City level (~1km precision)')).toBeInTheDocument()
+    expect(screen.getByText('City · ~1 km')).toBeInTheDocument()
   })
 
   it('explains the cap when the picked precision is finer than the name toggles allow', async () => {
@@ -300,27 +300,27 @@ describe('WebAnalyticsSettings', () => {
     // the data will never have.
     renderComponent(true)
 
-    expect(await screen.findByLabelText('Store city name')).toBeInTheDocument()
+    expect(await screen.findByLabelText('Store the city')).toBeInTheDocument()
     expect(
       screen.queryByText(/coordinates are stored at regional precision/i)
     ).toBeNull()
 
-    fireEvent.click(screen.getByLabelText('Store city name'))
+    fireEvent.click(screen.getByLabelText('Store the city'))
     expect(
       await screen.findByText(
-        'Store city name is off, so coordinates are stored at regional precision (~11km).'
+        'City is off, so coordinates are stored at regional precision (~11 km).'
       )
     ).toBeInTheDocument()
 
-    fireEvent.click(screen.getByLabelText('Store region/state name'))
+    fireEvent.click(screen.getByLabelText('Store the region'))
     expect(
       await screen.findByText(
-        'Store city name and Store region/state name are off, so coordinates are stored at country precision (~111km).'
+        'Region and City are off, so coordinates are stored at country precision (~111 km).'
       )
     ).toBeInTheDocument()
 
     // Back on, and the picked value — never rewritten — applies again.
-    fireEvent.click(screen.getByLabelText('Store city name'))
+    fireEvent.click(screen.getByLabelText('Store the city'))
     await waitFor(() =>
       expect(screen.queryByText(/coordinates are stored at/i)).toBeNull()
     )
@@ -329,7 +329,7 @@ describe('WebAnalyticsSettings', () => {
   it('leaves the cap unexplained when the picked precision is already within reach', async () => {
     renderComponent(true, makeWorkspace({ geo_store_city: false, geo_coordinates_precision: 1 }))
 
-    expect(await screen.findByLabelText('Store city name')).toBeInTheDocument()
+    expect(await screen.findByLabelText('Store the city')).toBeInTheDocument()
     expect(screen.queryByText(/coordinates are stored at/i)).toBeNull()
   })
 
@@ -337,18 +337,18 @@ describe('WebAnalyticsSettings', () => {
     renderComponent(true, makeWorkspace({ geo_enabled: false }))
 
     await waitFor(() =>
-      expect(screen.getByLabelText('Enable geo-location tracking')).toBeInTheDocument()
+      expect(screen.getByLabelText('Locate visitors')).toBeInTheDocument()
     )
-    expect(screen.queryByLabelText('Store city name')).toBeNull()
-    expect(screen.queryByLabelText('Store region/state name')).toBeNull()
+    expect(screen.queryByLabelText('Store the city')).toBeNull()
+    expect(screen.queryByLabelText('Store the region')).toBeNull()
     expect(screen.queryByText('Coordinates precision')).toBeNull()
   })
 
   it('saves a nested geo toggle change', async () => {
     renderComponent(true)
 
-    fireEvent.click(await screen.findByLabelText('Store city name'))
-    fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }))
+    fireEvent.click(await screen.findByLabelText('Store the city'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
       expect(webAnalyticsService.setSettings).toHaveBeenCalledWith(
@@ -368,8 +368,8 @@ describe('WebAnalyticsSettings', () => {
     // storage the next time geo tracking is switched back on.
     renderComponent(true, makeWorkspace({ geo_store_city: false, geo_coordinates_precision: 0 }))
 
-    fireEvent.click(await screen.findByLabelText('Enable geo-location tracking'))
-    fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }))
+    fireEvent.click(await screen.findByLabelText('Locate visitors'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
       expect(webAnalyticsService.setSettings).toHaveBeenCalledWith(
@@ -394,6 +394,21 @@ describe('WebAnalyticsSettings', () => {
     // be switched on from here.
     expect(screen.getByLabelText(/Bounce threshold/i)).toHaveValue('10')
     fireEvent.click(screen.getByLabelText(/Enable web analytics/i))
-    expect(screen.getByRole('button', { name: /Save Changes/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+  })
+
+  it('greys out the precisions the stored place names cannot carry, with what to turn on', async () => {
+    renderComponent(true, makeWorkspace({ geo_store_city: false, geo_coordinates_precision: 1 }))
+    // Form.useWatch batches on a macrotask: the stored toggles reach the picker a tick later.
+    expect(await screen.findByText('City precision needs City on')).toBeInTheDocument()
+    expect(screen.getByText('City · ~1 km').closest('.ant-segmented-item')).toHaveClass('ant-segmented-item-disabled')
+    expect(screen.getByText('Region · ~11 km').closest('.ant-segmented-item')).not.toHaveClass('ant-segmented-item-disabled')
+  })
+
+  it('lists all ten custom dimensions, each labelled by its slot', () => {
+    renderComponent(true)
+    for (let slot = 1; slot <= 10; slot++) {
+      expect(screen.getByLabelText(`custom_${slot}`)).toBeInTheDocument()
+    }
   })
 })

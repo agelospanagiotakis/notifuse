@@ -1,98 +1,56 @@
-import React from 'react'
-import { Handle, Position, useConnection, type NodeProps } from '@xyflow/react'
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faFlask } from '@fortawesome/free-solid-svg-icons'
+import React, { useEffect } from 'react'
+import { useUpdateNodeInternals, type NodeProps } from '@xyflow/react'
 import { useLingui } from '@lingui/react/macro'
 import { BaseNode } from './BaseNode'
-import { nodeTypeColors, getNodeDescription } from './constants'
+import { OutputNames } from './OutputNames'
+import { outputLeft } from './outputLayout'
+import { SourceHandle, TargetHandle } from './handles'
+import { getNodeDescription } from './constants'
 import type { AutomationFlowNode, Structural } from '../utils/flowConverter'
 import type { ABTestNodeConfig } from '../../../services/api/automation'
 
 type ABTestNodeProps = NodeProps<AutomationFlowNode>
 
-export const ABTestNode: React.FC<ABTestNodeProps> = ({ data, selected }) => {
+export const ABTestNode: React.FC<ABTestNodeProps> = ({ id, data, selected }) => {
   const { t } = useLingui()
   const config = data.config as Structural<ABTestNodeConfig>
   const variants = config?.variants || []
+  const handleKey = variants.map((variant) => variant.id).join('|')
 
-  const connection = useConnection()
-  const isConnecting = connection.inProgress
-  const targetHandleSize = isConnecting ? 16 : 10
-  const targetHandleColor = isConnecting ? '#22c55e' : data.isOrphan ? '#f97316' : '#3b82f6'
-  const sourceHandleColor = data.isOrphan ? '#f97316' : '#3b82f6'
-
-  // Calculate handle positions to spread evenly across bottom
-  const getHandlePosition = (index: number, total: number): number => {
-    if (total === 1) return 50
-    // Spread handles from 20% to 80% of width
-    const start = 20
-    const end = 80
-    return start + (index * (end - start)) / (total - 1)
-  }
+  // ReactFlow measures a node's handles when the node mounts or resizes, not when a handle is
+  // added: a variant added from the panel keeps the node's size, so its handle stays unknown and
+  // every render of its "+" link warns, many times a second. Re-measure when the handles change.
+  const updateNodeInternals = useUpdateNodeInternals()
+  useEffect(() => {
+    updateNodeInternals(id)
+  }, [id, handleKey, updateNodeInternals])
 
   return (
     <>
-      <Handle
-        type="target"
-        position={Position.Top}
-        style={{
-          background: targetHandleColor,
-          width: targetHandleSize,
-          height: targetHandleSize,
-          transition: 'all 0.15s ease'
-        }}
-      />
+      <TargetHandle isOrphan={data.isOrphan} />
       <BaseNode
+        nodeId={id}
         type="ab_test"
-        label={t`A/B Test`}
         description={getNodeDescription(data.config)}
-        icon={
-          <FontAwesomeIcon
-            icon={faFlask}
-            style={{ color: selected ? undefined : nodeTypeColors.ab_test }}
-          />
-        }
         selected={selected}
         isOrphan={data.isOrphan}
         onDelete={data.onDelete}
+        outputs={<OutputNames nodeType="ab_test" config={data.config} />}
       >
-        {variants.length === 0 ? (
-          <div className="text-orange-500">{t`Configure`}</div>
-        ) : (
-          <div className="flex flex-wrap gap-2 mt-1">
-            {variants.map((variant) => (
-              <div
-                key={variant.id}
-                className="text-xs bg-gray-100 px-2 py-1 rounded"
-              >
-                {variant.name}: {variant.weight}%
-              </div>
-            ))}
-          </div>
-        )}
+        {variants.length === 0 ? <div className="text-warning-fg">{t`Configure`}</div> : null}
       </BaseNode>
       {/* Multiple source handles - one per variant */}
       {variants.map((variant, index) => (
-        <Handle
+        <SourceHandle
           key={variant.id}
-          type="source"
-          position={Position.Bottom}
           id={variant.id}
-          style={{
-            background: sourceHandleColor,
-            width: 10,
-            height: 10,
-            left: `${getHandlePosition(index, variants.length)}%`
-          }}
+          left={`${outputLeft('ab_test', index, variants.length)}%`}
+          isOrphan={data.isOrphan}
         />
       ))}
       {/* Default handle if no variants configured */}
       {variants.length === 0 && (
-        <Handle
-          type="source"
-          position={Position.Bottom}
-          style={{ background: sourceHandleColor, width: 10, height: 10 }}
-        />
+        <SourceHandle isOrphan={data.isOrphan} />
       )}
     </>
   )

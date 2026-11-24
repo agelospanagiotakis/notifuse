@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"math/rand"
+	"sort"
 	"strings"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/Notifuse/notifuse/pkg/logger"
 	"github.com/Notifuse/notifuse/pkg/notifuse_mjml"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 // DemoService handles demo workspace operations
@@ -48,7 +51,41 @@ type DemoService struct {
 	automationService domain.AutomationService
 	// Authenticates the seed for the demo workspace once; see seedContext.
 	authService domain.AuthService
+	// Holds the fixtures marker; see demoFixturesSettingKey.
+	settingRepo domain.SettingRepository
+	// Marks hard-bounced addresses as ProcessWebhook does; see generateDeliveredInboundWebhookEventsForBatch.
+	contactRepo domain.ContactRepository
 }
+
+// demoFixturesWorkspaceID is the ID the fixtures workspace is always created under.
+const demoFixturesWorkspaceID = "demo"
+
+// demoFixturesSettingKey is the system setting that marks the workspace the fixtures
+// seed created, by holding that workspace's creation time. SeedFixtures runs on any
+// environment, production included, and "demo" is a plausible name for a real
+// workspace on a self-hosted instance: the seed replaces a workspace only when the
+// marker matches it, so it can never destroy one it did not create. The creation time
+// rather than the ID, because a fixtures workspace deleted by hand and a real "demo"
+// created afterwards share the ID and would otherwise inherit the marker.
+//
+// The marker is written twice. Before CreateWorkspace, with the time the creation
+// starts: CreateWorkspace inserts the row and then runs steps that can still fail
+// (owner membership, owner contact, default list) without removing it, so a marker
+// written only afterwards would leave such a workspace unmarked and every later seed
+// refused. After it, with the exact creation time. A workspace matches when its
+// creation time is within demoFixturesMarkerWindow of the marker.
+const demoFixturesSettingKey = "demo_fixtures_workspace_created_at"
+
+// demoFixturesMarkerWindow bounds how long after the pending marker the workspace row
+// may be created and still count as the seed's own. CreateWorkspace inserts within
+// seconds of being called; a minute leaves room for a slow database without letting a
+// workspace somebody creates by hand later match.
+const demoFixturesMarkerWindow = time.Minute
+
+// ErrDemoWorkspaceNotFixtures is returned by SeedFixtures when a workspace with the
+// fixtures ID exists but was not created by the seed. Nothing has been deleted.
+var ErrDemoWorkspaceNotFixtures = errors.New("a workspace with ID '" + demoFixturesWorkspaceID +
+	"' exists and was not created by the demo fixtures seed; nothing was deleted")
 
 // Sample data arrays for contact generation
 var (
@@ -76,10 +113,10 @@ var (
 		"Howard", "Ward", "Torres", "Peterson", "Gray", "Ramirez", "James", "Watson",
 	}
 
-	emailDomains = []string{
-		"gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com",
-		"aol.com", "protonmail.com", "mail.com", "zoho.com", "example.com",
-	}
+	// Only the domains RFC 2606 reserves for examples. The demo's contacts show on the public
+	// demo, on preview instances and in the documentation's screenshots, where an address at a
+	// real mailbox provider can be somebody's.
+	emailDomains = []string{"example.com", "example.org", "example.net"}
 
 	timezones = []string{
 		"UTC", "America/New_York", "America/Los_Angeles", "America/Chicago",
@@ -127,6 +164,7 @@ func NewDemoService(
 	webhookSubscriptionService *WebhookSubscriptionService,
 	automationService domain.AutomationService,
 	authService domain.AuthService,
+	settingRepo domain.SettingRepository,
 ) *DemoService {
 	return &DemoService{
 		logger:                           logger,
@@ -157,7 +195,17 @@ func NewDemoService(
 		webhookSubscriptionService:       webhookSubscriptionService,
 		automationService:                automationService,
 		authService:                      authService,
+		settingRepo:                      settingRepo,
+		contactRepo:                      contactRepoOf(contactService),
 	}
+}
+
+// contactRepoOf is the contact repository the contact service writes through.
+func contactRepoOf(contactService *ContactService) domain.ContactRepository {
+	if contactService == nil {
+		return nil
+	}
+	return contactService.repo
 }
 
 // VerifyRootEmailHMAC verifies the HMAC of the root email
@@ -189,6 +237,120 @@ func (s *DemoService) ResetDemo(ctx context.Context) error {
 
 	s.logger.Info("Demo reset completed successfully")
 	return nil
+}
+
+// SeedFixtures replaces the fixtures workspace and leaves every other workspace alone.
+//
+// Unlike ResetDemo, which empties the instance, it is safe on a working instance (a
+// preview that keeps its own workspaces) and is therefore served on every environment.
+// A workspace with the fixtures ID that the seed did not create is refused with
+// ErrDemoWorkspaceNotFixtures; see demoFixturesSettingKey.
+func (s *DemoService) SeedFixtures(ctx context.Context) error {
+	s.logger.Info("Starting demo fixtures seed")
+
+	existing, err := s.workspaceRepo.GetByID(ctx, demoFixturesWorkspaceID)
+	var notFound *domain.ErrWorkspaceNotFound
+	switch {
+	case errors.As(err, &notFound):
+		// Nothing to replace.
+	case err != nil:
+		return fmt.Errorf("failed to look up the fixtures workspace: %w", err)
+	default:
+		marked, err := s.isFixturesWorkspace(ctx, existing)
+		if err != nil {
+			return err
+		}
+		if !marked {
+			return ErrDemoWorkspaceNotFixtures
+		}
+		if err := s.deletePreviousFixtures(ctx); err != nil {
+			return fmt.Errorf("failed to delete the previous fixtures workspace: %w", err)
+		}
+	}
+
+	// createDemoWorkspace names the step that failed.
+	if err := s.createDemoWorkspace(ctx); err != nil {
+		return err
+	}
+
+	s.logger.Info("Demo fixtures seed completed successfully")
+	return nil
+}
+
+// isFixturesWorkspace reports whether the fixtures marker matches workspace.
+func (s *DemoService) isFixturesWorkspace(ctx context.Context, workspace *domain.Workspace) (bool, error) {
+	setting, err := s.settingRepo.Get(ctx, demoFixturesSettingKey)
+	var notFound *domain.ErrSettingNotFound
+	if errors.As(err, &notFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to read the demo fixtures marker: %w", err)
+	}
+	markedAt, err := time.Parse(time.RFC3339Nano, setting.Value)
+	if err != nil {
+		// Not a marker this code wrote: refuse rather than guess.
+		return false, nil
+	}
+	createdAt := demoFixturesMarkerTime(workspace.CreatedAt)
+	return !createdAt.Before(markedAt) && createdAt.Sub(markedAt) <= demoFixturesMarkerWindow, nil
+}
+
+// restoreFixturesMarker puts back the marker that was there before a failed creation,
+// or removes the pending one when there was none.
+func (s *DemoService) restoreFixturesMarker(ctx context.Context, previous *domain.Setting) {
+	var err error
+	if previous == nil {
+		err = s.settingRepo.Delete(ctx, demoFixturesSettingKey)
+	} else {
+		err = s.settingRepo.Set(ctx, demoFixturesSettingKey, previous.Value)
+	}
+	if err != nil {
+		// The creation already failed and is reported; a pending marker left behind
+		// matches only a workspace created within demoFixturesMarkerWindow of it.
+		s.logger.WithField("error", err.Error()).Error("Failed to restore the demo fixtures marker")
+	}
+}
+
+// demoFixturesMarkerTime is the creation time as the marker stores it. The repository
+// truncates created_at to the microsecond PostgreSQL keeps, so both sides of the
+// comparison are brought there.
+func demoFixturesMarkerTime(createdAt time.Time) time.Time {
+	return createdAt.UTC().Truncate(time.Microsecond)
+}
+
+// deletePreviousFixtures deletes the fixtures workspace the way an owner does, as
+// root: integrations first, then tasks, then the workspace and its database. The
+// seed runs on working instances with their task scheduler on, so tasks go before
+// the workspace, and an integration somebody connected to the fixtures workspace is
+// unregistered from its provider rather than left pointing at a dropped database.
+func (s *DemoService) deletePreviousFixtures(ctx context.Context) error {
+	rootUser, err := s.lookupRootUser(ctx)
+	if err != nil {
+		return err
+	}
+	rootCtx, endRootSession, err := s.rootContext(ctx, rootUser)
+	if err != nil {
+		return err
+	}
+	defer endRootSession()
+	return s.workspaceService.DeleteWorkspace(rootCtx, demoFixturesWorkspaceID)
+}
+
+// lookupRootUser returns the user the demo workspace is created and deleted as.
+func (s *DemoService) lookupRootUser(ctx context.Context) (*domain.User, error) {
+	// Demo mode is single-root: the primary configured root email.
+	rootEmail := s.config.PrimaryRootEmail()
+	s.logger.WithField("root_email", rootEmail).Info("Looking up root user for demo workspace creation")
+
+	rootUser, err := s.userService.GetUserByEmail(ctx, rootEmail)
+	if err != nil {
+		s.logger.WithField("root_email", rootEmail).WithField("error", err.Error()).Error("Failed to get root user")
+		return nil, fmt.Errorf("failed to get root user with email '%s': %w", rootEmail, err)
+	}
+
+	s.logger.WithField("root_user_id", rootUser.ID).WithField("root_user_type", rootUser.Type).Info("Found root user for demo workspace creation")
+	return rootUser, nil
 }
 
 // deleteAllWorkspaces deletes all workspaces from the system
@@ -260,21 +422,24 @@ func (s *DemoService) seedContext(ctx context.Context, workspaceID string) (cont
 	return seedCtx, nil
 }
 
+// The demo workspace's brand and languages. The templates built from the gallery carry the
+// name and the logo (demo_gallery/*.json), so a change here means regenerating them.
+const (
+	demoWorkspaceName       = "Apple"
+	demoWorkspaceWebsiteURL = "https://www.apple.com"
+	demoWorkspaceLogoURL    = "https://www.apple.com/ac/structured-data/images/knowledge_graph_logo.png"
+)
+
+var demoWorkspaceLanguages = []string{"en", "fr", "es"}
+
 // createDemoWorkspace creates a new demo workspace with sample data
 func (s *DemoService) createDemoWorkspace(ctx context.Context) error {
 	s.logger.Info("Creating demo workspace")
 
-	// Get the root user to create the workspace (demo mode is single-root)
-	rootEmail := s.config.PrimaryRootEmail()
-	s.logger.WithField("root_email", rootEmail).Info("Looking up root user for demo workspace creation")
-
-	rootUser, err := s.userService.GetUserByEmail(ctx, rootEmail)
+	rootUser, err := s.lookupRootUser(ctx)
 	if err != nil {
-		s.logger.WithField("root_email", rootEmail).WithField("error", err.Error()).Error("Failed to get root user")
-		return fmt.Errorf("failed to get root user with email '%s': %w", rootEmail, err)
+		return err
 	}
-
-	s.logger.WithField("root_user_id", rootUser.ID).WithField("root_user_type", rootUser.Type).Info("Found root user for demo workspace creation")
 
 	authenticatedCtx, endRootSession, err := s.rootContext(ctx, rootUser)
 	if err != nil {
@@ -282,8 +447,7 @@ func (s *DemoService) createDemoWorkspace(ctx context.Context) error {
 	}
 	defer endRootSession()
 
-	// Use hardcoded demo workspace ID
-	workspaceID := "demo"
+	workspaceID := demoFixturesWorkspaceID
 
 	// Create workspace settings with readonly demo bucket
 	fileManagerSettings := domain.FileManagerSettings{
@@ -293,23 +457,51 @@ func (s *DemoService) createDemoWorkspace(ctx context.Context) error {
 		SecretKey: s.config.Demo.FileManagerSecretKey,
 	}
 
+	// The pending marker; see demoFixturesSettingKey. Detached like CreateWorkspace
+	// itself, so a caller giving up cannot leave a created workspace unmarked.
+	markCtx := context.WithoutCancel(ctx)
+	previousMarker, err := s.settingRepo.Get(markCtx, demoFixturesSettingKey)
+	var noMarker *domain.ErrSettingNotFound
+	if errors.As(err, &noMarker) {
+		previousMarker, err = nil, nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to read the demo fixtures marker: %w", err)
+	}
+	pending := demoFixturesMarkerTime(time.Now()).Format(time.RFC3339Nano)
+	if err := s.settingRepo.Set(markCtx, demoFixturesSettingKey, pending); err != nil {
+		return fmt.Errorf("failed to mark the demo workspace as fixtures: %w", err)
+	}
+
 	// Create the demo workspace
 	workspace, err := s.workspaceService.CreateWorkspace(
 		authenticatedCtx,
 		workspaceID,
-		"Apple",
-		"https://www.apple.com",
-		"https://www.apple.com/ac/structured-data/images/knowledge_graph_logo.png",
+		demoWorkspaceName,
+		demoWorkspaceWebsiteURL,
+		demoWorkspaceLogoURL,
 		"https://demo.notifuse.com/cover.png",
 		"UTC",
 		fileManagerSettings,
-		domain.DefaultLanguageCode, []string{"en", "fr", "es"},
+		domain.DefaultLanguageCode, demoWorkspaceLanguages,
 	)
 	if err != nil {
+		if errors.Is(err, domain.ErrWorkspaceAlreadyExists) {
+			// The workspace in the way is not the one this call started, so the
+			// pending marker must not claim it: put back what was there.
+			s.restoreFixturesMarker(markCtx, previousMarker)
+		}
 		return fmt.Errorf("failed to create demo workspace: %w", err)
 	}
 
 	s.logger.WithField("workspace_id", workspace.ID).Info("Demo workspace created successfully")
+
+	// The exact creation time, before any sample data: a seed that fails from here
+	// on leaves a workspace the next SeedFixtures may replace.
+	marker := demoFixturesMarkerTime(workspace.CreatedAt).Format(time.RFC3339Nano)
+	if err := s.settingRepo.Set(markCtx, demoFixturesSettingKey, marker); err != nil {
+		return fmt.Errorf("failed to mark the demo workspace as fixtures: %w", err)
+	}
 
 	authenticatedCtx, err = s.seedContext(authenticatedCtx, workspace.ID)
 	if err != nil {
@@ -331,9 +523,13 @@ func (s *DemoService) createDemoWorkspace(ctx context.Context) error {
 	// on error. Half a demo, silently, is the worst outcome available; the reset
 	// is manually triggered, HMAC-gated and behind a five-minute rate limit, so
 	// there is nobody for cancellation to protect.
+	//
+	// A failure here fails the reset or seed. It used to be a warning with a 200,
+	// so a scheduled run that left a workspace without templates, broadcasts or
+	// history was reported as a success and nobody looked. The workspace stays
+	// as far as it got, and the next run replaces it.
 	if err := s.addSampleData(context.WithoutCancel(authenticatedCtx), workspace.ID); err != nil {
-		s.logger.WithField("workspace_id", workspace.ID).WithField("error", err.Error()).Warn("Failed to add sample data to demo workspace")
-		// Don't fail the entire operation if sample data creation fails
+		return fmt.Errorf("failed to add sample data to the demo workspace: %w", err)
 	}
 
 	// Create webhook subscription AFTER sample data so DB triggers don't fire
@@ -455,8 +651,8 @@ func (s *DemoService) addSampleData(ctx context.Context, workspaceID string) err
 		return err
 	}
 
-	// Step 5: Create sample broadcast campaigns and get their IDs
-	broadcastIDs, err := s.createSampleBroadcasts(ctx, workspaceID)
+	// Step 5: Create sample broadcast campaigns, which date and template their messages
+	broadcasts, err := s.createSampleBroadcasts(ctx, workspaceID, now)
 	if err != nil {
 		s.logger.WithField("error", err.Error()).Warn("Failed to create sample broadcasts")
 		return err
@@ -468,9 +664,17 @@ func (s *DemoService) addSampleData(ctx context.Context, workspaceID string) err
 		return err
 	}
 
-	// Step 7: Generate sample message history with realistic engagement rates using real broadcast IDs
-	if err := s.generateSampleMessageHistory(ctx, workspaceID, broadcastIDs); err != nil {
+	// Step 7: Generate sample message history with realistic engagement rates, each broadcast's
+	// dated and templated as that broadcast went out
+	if err := s.generateSampleMessageHistory(ctx, workspaceID, broadcasts, now); err != nil {
 		s.logger.WithField("error", err.Error()).Warn("Failed to generate sample message history")
+		return err
+	}
+
+	// Step 7b: Mark the broadcasts as sent, with the counters their message history gave them.
+	// Fatal: a broadcast left a draft with a full history behind it could be sent for real.
+	if err := s.saveSampleBroadcasts(ctx, workspaceID, broadcasts); err != nil {
+		s.logger.WithField("error", err.Error()).Warn("Failed to mark sample broadcasts as sent")
 		return err
 	}
 
@@ -487,10 +691,9 @@ func (s *DemoService) addSampleData(ctx context.Context, workspaceID string) err
 	// After segments (step 8), because two of the five trigger on segment ids that do not exist
 	// until then. And after everything else, because activating an automation installs an AFTER
 	// INSERT trigger on contact_timeline: installed any earlier it would enroll a contact for every
-	// row the rest of the seed writes, and with every_time frequency and repeat buyers that burst
-	// collides with contact_automations' UNIQUE(automation_id, contact_email, entered_at) inside the
-	// custom-events batch transaction — which would abort it and take the demo's whole conversion
-	// history with it.
+	// row the rest of the seed writes: with every_time frequency and repeat buyers, a journey for
+	// every purchase of the demo's conversion history, on top of the history the seed already
+	// writes for them.
 	if err := s.createSampleAutomations(ctx, workspaceID); err != nil {
 		s.logger.WithField("error", err.Error()).Warn("Failed to create sample automations")
 		// Non-fatal: the rest of the demo is still usable without them.
@@ -498,8 +701,8 @@ func (s *DemoService) addSampleData(ctx context.Context, workspaceID string) err
 
 	// Step 10: Annotate the charts. It has to run after the web analytics (step 3b),
 	// which is what puts the launch spike on the chart the manual annotation points
-	// at, and after the broadcasts (step 5), because one annotation per broadcast is
-	// read back from the broadcast rows.
+	// at, and after the broadcasts are marked as sent (step 7b), because one annotation per
+	// broadcast is read back from the send date on its row.
 	if err := s.seedAnnotations(ctx, workspaceID, now); err != nil {
 		s.logger.WithField("error", err.Error()).Warn("Failed to seed demo annotations")
 		// Non-fatal: the rest of the demo is still usable without them.
@@ -513,8 +716,10 @@ func (s *DemoService) addSampleData(ctx context.Context, workspaceID string) err
 func (s *DemoService) generateAndAddSampleContacts(ctx context.Context, workspaceID string, count int) error {
 	s.logger.WithField("workspace_id", workspaceID).WithField("count", count).Info("Generating sample contacts")
 
-	// Create contacts in batches to avoid overwhelming the system
+	// Create contacts in batches to avoid overwhelming the system. The addresses are unique
+	// across the batches: UpsertContact would merge two contacts given the same one.
 	batchSize := 100
+	used := map[string]bool{}
 	for i := 0; i < count; i += batchSize {
 		remaining := count - i
 		currentBatchSize := batchSize
@@ -522,7 +727,7 @@ func (s *DemoService) generateAndAddSampleContacts(ctx context.Context, workspac
 			currentBatchSize = remaining
 		}
 
-		batch := s.generateSampleContactsBatch(currentBatchSize, i)
+		batch := s.generateSampleContactsBatch(currentBatchSize, i, used)
 
 		// Add batch to workspace
 		for _, contact := range batch {
@@ -595,14 +800,15 @@ func (s *DemoService) createDemoSMTPIntegration(ctx context.Context, workspaceID
 	return nil
 }
 
-// generateSampleContactsBatch creates a batch of sample contacts
-func (s *DemoService) generateSampleContactsBatch(count int, startIndex int) []*domain.Contact {
+// generateSampleContactsBatch creates a batch of sample contacts, at addresses not in used,
+// which it adds them to.
+func (s *DemoService) generateSampleContactsBatch(count int, startIndex int, used map[string]bool) []*domain.Contact {
 	contacts := make([]*domain.Contact, count)
 
 	for i := 0; i < count; i++ {
 		firstName := getRandomElement(firstNames)
 		lastName := getRandomElement(lastNames)
-		email := generateEmail(firstName, lastName, startIndex+i)
+		email := uniqueDemoEmail(generateEmail(firstName, lastName, startIndex+i), used)
 
 		// Spread over the same window the web analytics history covers. Six
 		// months used to be enough because the purchase history was invented
@@ -659,6 +865,21 @@ func generateEmail(firstName, lastName string, index int) string {
 	default:
 		return fmt.Sprintf("%s.%s%d@%s", strings.ToLower(firstName), strings.ToLower(lastName), index, domain)
 	}
+}
+
+// uniqueDemoEmail is email if no other contact of the seed has it, else email with a number
+// after its local part ("ann.lee-2@example.com"), and records the address it returns as used.
+// Three domains and a few name formats give the same address to two contacts often enough to
+// matter: UpsertContact would merge them into one.
+func uniqueDemoEmail(email string, used map[string]bool) string {
+	candidate := email
+	if at := strings.LastIndex(email, "@"); at > 0 {
+		for n := 2; used[candidate]; n++ {
+			candidate = fmt.Sprintf("%s-%d%s", email[:at], n, email[at:])
+		}
+	}
+	used[candidate] = true
+	return candidate
 }
 
 // getRandomElement returns a random element from a string slice
@@ -752,181 +973,18 @@ func (s *DemoService) subscribeContactsToList(ctx context.Context, workspaceID, 
 func (s *DemoService) createSampleTemplates(ctx context.Context, workspaceID string) error {
 	s.logger.WithField("workspace_id", workspaceID).Info("Creating sample templates")
 
-	// Create newsletter template
-	nlContents := getNewsletterContents()
-	newsletterMJML := s.createNewsletterMJMLStructure(nlContents["en"])
-	newsletterTestData := domain.MapOfAny{
-		"contact": domain.MapOfAny{
-			"first_name": "John",
-			"last_name":  "Doe",
-			"email":      "john.doe@example.com",
-		},
-	}
-	newsletterHTML := s.compileTemplateToHTML(workspaceID, "newsletter-preview", newsletterMJML, newsletterTestData)
-
-	nlSubjects := map[string]string{
-		"fr": "{{contact.first_name}}, Votre mise à jour hebdomadaire est arrivée ! 📧",
-		"es": "{{contact.first_name}}, ¡Tu actualización semanal está aquí! 📧",
-	}
-	nlMJMLStructures := map[string]notifuse_mjml.EmailBlock{
-		"fr": s.createNewsletterMJMLStructure(nlContents["fr"]),
-		"es": s.createNewsletterMJMLStructure(nlContents["es"]),
-	}
-	nlTranslations := s.buildEmailTranslations(workspaceID, "newsletter", nlSubjects, nlMJMLStructures, newsletterTestData)
-
-	newsletterTemplate := &domain.Template{
-		ID:       "newsletter-weekly",
-		Name:     "Weekly Newsletter",
-		Version:  1,
-		Channel:  "email",
-		Category: string(domain.TemplateCategoryMarketing),
-		Email: &domain.EmailTemplate{
-			Subject:          "{{contact.first_name}}, Your Weekly Update is Here! 📧",
-			CompiledPreview:  newsletterHTML,
-			VisualEditorTree: newsletterMJML,
-		},
-		TestData:     newsletterTestData,
-		Translations: nlTranslations,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
+	// Built from the template gallery's models (demo_gallery_templates.go).
+	for _, spec := range demoGallerySampleTemplates {
+		template, err := s.buildDemoGalleryTemplate(workspaceID, spec)
+		if err != nil {
+			return fmt.Errorf("demo: %s template: %w", spec.ID, err)
+		}
+		if err := s.templateService.CreateTemplate(ctx, workspaceID, withSubjectPreviews(template)); err != nil {
+			return fmt.Errorf("demo: %s template: %w", spec.ID, err)
+		}
 	}
 
-	if err := s.templateService.CreateTemplate(ctx, workspaceID, newsletterTemplate); err != nil {
-		return fmt.Errorf("demo: newsletter template: %w", err)
-	}
-
-	// Create newsletter template v2
-	nlV2Contents := getNewsletterV2Contents()
-	newsletterV2MJML := s.createNewsletterV2MJMLStructure(nlV2Contents["en"])
-	newsletterV2TestData := domain.MapOfAny{
-		"contact": domain.MapOfAny{
-			"first_name": "Sarah",
-			"last_name":  "Wilson",
-			"email":      "sarah.wilson@example.com",
-		},
-	}
-	newsletterV2HTML := s.compileTemplateToHTML(workspaceID, "newsletter-v2-preview", newsletterV2MJML, newsletterV2TestData)
-
-	nlV2Subjects := map[string]string{
-		"fr": "🚀 {{contact.first_name}}, Les articles et nouveautés de la semaine !",
-		"es": "🚀 {{contact.first_name}}, ¡Las mejores historias y novedades de la semana!",
-	}
-	nlV2MJMLStructures := map[string]notifuse_mjml.EmailBlock{
-		"fr": s.createNewsletterV2MJMLStructure(nlV2Contents["fr"]),
-		"es": s.createNewsletterV2MJMLStructure(nlV2Contents["es"]),
-	}
-	nlV2Translations := s.buildEmailTranslations(workspaceID, "newsletter-v2", nlV2Subjects, nlV2MJMLStructures, newsletterV2TestData)
-
-	newsletterV2Template := &domain.Template{
-		ID:       "newsletter-weekly-v2",
-		Name:     "Weekly Newsletter v2",
-		Version:  1,
-		Channel:  "email",
-		Category: string(domain.TemplateCategoryMarketing),
-		Email: &domain.EmailTemplate{
-			Subject:          "🚀 {{contact.first_name}}, This Week's Top Stories & Updates!",
-			CompiledPreview:  newsletterV2HTML,
-			VisualEditorTree: newsletterV2MJML,
-		},
-		TestData:     newsletterV2TestData,
-		Translations: nlV2Translations,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-	}
-
-	if err := s.templateService.CreateTemplate(ctx, workspaceID, newsletterV2Template); err != nil {
-		return fmt.Errorf("demo: newsletter v2 template: %w", err)
-	}
-
-	// Create welcome email template
-	wContents := getWelcomeContents()
-	welcomeMJML := s.createWelcomeMJMLStructure(wContents["en"])
-	welcomeTestData := domain.MapOfAny{
-		"contact": domain.MapOfAny{
-			"first_name": "Jane",
-			"last_name":  "Smith",
-			"email":      "jane.smith@example.com",
-		},
-	}
-	welcomeHTML := s.compileTemplateToHTML(workspaceID, "welcome-preview", welcomeMJML, welcomeTestData)
-
-	wSubjects := map[string]string{
-		"fr": "Bienvenue dans notre communauté, {{contact.first_name}} ! 🎉",
-		"es": "¡Bienvenido/a a nuestra comunidad, {{contact.first_name}}! 🎉",
-	}
-	wMJMLStructures := map[string]notifuse_mjml.EmailBlock{
-		"fr": s.createWelcomeMJMLStructure(wContents["fr"]),
-		"es": s.createWelcomeMJMLStructure(wContents["es"]),
-	}
-	wTranslations := s.buildEmailTranslations(workspaceID, "welcome", wSubjects, wMJMLStructures, welcomeTestData)
-
-	welcomeTemplate := &domain.Template{
-		ID:       "welcome-email",
-		Name:     "Welcome Email",
-		Version:  1,
-		Channel:  "email",
-		Category: string(domain.TemplateCategoryWelcome),
-		Email: &domain.EmailTemplate{
-			Subject:          "Welcome to our community, {{contact.first_name}}! 🎉",
-			CompiledPreview:  welcomeHTML,
-			VisualEditorTree: welcomeMJML,
-		},
-		TestData:     welcomeTestData,
-		Translations: wTranslations,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-	}
-
-	if err := s.templateService.CreateTemplate(ctx, workspaceID, welcomeTemplate); err != nil {
-		return fmt.Errorf("demo: welcome template: %w", err)
-	}
-
-	// Create password reset template
-	prContents := getPasswordResetContents()
-	passwordResetMJML := s.createPasswordResetMJMLStructure(prContents["en"])
-	passwordResetTestData := domain.MapOfAny{
-		"contact": domain.MapOfAny{
-			"first_name": "Alex",
-			"last_name":  "Johnson",
-			"email":      "alex.johnson@example.com",
-		},
-		"reset_url": "https://demo.notifuse.com/reset-password?token=demo_token_123",
-	}
-	passwordResetHTML := s.compileTemplateToHTML(workspaceID, "password-reset-preview", passwordResetMJML, passwordResetTestData)
-
-	prSubjects := map[string]string{
-		"fr": "Réinitialisez votre mot de passe, {{contact.first_name}}",
-		"es": "Restablece tu contraseña, {{contact.first_name}}",
-	}
-	prMJMLStructures := map[string]notifuse_mjml.EmailBlock{
-		"fr": s.createPasswordResetMJMLStructure(prContents["fr"]),
-		"es": s.createPasswordResetMJMLStructure(prContents["es"]),
-	}
-	prTranslations := s.buildEmailTranslations(workspaceID, "password-reset", prSubjects, prMJMLStructures, passwordResetTestData)
-
-	passwordResetTemplate := &domain.Template{
-		ID:       "password-reset",
-		Name:     "Password Reset",
-		Version:  1,
-		Channel:  "email",
-		Category: string(domain.TemplateCategoryTransactional),
-		Email: &domain.EmailTemplate{
-			Subject:          "Reset your password, {{contact.first_name}}",
-			CompiledPreview:  passwordResetHTML,
-			VisualEditorTree: passwordResetMJML,
-		},
-		TestData:     passwordResetTestData,
-		Translations: prTranslations,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-	}
-
-	if err := s.templateService.CreateTemplate(ctx, workspaceID, passwordResetTemplate); err != nil {
-		return fmt.Errorf("demo: password reset template: %w", err)
-	}
-
-	// The templates the showcase automations send. They live in their own file because they share one
-	// MJML builder rather than carrying a bespoke one each.
+	// The templates the showcase automations send (demo_automation_templates.go).
 	if err := s.createAutomationTemplates(ctx, workspaceID); err != nil {
 		s.logger.WithField("error", err.Error()).Warn("Failed to create automation templates")
 	}
@@ -973,27 +1031,6 @@ func (s *DemoService) compileTemplateToHTML(workspaceID, messageID string, mjmlS
 	return *resp.HTML
 }
 
-// buildEmailTranslations builds translation entries for fr and es languages
-func (s *DemoService) buildEmailTranslations(
-	workspaceID, messageIDPrefix string,
-	subjects map[string]string,
-	mjmlStructures map[string]notifuse_mjml.EmailBlock,
-	testData domain.MapOfAny,
-) map[string]domain.TemplateTranslation {
-	translations := make(map[string]domain.TemplateTranslation)
-	for lang, mjml := range mjmlStructures {
-		html := s.compileTemplateToHTML(workspaceID, messageIDPrefix+"-"+lang, mjml, testData)
-		translations[lang] = domain.TemplateTranslation{
-			Email: &domain.EmailTemplate{
-				Subject:          subjects[lang],
-				CompiledPreview:  html,
-				VisualEditorTree: mjml,
-			},
-		}
-	}
-	return translations
-}
-
 // createFallbackHTML creates a simple fallback HTML when MJML compilation fails
 func (s *DemoService) createFallbackHTML() string {
 	return `
@@ -1010,527 +1047,6 @@ func (s *DemoService) createFallbackHTML() string {
     </div>
 </body>
 </html>`
-}
-
-// Content structs for multi-language template support
-
-type newsletterContent struct {
-	lang       string
-	title      string
-	preview    string
-	headerText string
-	mainText   string
-	highlights string
-	listItems  string
-	buttonText string
-	footerText string
-}
-
-type newsletterV2Content struct {
-	lang            string
-	title           string
-	preview         string
-	hero            string
-	intro           string
-	feature1Title   string
-	feature1Content string
-	feature2Title   string
-	feature2Content string
-	feature3Title   string
-	feature3Content string
-	buttonText      string
-	footerText      string
-}
-
-type welcomeContent struct {
-	lang        string
-	title       string
-	preview     string
-	welcome     string
-	mainContent string
-	buttonText  string
-	footerText  string
-}
-
-type passwordResetContent struct {
-	lang        string
-	title       string
-	preview     string
-	header      string
-	mainContent string
-	buttonText  string
-	expireText  string
-	footerText  string
-}
-
-func getNewsletterContents() map[string]newsletterContent {
-	return map[string]newsletterContent{
-		"en": {
-			lang:       "en",
-			title:      "Weekly Newsletter",
-			preview:    "Your weekly dose of updates and insights",
-			headerText: "Weekly Newsletter",
-			mainText:   "Hi {{contact.first_name}},<br><br>Welcome to this week's newsletter! Here are the latest updates and insights we thought you'd find interesting.",
-			highlights: "📈 This Week's Highlights",
-			listItems:  "• New feature releases and improvements<br>• Industry insights and trends<br>• Community highlights and success stories",
-			buttonText: "Read Full Newsletter",
-			footerText: "You received this email because you're subscribed to our newsletter.<br><a href=\"{{unsubscribe_url}}\">Unsubscribe</a> | <a href=\"https://demo.notifuse.com\">Visit our website</a>",
-		},
-		"fr": {
-			lang:       "fr",
-			title:      "Newsletter Hebdomadaire",
-			preview:    "Votre dose hebdomadaire de mises à jour et d'informations",
-			headerText: "Newsletter Hebdomadaire",
-			mainText:   "Bonjour {{contact.first_name}},<br><br>Bienvenue dans la newsletter de cette semaine ! Voici les dernières mises à jour et informations qui pourraient vous intéresser.",
-			highlights: "📈 Les Temps Forts de la Semaine",
-			listItems:  "• Nouvelles fonctionnalités et améliorations<br>• Analyses et tendances du secteur<br>• Moments forts de la communauté et succès",
-			buttonText: "Lire la Newsletter Complète",
-			footerText: "Vous recevez cet e-mail car vous êtes abonné(e) à notre newsletter.<br><a href=\"{{unsubscribe_url}}\">Se désabonner</a> | <a href=\"https://demo.notifuse.com\">Visiter notre site</a>",
-		},
-		"es": {
-			lang:       "es",
-			title:      "Boletín Semanal",
-			preview:    "Tu dosis semanal de novedades e información",
-			headerText: "Boletín Semanal",
-			mainText:   "Hola {{contact.first_name}},<br><br>¡Bienvenido/a al boletín de esta semana! Aquí tienes las últimas novedades e información que creemos te resultarán interesantes.",
-			highlights: "📈 Destacados de la Semana",
-			listItems:  "• Nuevas funcionalidades y mejoras<br>• Análisis y tendencias del sector<br>• Momentos destacados de la comunidad y casos de éxito",
-			buttonText: "Leer el Boletín Completo",
-			footerText: "Recibes este correo porque estás suscrito/a a nuestro boletín.<br><a href=\"{{unsubscribe_url}}\">Cancelar suscripción</a> | <a href=\"https://demo.notifuse.com\">Visitar nuestro sitio</a>",
-		},
-	}
-}
-
-func getNewsletterV2Contents() map[string]newsletterV2Content {
-	return map[string]newsletterV2Content{
-		"en": {
-			lang:            "en",
-			title:           "Weekly Digest",
-			preview:         "Your personalized weekly roundup of insights and updates",
-			hero:            "Stay Ahead of the Curve 📈",
-			intro:           "Hey {{contact.first_name}},<br><br>Here's your curated weekly digest packed with the latest trends, insights, and updates tailored just for you.",
-			feature1Title:   "🎯 Featured Story",
-			feature1Content: "Breaking: New industry standards are reshaping how we approach digital transformation. Here's what you need to know.",
-			feature2Title:   "💡 Quick Tips",
-			feature2Content: "5 productivity hacks that successful professionals swear by. Simple changes, big impact.",
-			feature3Title:   "🔥 Trending Now",
-			feature3Content: "The tools and strategies everyone's talking about this week. Don't miss out on the conversation.",
-			buttonText:      "Explore More",
-			footerText:      "You're receiving this because you subscribed to our weekly digest.<br><a href=\"{{unsubscribe_url}}\">Unsubscribe</a> | <a href=\"https://demo.notifuse.com/preferences\">Manage Preferences</a>",
-		},
-		"fr": {
-			lang:            "fr",
-			title:           "Résumé Hebdomadaire",
-			preview:         "Votre sélection hebdomadaire personnalisée d'informations et de mises à jour",
-			hero:            "Gardez une longueur d'avance 📈",
-			intro:           "Bonjour {{contact.first_name}},<br><br>Voici votre résumé hebdomadaire avec les dernières tendances, informations et mises à jour sélectionnées pour vous.",
-			feature1Title:   "🎯 Article Vedette",
-			feature1Content: "Exclusif : De nouvelles normes industrielles redéfinissent notre approche de la transformation numérique. Voici ce qu'il faut savoir.",
-			feature2Title:   "💡 Astuces Rapides",
-			feature2Content: "5 astuces de productivité adoptées par les professionnels qui réussissent. De petits changements, un grand impact.",
-			feature3Title:   "🔥 Tendances du Moment",
-			feature3Content: "Les outils et stratégies dont tout le monde parle cette semaine. Ne manquez pas la conversation.",
-			buttonText:      "En Savoir Plus",
-			footerText:      "Vous recevez ceci car vous êtes abonné(e) à notre résumé hebdomadaire.<br><a href=\"{{unsubscribe_url}}\">Se désabonner</a> | <a href=\"https://demo.notifuse.com/preferences\">Gérer les préférences</a>",
-		},
-		"es": {
-			lang:            "es",
-			title:           "Resumen Semanal",
-			preview:         "Tu selección semanal personalizada de novedades y actualizaciones",
-			hero:            "Mantente a la vanguardia 📈",
-			intro:           "Hola {{contact.first_name}},<br><br>Aquí tienes tu resumen semanal con las últimas tendencias, novedades y actualizaciones seleccionadas especialmente para ti.",
-			feature1Title:   "🎯 Artículo Destacado",
-			feature1Content: "Última hora: Nuevos estándares de la industria están transformando nuestra forma de abordar la transformación digital. Esto es lo que debes saber.",
-			feature2Title:   "💡 Consejos Rápidos",
-			feature2Content: "5 trucos de productividad que los profesionales exitosos utilizan. Cambios sencillos, gran impacto.",
-			feature3Title:   "🔥 Tendencias del Momento",
-			feature3Content: "Las herramientas y estrategias de las que todos hablan esta semana. No te pierdas la conversación.",
-			buttonText:      "Explorar Más",
-			footerText:      "Recibes esto porque te suscribiste a nuestro resumen semanal.<br><a href=\"{{unsubscribe_url}}\">Cancelar suscripción</a> | <a href=\"https://demo.notifuse.com/preferences\">Gestionar preferencias</a>",
-		},
-	}
-}
-
-func getWelcomeContents() map[string]welcomeContent {
-	return map[string]welcomeContent{
-		"en": {
-			lang:        "en",
-			title:       "Welcome to our community!",
-			preview:     "Thank you for joining us, {{contact.first_name}}!",
-			welcome:     "Welcome, {{contact.first_name}}! 🎉",
-			mainContent: "Thank you for joining our community! We're excited to have you on board and can't wait to share amazing content with you.",
-			buttonText:  "Get Started",
-			footerText:  "If you have any questions, feel free to reach out to our support team.<br><br>Best regards,<br>The Demo Team",
-		},
-		"fr": {
-			lang:        "fr",
-			title:       "Bienvenue dans notre communauté !",
-			preview:     "Merci de nous rejoindre, {{contact.first_name}} !",
-			welcome:     "Bienvenue, {{contact.first_name}} ! 🎉",
-			mainContent: "Merci d'avoir rejoint notre communauté ! Nous sommes ravis de vous accueillir et avons hâte de partager du contenu passionnant avec vous.",
-			buttonText:  "Commencer",
-			footerText:  "Si vous avez des questions, n'hésitez pas à contacter notre équipe d'assistance.<br><br>Cordialement,<br>L'Équipe Démo",
-		},
-		"es": {
-			lang:        "es",
-			title:       "¡Bienvenido/a a nuestra comunidad!",
-			preview:     "Gracias por unirte, {{contact.first_name}}!",
-			welcome:     "¡Bienvenido/a, {{contact.first_name}}! 🎉",
-			mainContent: "¡Gracias por unirte a nuestra comunidad! Estamos encantados de tenerte y no podemos esperar para compartir contenido increíble contigo.",
-			buttonText:  "Comenzar",
-			footerText:  "Si tienes alguna pregunta, no dudes en contactar a nuestro equipo de soporte.<br><br>Un saludo,<br>El Equipo Demo",
-		},
-	}
-}
-
-func getPasswordResetContents() map[string]passwordResetContent {
-	return map[string]passwordResetContent{
-		"en": {
-			lang:        "en",
-			title:       "Reset Your Password",
-			preview:     "You requested a password reset for your account",
-			header:      "Reset Your Password 🔐",
-			mainContent: "Hi {{contact.first_name}},<br><br>We received a request to reset the password for your account. If you made this request, click the button below to set a new password:",
-			buttonText:  "Reset Password",
-			expireText:  "This link will expire in 24 hours for security reasons.",
-			footerText:  "If you didn't request a password reset, you can safely ignore this email. Your password will remain unchanged.<br><br>If you're having trouble with the button above, copy and paste the URL below into your web browser:<br>{{reset_url}}",
-		},
-		"fr": {
-			lang:        "fr",
-			title:       "Réinitialisation de votre mot de passe",
-			preview:     "Vous avez demandé la réinitialisation de votre mot de passe",
-			header:      "Réinitialisez votre mot de passe 🔐",
-			mainContent: "Bonjour {{contact.first_name}},<br><br>Nous avons reçu une demande de réinitialisation du mot de passe de votre compte. Si vous êtes à l'origine de cette demande, cliquez sur le bouton ci-dessous pour définir un nouveau mot de passe :",
-			buttonText:  "Réinitialiser le mot de passe",
-			expireText:  "Ce lien expirera dans 24 heures pour des raisons de sécurité.",
-			footerText:  "Si vous n'avez pas demandé la réinitialisation de votre mot de passe, vous pouvez ignorer cet e-mail en toute sécurité. Votre mot de passe restera inchangé.<br><br>Si vous avez des difficultés avec le bouton ci-dessus, copiez et collez l'URL ci-dessous dans votre navigateur :<br>{{reset_url}}",
-		},
-		"es": {
-			lang:        "es",
-			title:       "Restablece tu contraseña",
-			preview:     "Solicitaste restablecer la contraseña de tu cuenta",
-			header:      "Restablece tu contraseña 🔐",
-			mainContent: "Hola {{contact.first_name}},<br><br>Recibimos una solicitud para restablecer la contraseña de tu cuenta. Si realizaste esta solicitud, haz clic en el botón de abajo para establecer una nueva contraseña:",
-			buttonText:  "Restablecer contraseña",
-			expireText:  "Este enlace caducará en 24 horas por motivos de seguridad.",
-			footerText:  "Si no solicitaste el restablecimiento de tu contraseña, puedes ignorar este correo con tranquilidad. Tu contraseña no se modificará.<br><br>Si tienes problemas con el botón de arriba, copia y pega la URL de abajo en tu navegador:<br>{{reset_url}}",
-		},
-	}
-}
-
-// createNewsletterMJMLStructure creates the MJML structure for the newsletter template
-func (s *DemoService) createNewsletterMJMLStructure(c newsletterContent) notifuse_mjml.EmailBlock {
-	// Create the text content block
-	textContent := c.mainText
-	highlightsContent := c.highlights
-	listContent := c.listItems
-	buttonContent := c.buttonText
-	titleContent := c.title
-	previewContent := c.preview
-	headerTextContent := c.headerText
-
-	// Create header text block
-	headerTextBase := notifuse_mjml.NewBaseBlock("header-text", notifuse_mjml.MJMLComponentMjText)
-	headerTextBase.Content = &headerTextContent
-	headerText := &notifuse_mjml.MJTextBlock{BaseBlock: headerTextBase}
-
-	// Create main text block
-	mainTextBase := notifuse_mjml.NewBaseBlock("main-text", notifuse_mjml.MJMLComponentMjText)
-	mainTextBase.Content = &textContent
-	mainText := &notifuse_mjml.MJTextBlock{BaseBlock: mainTextBase}
-
-	// Create divider
-	divider := &notifuse_mjml.MJDividerBlock{
-		BaseBlock: notifuse_mjml.NewBaseBlock("divider", notifuse_mjml.MJMLComponentMjDivider),
-	}
-
-	// Create highlights title
-	highlightsTextBase := notifuse_mjml.NewBaseBlock("highlights-title", notifuse_mjml.MJMLComponentMjText)
-	highlightsTextBase.Content = &highlightsContent
-	highlightsText := &notifuse_mjml.MJTextBlock{BaseBlock: highlightsTextBase}
-
-	// Create highlights list
-	highlightsListBase := notifuse_mjml.NewBaseBlock("highlights-list", notifuse_mjml.MJMLComponentMjText)
-	highlightsListBase.Content = &listContent
-	highlightsList := &notifuse_mjml.MJTextBlock{BaseBlock: highlightsListBase}
-
-	// Create button
-	buttonBase := notifuse_mjml.NewBaseBlock("cta-button", notifuse_mjml.MJMLComponentMjButton)
-	buttonBase.Attributes["background-color"] = "#3498db"
-	buttonBase.Attributes["color"] = "#ffffff"
-	buttonBase.Attributes["font-size"] = "16px"
-	buttonBase.Attributes["padding"] = "12px 24px"
-	buttonBase.Attributes["border-radius"] = "6px"
-	buttonBase.Attributes["href"] = "https://demo.notifuse.com/newsletter?utm_source={{utm_source}}&utm_medium={{utm_medium}}&utm_campaign={{utm_campaign}}"
-	buttonBase.Content = &buttonContent
-	button := &notifuse_mjml.MJButtonBlock{BaseBlock: buttonBase}
-
-	// Create title and preview blocks
-	titleBase := notifuse_mjml.NewBaseBlock("title", notifuse_mjml.MJMLComponentMjTitle)
-	titleBase.Content = &titleContent
-	title := &notifuse_mjml.MJTitleBlock{BaseBlock: titleBase}
-
-	previewBase := notifuse_mjml.NewBaseBlock("preview", notifuse_mjml.MJMLComponentMjPreview)
-	previewBase.Content = &previewContent
-	preview := &notifuse_mjml.MJPreviewBlock{BaseBlock: previewBase}
-
-	// Create footer text
-	footerContent := c.footerText
-	footerTextBase := notifuse_mjml.NewBaseBlock("footer-text", notifuse_mjml.MJMLComponentMjText)
-	footerTextBase.Content = &footerContent
-	footerText := &notifuse_mjml.MJTextBlock{BaseBlock: footerTextBase}
-
-	// Create columns for layout
-	headerColumnBase := notifuse_mjml.NewBaseBlock("header-column", notifuse_mjml.MJMLComponentMjColumn)
-	headerColumnBase.Children = []notifuse_mjml.EmailBlock{headerText}
-	headerColumn := &notifuse_mjml.MJColumnBlock{BaseBlock: headerColumnBase}
-
-	contentColumnBase := notifuse_mjml.NewBaseBlock("content-column", notifuse_mjml.MJMLComponentMjColumn)
-	contentColumnBase.Children = []notifuse_mjml.EmailBlock{mainText, divider, highlightsText, highlightsList, button}
-	contentColumn := &notifuse_mjml.MJColumnBlock{BaseBlock: contentColumnBase}
-
-	footerColumnBase := notifuse_mjml.NewBaseBlock("footer-column", notifuse_mjml.MJMLComponentMjColumn)
-	footerColumnBase.Children = []notifuse_mjml.EmailBlock{footerText}
-	footerColumn := &notifuse_mjml.MJColumnBlock{BaseBlock: footerColumnBase}
-
-	// Create sections
-	headerSectionBase := notifuse_mjml.NewBaseBlock("header-section", notifuse_mjml.MJMLComponentMjSection)
-	headerSectionBase.Children = []notifuse_mjml.EmailBlock{headerColumn}
-	headerSection := &notifuse_mjml.MJSectionBlock{BaseBlock: headerSectionBase}
-
-	contentSectionBase := notifuse_mjml.NewBaseBlock("content-section", notifuse_mjml.MJMLComponentMjSection)
-	contentSectionBase.Children = []notifuse_mjml.EmailBlock{contentColumn}
-	contentSection := &notifuse_mjml.MJSectionBlock{BaseBlock: contentSectionBase}
-
-	footerSectionBase := notifuse_mjml.NewBaseBlock("footer-section", notifuse_mjml.MJMLComponentMjSection)
-	footerSectionBase.Children = []notifuse_mjml.EmailBlock{footerColumn}
-	footerSection := &notifuse_mjml.MJSectionBlock{BaseBlock: footerSectionBase}
-
-	// Create head and body
-	headBase := notifuse_mjml.NewBaseBlock("head", notifuse_mjml.MJMLComponentMjHead)
-	headBase.Children = []notifuse_mjml.EmailBlock{title, preview}
-	head := &notifuse_mjml.MJHeadBlock{BaseBlock: headBase}
-
-	bodyBase := notifuse_mjml.NewBaseBlock("body", notifuse_mjml.MJMLComponentMjBody)
-	bodyBase.Children = []notifuse_mjml.EmailBlock{headerSection, contentSection, footerSection}
-	body := &notifuse_mjml.MJBodyBlock{BaseBlock: bodyBase}
-
-	// Create root MJML block
-	rootBase := notifuse_mjml.NewBaseBlock("mjml-root", notifuse_mjml.MJMLComponentMjml)
-	rootBase.Attributes["lang"] = c.lang
-	rootBase.Children = []notifuse_mjml.EmailBlock{head, body}
-	return &notifuse_mjml.MJMLBlock{BaseBlock: rootBase}
-}
-
-// createNewsletterV2MJMLStructure creates the MJML structure for the newsletter v2 template (modern card-based design)
-func (s *DemoService) createNewsletterV2MJMLStructure(c newsletterV2Content) notifuse_mjml.EmailBlock {
-	// Create the text content blocks with different styling and content
-	titleContent := c.title
-	previewContent := c.preview
-	heroContent := c.hero
-	introContent := c.intro
-
-	// Feature stories content
-	feature1Title := c.feature1Title
-	feature1Content := c.feature1Content
-
-	feature2Title := c.feature2Title
-	feature2Content := c.feature2Content
-
-	feature3Title := c.feature3Title
-	feature3Content := c.feature3Content
-
-	buttonContent := c.buttonText
-
-	// Create title and preview blocks
-	titleBase := notifuse_mjml.NewBaseBlock("title", notifuse_mjml.MJMLComponentMjTitle)
-	titleBase.Content = &titleContent
-	title := &notifuse_mjml.MJTitleBlock{BaseBlock: titleBase}
-
-	previewBase := notifuse_mjml.NewBaseBlock("preview", notifuse_mjml.MJMLComponentMjPreview)
-	previewBase.Content = &previewContent
-	preview := &notifuse_mjml.MJPreviewBlock{BaseBlock: previewBase}
-
-	// Create hero section
-	heroTextBase := notifuse_mjml.NewBaseBlock("hero-text", notifuse_mjml.MJMLComponentMjText)
-	heroTextBase.Content = &heroContent
-	heroText := &notifuse_mjml.MJTextBlock{BaseBlock: heroTextBase}
-
-	introTextBase := notifuse_mjml.NewBaseBlock("intro-text", notifuse_mjml.MJMLComponentMjText)
-	introTextBase.Content = &introContent
-	introText := &notifuse_mjml.MJTextBlock{BaseBlock: introTextBase}
-
-	// Create feature cards
-	feature1TitleTextBase := notifuse_mjml.NewBaseBlock("feature1-title", notifuse_mjml.MJMLComponentMjText)
-	feature1TitleTextBase.Content = &feature1Title
-	feature1TitleText := &notifuse_mjml.MJTextBlock{BaseBlock: feature1TitleTextBase}
-
-	feature1ContentTextBase := notifuse_mjml.NewBaseBlock("feature1-content", notifuse_mjml.MJMLComponentMjText)
-	feature1ContentTextBase.Content = &feature1Content
-	feature1ContentText := &notifuse_mjml.MJTextBlock{BaseBlock: feature1ContentTextBase}
-
-	feature2TitleTextBase := notifuse_mjml.NewBaseBlock("feature2-title", notifuse_mjml.MJMLComponentMjText)
-	feature2TitleTextBase.Content = &feature2Title
-	feature2TitleText := &notifuse_mjml.MJTextBlock{BaseBlock: feature2TitleTextBase}
-
-	feature2ContentTextBase := notifuse_mjml.NewBaseBlock("feature2-content", notifuse_mjml.MJMLComponentMjText)
-	feature2ContentTextBase.Content = &feature2Content
-	feature2ContentText := &notifuse_mjml.MJTextBlock{BaseBlock: feature2ContentTextBase}
-
-	feature3TitleTextBase := notifuse_mjml.NewBaseBlock("feature3-title", notifuse_mjml.MJMLComponentMjText)
-	feature3TitleTextBase.Content = &feature3Title
-	feature3TitleText := &notifuse_mjml.MJTextBlock{BaseBlock: feature3TitleTextBase}
-
-	feature3ContentTextBase := notifuse_mjml.NewBaseBlock("feature3-content", notifuse_mjml.MJMLComponentMjText)
-	feature3ContentTextBase.Content = &feature3Content
-	feature3ContentText := &notifuse_mjml.MJTextBlock{BaseBlock: feature3ContentTextBase}
-
-	// Create CTA button
-	buttonBase2 := notifuse_mjml.NewBaseBlock("cta-button", notifuse_mjml.MJMLComponentMjButton)
-	buttonBase2.Attributes["background-color"] = "#667eea"
-	buttonBase2.Attributes["color"] = "#ffffff"
-	buttonBase2.Attributes["font-size"] = "16px"
-	buttonBase2.Attributes["font-weight"] = "bold"
-	buttonBase2.Attributes["padding"] = "15px 30px"
-	buttonBase2.Attributes["border-radius"] = "8px"
-	buttonBase2.Attributes["href"] = "https://demo.notifuse.com/weekly-digest?utm_source={{utm_source}}&utm_medium={{utm_medium}}&utm_campaign={{utm_campaign}}"
-	buttonBase2.Content = &buttonContent
-	button := &notifuse_mjml.MJButtonBlock{BaseBlock: buttonBase2}
-
-	// Create footer
-	footerContent := c.footerText
-	footerTextBase := notifuse_mjml.NewBaseBlock("footer-text", notifuse_mjml.MJMLComponentMjText)
-	footerTextBase.Content = &footerContent
-	footerText := &notifuse_mjml.MJTextBlock{BaseBlock: footerTextBase}
-
-	// Create columns and sections
-	heroColumnBase := notifuse_mjml.NewBaseBlock("hero-column", notifuse_mjml.MJMLComponentMjColumn)
-	heroColumnBase.Children = []notifuse_mjml.EmailBlock{heroText, introText}
-	heroColumn := &notifuse_mjml.MJColumnBlock{BaseBlock: heroColumnBase}
-
-	// Create feature columns (side by side layout)
-	feature1ColumnBase := notifuse_mjml.NewBaseBlock("feature1-column", notifuse_mjml.MJMLComponentMjColumn)
-	feature1ColumnBase.Children = []notifuse_mjml.EmailBlock{feature1TitleText, feature1ContentText}
-	feature1Column := &notifuse_mjml.MJColumnBlock{BaseBlock: feature1ColumnBase}
-
-	feature2ColumnBase := notifuse_mjml.NewBaseBlock("feature2-column", notifuse_mjml.MJMLComponentMjColumn)
-	feature2ColumnBase.Children = []notifuse_mjml.EmailBlock{feature2TitleText, feature2ContentText}
-	feature2Column := &notifuse_mjml.MJColumnBlock{BaseBlock: feature2ColumnBase}
-
-	feature3ColumnBase := notifuse_mjml.NewBaseBlock("feature3-column", notifuse_mjml.MJMLComponentMjColumn)
-	feature3ColumnBase.Children = []notifuse_mjml.EmailBlock{feature3TitleText, feature3ContentText}
-	feature3Column := &notifuse_mjml.MJColumnBlock{BaseBlock: feature3ColumnBase}
-
-	ctaColumnBase := notifuse_mjml.NewBaseBlock("cta-column", notifuse_mjml.MJMLComponentMjColumn)
-	ctaColumnBase.Children = []notifuse_mjml.EmailBlock{button}
-	ctaColumn := &notifuse_mjml.MJColumnBlock{BaseBlock: ctaColumnBase}
-
-	footerColumnBase := notifuse_mjml.NewBaseBlock("footer-column", notifuse_mjml.MJMLComponentMjColumn)
-	footerColumnBase.Children = []notifuse_mjml.EmailBlock{footerText}
-	footerColumn := &notifuse_mjml.MJColumnBlock{BaseBlock: footerColumnBase}
-
-	// Create sections
-	heroSectionBase := notifuse_mjml.NewBaseBlock("hero-section", notifuse_mjml.MJMLComponentMjSection)
-	heroSectionBase.Children = []notifuse_mjml.EmailBlock{heroColumn}
-	heroSection := &notifuse_mjml.MJSectionBlock{BaseBlock: heroSectionBase}
-
-	featuresSectionBase := notifuse_mjml.NewBaseBlock("features-section", notifuse_mjml.MJMLComponentMjSection)
-	featuresSectionBase.Children = []notifuse_mjml.EmailBlock{feature1Column, feature2Column}
-	featuresSection := &notifuse_mjml.MJSectionBlock{BaseBlock: featuresSectionBase}
-
-	feature3SectionBase := notifuse_mjml.NewBaseBlock("feature3-section", notifuse_mjml.MJMLComponentMjSection)
-	feature3SectionBase.Children = []notifuse_mjml.EmailBlock{feature3Column}
-	feature3Section := &notifuse_mjml.MJSectionBlock{BaseBlock: feature3SectionBase}
-
-	ctaSectionBase := notifuse_mjml.NewBaseBlock("cta-section", notifuse_mjml.MJMLComponentMjSection)
-	ctaSectionBase.Children = []notifuse_mjml.EmailBlock{ctaColumn}
-	ctaSection := &notifuse_mjml.MJSectionBlock{BaseBlock: ctaSectionBase}
-
-	footerSectionBase := notifuse_mjml.NewBaseBlock("footer-section", notifuse_mjml.MJMLComponentMjSection)
-	footerSectionBase.Children = []notifuse_mjml.EmailBlock{footerColumn}
-	footerSection := &notifuse_mjml.MJSectionBlock{BaseBlock: footerSectionBase}
-
-	// Create head and body
-	headBase := notifuse_mjml.NewBaseBlock("head", notifuse_mjml.MJMLComponentMjHead)
-	headBase.Children = []notifuse_mjml.EmailBlock{title, preview}
-	head := &notifuse_mjml.MJHeadBlock{BaseBlock: headBase}
-
-	bodyBase := notifuse_mjml.NewBaseBlock("body", notifuse_mjml.MJMLComponentMjBody)
-	bodyBase.Children = []notifuse_mjml.EmailBlock{heroSection, featuresSection, feature3Section, ctaSection, footerSection}
-	body := &notifuse_mjml.MJBodyBlock{BaseBlock: bodyBase}
-
-	// Create root MJML block
-	rootBase := notifuse_mjml.NewBaseBlock("mjml-root", notifuse_mjml.MJMLComponentMjml)
-	rootBase.Attributes["lang"] = c.lang
-	rootBase.Children = []notifuse_mjml.EmailBlock{head, body}
-	return &notifuse_mjml.MJMLBlock{BaseBlock: rootBase}
-}
-
-// createWelcomeMJMLStructure creates the MJML structure for the welcome template
-func (s *DemoService) createWelcomeMJMLStructure(c welcomeContent) notifuse_mjml.EmailBlock {
-	// Create content strings
-	titleContent := c.title
-	previewContent := c.preview
-	welcomeText := c.welcome
-	mainContentText := c.mainContent
-	buttonContent := c.buttonText
-	footerContent := c.footerText
-
-	// Create blocks using concrete types
-	titleBase := notifuse_mjml.NewBaseBlock("title", notifuse_mjml.MJMLComponentMjTitle)
-	titleBase.Content = &titleContent
-	title := &notifuse_mjml.MJTitleBlock{BaseBlock: titleBase}
-
-	previewBase := notifuse_mjml.NewBaseBlock("preview", notifuse_mjml.MJMLComponentMjPreview)
-	previewBase.Content = &previewContent
-	preview := &notifuse_mjml.MJPreviewBlock{BaseBlock: previewBase}
-
-	welcomeTextBase := notifuse_mjml.NewBaseBlock("welcome-text", notifuse_mjml.MJMLComponentMjText)
-	welcomeTextBase.Content = &welcomeText
-	welcomeTextBlock := &notifuse_mjml.MJTextBlock{BaseBlock: welcomeTextBase}
-
-	mainTextBase := notifuse_mjml.NewBaseBlock("main-text", notifuse_mjml.MJMLComponentMjText)
-	mainTextBase.Content = &mainContentText
-	mainText := &notifuse_mjml.MJTextBlock{BaseBlock: mainTextBase}
-
-	buttonBase3 := notifuse_mjml.NewBaseBlock("get-started-button", notifuse_mjml.MJMLComponentMjButton)
-	buttonBase3.Attributes["background-color"] = "#27ae60"
-	buttonBase3.Attributes["color"] = "#ffffff"
-	buttonBase3.Attributes["font-size"] = "16px"
-	buttonBase3.Attributes["padding"] = "12px 24px"
-	buttonBase3.Attributes["border-radius"] = "6px"
-	buttonBase3.Attributes["href"] = "https://demo.notifuse.com/getting-started?utm_source={{utm_source}}&utm_medium={{utm_medium}}&utm_campaign={{utm_campaign}}"
-	buttonBase3.Content = &buttonContent
-	button := &notifuse_mjml.MJButtonBlock{BaseBlock: buttonBase3}
-
-	divider := &notifuse_mjml.MJDividerBlock{
-		BaseBlock: notifuse_mjml.NewBaseBlock("divider", notifuse_mjml.MJMLComponentMjDivider),
-	}
-
-	footerTextBase := notifuse_mjml.NewBaseBlock("footer-text", notifuse_mjml.MJMLComponentMjText)
-	footerTextBase.Content = &footerContent
-	footerText := &notifuse_mjml.MJTextBlock{BaseBlock: footerTextBase}
-
-	columnBase := notifuse_mjml.NewBaseBlock("main-column", notifuse_mjml.MJMLComponentMjColumn)
-	columnBase.Children = []notifuse_mjml.EmailBlock{welcomeTextBlock, mainText, button, divider, footerText}
-	column := &notifuse_mjml.MJColumnBlock{BaseBlock: columnBase}
-
-	sectionBase := notifuse_mjml.NewBaseBlock("main-section", notifuse_mjml.MJMLComponentMjSection)
-	sectionBase.Children = []notifuse_mjml.EmailBlock{column}
-	section := &notifuse_mjml.MJSectionBlock{BaseBlock: sectionBase}
-
-	headBase := notifuse_mjml.NewBaseBlock("head", notifuse_mjml.MJMLComponentMjHead)
-	headBase.Children = []notifuse_mjml.EmailBlock{title, preview}
-	head := &notifuse_mjml.MJHeadBlock{BaseBlock: headBase}
-
-	bodyBase := notifuse_mjml.NewBaseBlock("body", notifuse_mjml.MJMLComponentMjBody)
-	bodyBase.Children = []notifuse_mjml.EmailBlock{section}
-	body := &notifuse_mjml.MJBodyBlock{BaseBlock: bodyBase}
-
-	rootBase7 := notifuse_mjml.NewBaseBlock("mjml-root", notifuse_mjml.MJMLComponentMjml)
-	rootBase7.Attributes["lang"] = c.lang
-	rootBase7.Children = []notifuse_mjml.EmailBlock{head, body}
-	return &notifuse_mjml.MJMLBlock{BaseBlock: rootBase7}
 }
 
 // demoBroadcastUTMSource is the utm_source the sample broadcasts tag their
@@ -1559,15 +1075,31 @@ var demoBroadcastCampaigns = []struct {
 		[]string{"newsletter-weekly", "newsletter-weekly-v2"}},
 }
 
-// createSampleBroadcasts creates multiple sample broadcast campaigns and returns their IDs
-func (s *DemoService) createSampleBroadcasts(ctx context.Context, workspaceID string) ([]string, error) {
+// How a sample broadcast went out, which dates both the broadcast row and its messages.
+const (
+	// demoBroadcastDraftLead is the time from a broadcast's created_at to its started_at: it
+	// was written the day before it went out.
+	demoBroadcastDraftLead = 24 * time.Hour
+	// demoBroadcastSendWindow is the time from a broadcast's started_at to its completed_at,
+	// over which its emails leave.
+	demoBroadcastSendWindow = 2 * time.Hour
+	// demoABTestSendWindow is the time over which the A/B test sample leaves after test_sent_at.
+	demoABTestSendWindow = 15 * time.Minute
+	// demoABWinnerDelay is the time from the A/B test's started_at to winner_sent_at: the test
+	// ran, a winner was picked, and the rest of the audience was sent the winning template.
+	demoABWinnerDelay = time.Hour
+)
+
+// createSampleBroadcasts creates the sample broadcast campaigns and returns them marked, in
+// memory, as sent before now: their messages are dated and templated from them
+// (demoBroadcastSend). They are stored as drafts until saveSampleBroadcasts writes them, once
+// their message history has given them their counters.
+func (s *DemoService) createSampleBroadcasts(ctx context.Context, workspaceID string, now time.Time) ([]*domain.Broadcast, error) {
 	s.logger.WithField("workspace_id", workspaceID).Info("Creating sample broadcasts")
 
-	var broadcastIDs []string
+	var created []*domain.Broadcast
 
-	broadcasts := demoBroadcastCampaigns
-
-	for i, bc := range broadcasts {
+	for i, bc := range demoBroadcastCampaigns {
 		// Variations follow the templates declared alongside the campaign, so the
 		// utm_content a send stamps stays in step with the seeded sessions.
 		variations := make([]domain.BroadcastVariation, 0, len(bc.Templates))
@@ -1607,123 +1139,90 @@ func (s *DemoService) createSampleBroadcasts(ctx context.Context, workspaceID st
 			continue
 		}
 
-		// Update broadcast status to "processed" since we're generating message history for it
-		// Set timestamps to simulate that it was processed in the past (10-1 days ago based on campaign)
-		daysAgo := 10 - (i * 2) // Spread broadcasts over last 10 days
+		// Processed in the past, a broadcast every two days, the first ten days ago and the
+		// last four. The message history is dated from these timestamps, never on its own.
+		daysAgo := 10 - (i * 2)
 		if daysAgo < 1 {
 			daysAgo = 1
 		}
-		sentTime := time.Now().AddDate(0, 0, -daysAgo)
-		completedTime := sentTime.Add(2 * time.Hour) // Completed 2 hours after processing started
+		demoMarkBroadcastSent(broadcast, now.AddDate(0, 0, -daysAgo))
 
-		broadcast.Status = domain.BroadcastStatusProcessed
-		broadcast.StartedAt = &sentTime
-		broadcast.CompletedAt = &completedTime
-		broadcast.UpdatedAt = completedTime
-
-		// The last broadcast is the A/B test; record its final variation as the selected
-		// winner (all of its messages were sent with that variation) so the Variations
-		// table highlights it. Derive the template id from the variation rather than
-		// hardcoding it, and set the test/winner phase timestamps so the record matches a
-		// genuine winner selection. WinningTemplate/*SentAt are top-level columns
-		// persisted by UpdateBroadcast below.
-		if len(variations) > 1 {
-			winner := variations[len(variations)-1].TemplateID
-			winnerSentTime := sentTime.Add(1 * time.Hour)
-			broadcast.WinningTemplate = &winner
-			broadcast.TestSentAt = &sentTime
-			broadcast.WinnerSentAt = &winnerSentTime
-		}
-
-		// Update the broadcast in the repository to reflect processed status
-		if err := s.broadcastRepo.UpdateBroadcast(ctx, broadcast); err != nil {
-			s.logger.WithField("broadcast_id", broadcast.ID).WithField("error", err.Error()).Warn("Failed to update broadcast status to processed")
-			// Continue anyway - the broadcast was created, just not marked as processed
-		}
-
-		broadcastIDs = append(broadcastIDs, broadcast.ID)
-		s.logger.WithField("broadcast_id", broadcast.ID).WithField("name", bc.Name).WithField("status", "sent").Info("Sample broadcast created and marked as sent")
+		created = append(created, broadcast)
+		s.logger.WithField("broadcast_id", broadcast.ID).WithField("name", bc.Name).Info("Sample broadcast created")
 	}
 
-	if len(broadcastIDs) == 0 {
+	if len(created) == 0 {
 		return nil, fmt.Errorf("failed to create any sample broadcasts")
 	}
 
-	s.logger.WithField("workspace_id", workspaceID).WithField("count", len(broadcastIDs)).Info("Sample broadcasts created successfully")
-	return broadcastIDs, nil
+	s.logger.WithField("workspace_id", workspaceID).WithField("count", len(created)).Info("Sample broadcasts created successfully")
+	return created, nil
 }
 
-// createPasswordResetMJMLStructure creates the MJML structure for the password reset template
-func (s *DemoService) createPasswordResetMJMLStructure(c passwordResetContent) notifuse_mjml.EmailBlock {
-	// Create content strings
-	titleContent := c.title
-	previewContent := c.preview
-	headerContent := c.header
-	mainContent := c.mainContent
-	buttonContent := c.buttonText
-	expireContent := c.expireText
-	footerContent := c.footerText
+// demoMarkBroadcastSent marks a sample broadcast as processed, written the day before
+// startedAt and sent from startedAt over demoBroadcastSendWindow.
+//
+// The A/B test (demoIsABTest) is marked with its last variation as the winner: its sample was
+// sent the variations from the start, and the rest of the audience the winner once it was
+// picked, so the Variations table shows both variations' sends and highlights the winner.
+// WinningTemplate and the *SentAt fields are columns UpdateBroadcast writes.
+func demoMarkBroadcastSent(broadcast *domain.Broadcast, startedAt time.Time) {
+	completedAt := startedAt.Add(demoBroadcastSendWindow)
+	broadcast.Status = domain.BroadcastStatusProcessed
+	broadcast.CreatedAt = startedAt.Add(-demoBroadcastDraftLead)
+	broadcast.StartedAt = &startedAt
+	broadcast.CompletedAt = &completedAt
+	broadcast.UpdatedAt = completedAt
 
-	// Create blocks using concrete types
-	titleBase := notifuse_mjml.NewBaseBlock("title", notifuse_mjml.MJMLComponentMjTitle)
-	titleBase.Content = &titleContent
-	title := &notifuse_mjml.MJTitleBlock{BaseBlock: titleBase}
-
-	previewBase := notifuse_mjml.NewBaseBlock("preview", notifuse_mjml.MJMLComponentMjPreview)
-	previewBase.Content = &previewContent
-	preview := &notifuse_mjml.MJPreviewBlock{BaseBlock: previewBase}
-
-	headerTextBase := notifuse_mjml.NewBaseBlock("header-text", notifuse_mjml.MJMLComponentMjText)
-	headerTextBase.Content = &headerContent
-	headerText := &notifuse_mjml.MJTextBlock{BaseBlock: headerTextBase}
-
-	mainTextBase := notifuse_mjml.NewBaseBlock("main-text", notifuse_mjml.MJMLComponentMjText)
-	mainTextBase.Content = &mainContent
-	mainText := &notifuse_mjml.MJTextBlock{BaseBlock: mainTextBase}
-
-	buttonBase4 := notifuse_mjml.NewBaseBlock("reset-button", notifuse_mjml.MJMLComponentMjButton)
-	buttonBase4.Attributes["background-color"] = "#e74c3c"
-	buttonBase4.Attributes["color"] = "#ffffff"
-	buttonBase4.Attributes["font-size"] = "16px"
-	buttonBase4.Attributes["font-weight"] = "bold"
-	buttonBase4.Attributes["padding"] = "15px 30px"
-	buttonBase4.Attributes["border-radius"] = "6px"
-	buttonBase4.Attributes["href"] = "{{reset_url}}"
-	buttonBase4.Content = &buttonContent
-	button := &notifuse_mjml.MJButtonBlock{BaseBlock: buttonBase4}
-
-	expireTextBase := notifuse_mjml.NewBaseBlock("expire-text", notifuse_mjml.MJMLComponentMjText)
-	expireTextBase.Content = &expireContent
-	expireText := &notifuse_mjml.MJTextBlock{BaseBlock: expireTextBase}
-
-	divider := &notifuse_mjml.MJDividerBlock{
-		BaseBlock: notifuse_mjml.NewBaseBlock("divider", notifuse_mjml.MJMLComponentMjDivider),
+	if demoIsABTest(broadcast) {
+		variations := broadcast.TestSettings.Variations
+		winner := variations[len(variations)-1].TemplateID
+		testSentAt := startedAt
+		winnerSentAt := startedAt.Add(demoABWinnerDelay)
+		broadcast.WinningTemplate = &winner
+		broadcast.TestSentAt = &testSentAt
+		broadcast.WinnerSentAt = &winnerSentAt
 	}
+}
 
-	footerTextBase := notifuse_mjml.NewBaseBlock("footer-text", notifuse_mjml.MJMLComponentMjText)
-	footerTextBase.Content = &footerContent
-	footerText := &notifuse_mjml.MJTextBlock{BaseBlock: footerTextBase}
+// demoIsABTest says whether a sample broadcast is the A/B test: a test with more than one
+// variation. It is the one predicate both the broadcast's dates (demoMarkBroadcastSent) and
+// its messages (demoBroadcastSend) go by.
+func demoIsABTest(broadcast *domain.Broadcast) bool {
+	return broadcast.TestSettings.Enabled && len(broadcast.TestSettings.Variations) > 1
+}
 
-	columnBase := notifuse_mjml.NewBaseBlock("main-column", notifuse_mjml.MJMLComponentMjColumn)
-	columnBase.Children = []notifuse_mjml.EmailBlock{headerText, mainText, button, expireText, divider, footerText}
-	column := &notifuse_mjml.MJColumnBlock{BaseBlock: columnBase}
+// demoBroadcastSend draws how one recipient's email of a sample broadcast went out: the
+// template and the moment it left, never later than now. The broadcast is one
+// demoBroadcastCampaign accepts.
+//
+// A broadcast's emails leave from its started_at until its completed_at. The A/B test's leave
+// in its two phases, as the orchestrator sends them: the sample, its percentage of the
+// recipients, right after test_sent_at, each recipient sent one of the variations at random as
+// the email queue picks among the templates it holds; then everyone else, sent the winning
+// template from winner_sent_at.
+func demoBroadcastSend(broadcast *domain.Broadcast, now time.Time) (templateID string, sentAt time.Time) {
+	if demoIsABTest(broadcast) {
+		if rand.Intn(100) < broadcast.TestSettings.SamplePercentage {
+			variations := broadcast.TestSettings.Variations
+			return variations[rand.Intn(len(variations))].TemplateID, demoEventAfter(now, *broadcast.TestSentAt, demoABTestSendWindow)
+		}
+		return *broadcast.WinningTemplate, demoEventAfter(now, *broadcast.WinnerSentAt, broadcast.CompletedAt.Sub(*broadcast.WinnerSentAt))
+	}
+	return broadcast.TestSettings.Variations[0].TemplateID, demoEventAfter(now, *broadcast.StartedAt, broadcast.CompletedAt.Sub(*broadcast.StartedAt))
+}
 
-	sectionBase := notifuse_mjml.NewBaseBlock("main-section", notifuse_mjml.MJMLComponentMjSection)
-	sectionBase.Children = []notifuse_mjml.EmailBlock{column}
-	section := &notifuse_mjml.MJSectionBlock{BaseBlock: sectionBase}
+// demoInTestPhase says whether an email of the A/B test was part of its sample: the sample
+// leaves within demoABTestSendWindow of test_sent_at, well before winner_sent_at.
+func demoInTestPhase(broadcast *domain.Broadcast, sentAt time.Time) bool {
+	return demoIsABTest(broadcast) && sentAt.Before(*broadcast.WinnerSentAt)
+}
 
-	headBase := notifuse_mjml.NewBaseBlock("head", notifuse_mjml.MJMLComponentMjHead)
-	headBase.Children = []notifuse_mjml.EmailBlock{title, preview}
-	head := &notifuse_mjml.MJHeadBlock{BaseBlock: headBase}
-
-	bodyBase := notifuse_mjml.NewBaseBlock("body", notifuse_mjml.MJMLComponentMjBody)
-	bodyBase.Children = []notifuse_mjml.EmailBlock{section}
-	body := &notifuse_mjml.MJBodyBlock{BaseBlock: bodyBase}
-
-	rootBase6 := notifuse_mjml.NewBaseBlock("mjml-root", notifuse_mjml.MJMLComponentMjml)
-	rootBase6.Attributes["lang"] = c.lang
-	rootBase6.Children = []notifuse_mjml.EmailBlock{head, body}
-	return &notifuse_mjml.MJMLBlock{BaseBlock: rootBase6}
+// demoNotificationIDs gives, by message type, the transactional notification that sends the
+// demo's transactional emails: their messages carry its ID, as real ones do.
+var demoNotificationIDs = map[string]string{
+	"password-reset": "password_reset",
+	"welcome":        "welcome",
 }
 
 // createSampleTransactionalNotifications creates sample transactional notifications
@@ -1732,7 +1231,7 @@ func (s *DemoService) createSampleTransactionalNotifications(ctx context.Context
 
 	// Create password reset transactional notification
 	passwordResetNotification := domain.TransactionalNotificationCreateParams{
-		ID:          "password_reset",
+		ID:          demoNotificationIDs["password-reset"],
 		Name:        "Password Reset Email",
 		Description: "Sent when a user requests to reset their password",
 		Channels: domain.ChannelTemplates{
@@ -1754,6 +1253,27 @@ func (s *DemoService) createSampleTransactionalNotifications(ctx context.Context
 		s.logger.WithField("error", err.Error()).Warn("Failed to create password reset transactional notification")
 	}
 
+	// The welcome emails the demo seeds are sent by this notification.
+	welcomeNotification := domain.TransactionalNotificationCreateParams{
+		ID:          demoNotificationIDs["welcome"],
+		Name:        "Welcome Email",
+		Description: "Sent when a user signs up",
+		Channels: domain.ChannelTemplates{
+			domain.TransactionalChannelEmail: domain.ChannelTemplate{
+				TemplateID: "welcome-email",
+			},
+		},
+		TrackingSettings: notifuse_mjml.TrackingSettings{
+			EnableTracking: true,
+		},
+		Metadata: domain.MapOfAny{
+			"category": "onboarding",
+		},
+	}
+	if _, err := s.transactionalNotificationService.CreateNotification(ctx, workspaceID, welcomeNotification); err != nil {
+		s.logger.WithField("error", err.Error()).Warn("Failed to create welcome transactional notification")
+	}
+
 	s.logger.WithField("workspace_id", workspaceID).Info("Sample transactional notifications created successfully")
 	return nil
 }
@@ -1761,7 +1281,7 @@ func (s *DemoService) createSampleTransactionalNotifications(ctx context.Context
 // generateSampleMessageHistory creates realistic message history with specified engagement rates:
 // 90% delivered, 5% failed, 5% bounce, 20% opened, 10% click, 1% unsubscribed
 // Each contact receives approximately 3 emails (2-4 range)
-func (s *DemoService) generateSampleMessageHistory(ctx context.Context, workspaceID string, broadcastIDs []string) error {
+func (s *DemoService) generateSampleMessageHistory(ctx context.Context, workspaceID string, broadcasts []*domain.Broadcast, now time.Time) error {
 	s.logger.WithField("workspace_id", workspaceID).Info("Generating sample message history with ~3 emails per contact")
 
 	// Get workspace to retrieve secret key
@@ -1788,9 +1308,14 @@ func (s *DemoService) generateSampleMessageHistory(ctx context.Context, workspac
 
 	// Generate messages per contact (2-4 emails each)
 	// This also generates webhook events and updates for engagement (delivered, opened, clicked)
-	totalMessages, err := s.generateMessagesPerContact(ctx, workspaceID, workspace.Settings.SecretKey, contactsResp.Contacts, broadcastIDs)
+	totalMessages, err := s.generateMessagesPerContact(ctx, workspaceID, workspace.Settings.SecretKey, contactsResp.Contacts, broadcasts, now)
 	if err != nil {
 		s.logger.WithField("error", err.Error()).Warn("Failed to generate message history")
+		return err
+	}
+
+	// Without it every event on the contacts' timelines is dated at the seed.
+	if err := s.backdateDemoMessageTimeline(ctx, workspaceID); err != nil {
 		return err
 	}
 
@@ -1800,47 +1325,180 @@ func (s *DemoService) generateSampleMessageHistory(ctx context.Context, workspac
 
 // messageEngagement holds engagement timestamps for a message
 type messageEngagement struct {
-	shouldDeliver bool
-	shouldOpen    bool
-	shouldClick   bool
-	deliveredTime time.Time
-	openedTime    time.Time
-	clickedTime   time.Time
+	shouldDeliver  bool
+	shouldOpen     bool
+	shouldClick    bool
+	shouldBounce   bool
+	shouldComplain bool
+	deliveredTime  time.Time
+	openedTime     time.Time
+	clickedTime    time.Time
+	bouncedTime    time.Time
+	complainedTime time.Time
 }
 
-// generateMessagesPerContact creates message history by assigning 2-4 emails to each contact
-func (s *DemoService) generateMessagesPerContact(ctx context.Context, workspaceID string, secretKey string, contacts []*domain.Contact, broadcastIDs []string) (int, error) {
+// The demo's SES history: a share of the emails hard-bounce (reported instead of a delivery,
+// and never opened), and a few newsletters are marked as spam after their delivery.
+const (
+	demoNewsletterBounceRate    = 0.015
+	demoTransactionalBounceRate = 0.005
+	demoNewsletterComplaintRate = 0.002
+)
+
+// demoBounceOrDeliver decides, from the moment an email left, whether SES bounced it or
+// delivered it, by now.
+func demoBounceOrDeliver(engagement *messageEngagement, now, sentTime time.Time, bounceRate float64) {
+	if rand.Float64() < bounceRate {
+		engagement.shouldBounce = true
+		engagement.bouncedTime = demoEventAfter(now, sentTime.Add(time.Second), 300*time.Second) // Within 5 minutes
+		return
+	}
+	engagement.shouldDeliver = true
+	engagement.deliveredTime = demoEventAfter(now, sentTime, 1800*time.Second) // Within 30 minutes
+}
+
+// demoEventAfter is a random moment within `within` after `after`, and never later than now, the
+// seed's one clock: an event of a recent email (an open of yesterday's newsletter, a complaint)
+// falls in the time that has passed since, rather than in the future or piled up at the moment
+// of the seed.
+func demoEventAfter(now, after time.Time, within time.Duration) time.Time {
+	if !after.Before(now) {
+		return now
+	}
+	if elapsed := now.Sub(after); elapsed < within {
+		within = elapsed
+	}
+	if within <= 0 {
+		return after
+	}
+	return after.Add(time.Duration(rand.Int63n(int64(within))))
+}
+
+// demoContactMessages sends a contact 2 to 4 of the campaigns, oldest first, each through create,
+// and returns those created with what becomes of them by now. A message create refuses is left
+// out.
+func (s *DemoService) demoContactMessages(contact *domain.Contact, campaigns []demoCampaignTemplate, now time.Time, create func(*domain.MessageHistory) error) []messageEngagementData {
+	numEmails := 2 + rand.Intn(3) // 2, 3, or 4 emails
+	if numEmails > len(campaigns) {
+		numEmails = len(campaigns)
+	}
+	selected := make([]demoSend, numEmails)
+	for j, idx := range rand.Perm(len(campaigns))[:numEmails] {
+		selected[j] = campaigns[idx].draw(now)
+	}
+	// In the order they left, so what an email's outcome changes for the contact holds for the
+	// emails after it: see demoStillReachable. A broadcast's emails leave over hours, so the
+	// order is the moment each one left, not the day its campaign went out.
+	sort.SliceStable(selected, func(a, b int) bool { return selected[a].sentAt.Before(selected[b].sentAt) })
+
+	var sent []messageEngagementData
+	var bounced, complained bool
+	for _, send := range selected {
+		campaign := send.campaign
+		if !demoStillReachable(campaign, bounced, complained) {
+			continue
+		}
+		var message *domain.MessageHistory
+		var engagement messageEngagement
+		if campaign.broadcast != nil {
+			message, engagement = s.generateMessageHistoryForContact(contact, send.templateID, campaign.templateVersion, campaign.broadcast, send.sentAt, now)
+		} else {
+			message, engagement = s.generateTransactionalMessageHistoryForContact(contact, send.templateID, campaign.templateVersion, campaign.messageType, send.sentAt, now)
+		}
+		if create(message) != nil {
+			continue
+		}
+		sent = append(sent, messageEngagementData{message: message, engagement: engagement})
+		bounced = bounced || engagement.shouldBounce
+		complained = complained || engagement.shouldComplain
+	}
+	return sent
+}
+
+// demoStillReachable says whether a contact is sent a campaign after the emails before it. A
+// hard bounce leaves the address bounced on every list and nothing more reaches it; a spam
+// complaint leaves it complained on the newsletter, which the later newsletters skip.
+func demoStillReachable(campaign demoCampaignTemplate, bounced, complained bool) bool {
+	if bounced {
+		return false
+	}
+	return !(complained && campaign.broadcast != nil)
+}
+
+// demoCampaignTemplate is one email the demo may send a contact: a sample broadcast, whose row
+// gives the template and the moment of each email (demoBroadcastSend), or a transactional
+// email of templateID, sent daysAgo.
+type demoCampaignTemplate struct {
+	templateID      string // transactional only
+	templateVersion int64
+	broadcast       *domain.Broadcast // nil for transactional
+	messageType     string            // "newsletter", "welcome", "password-reset"
+	daysAgo         int               // transactional only
+}
+
+// demoSend is one email of a campaign drawn for a contact: its template and when it left.
+type demoSend struct {
+	campaign   demoCampaignTemplate
+	templateID string
+	sentAt     time.Time
+}
+
+// draw picks the template and the moment of one email of the campaign. A transactional email
+// leaves within the hour of its day.
+func (c demoCampaignTemplate) draw(now time.Time) demoSend {
+	if c.broadcast != nil {
+		templateID, sentAt := demoBroadcastSend(c.broadcast, now)
+		return demoSend{campaign: c, templateID: templateID, sentAt: sentAt}
+	}
+	return demoSend{campaign: c, templateID: c.templateID, sentAt: demoEventAfter(now, now.AddDate(0, 0, -c.daysAgo), time.Hour)}
+}
+
+// demoTransactionalCampaigns are the demo's transactional emails over the last 10 days. Each
+// message type has its notification in demoNotificationIDs.
+var demoTransactionalCampaigns = []demoCampaignTemplate{
+	{templateID: "welcome-email", templateVersion: 1, messageType: "welcome", daysAgo: 2},
+	{templateID: "welcome-email", templateVersion: 1, messageType: "welcome", daysAgo: 5},
+	{templateID: "password-reset", templateVersion: 1, messageType: "password-reset", daysAgo: 3},
+	{templateID: "password-reset", templateVersion: 1, messageType: "password-reset", daysAgo: 8},
+}
+
+// demoBroadcastCampaign is the campaign of a sample broadcast, or false for a broadcast its
+// messages cannot be dated from: one never marked as sent (demoMarkBroadcastSent), or with no
+// template.
+func demoBroadcastCampaign(broadcast *domain.Broadcast) (demoCampaignTemplate, bool) {
+	if broadcast == nil || broadcast.StartedAt == nil || broadcast.CompletedAt == nil || len(broadcast.TestSettings.Variations) == 0 {
+		return demoCampaignTemplate{}, false
+	}
+	if demoIsABTest(broadcast) && (broadcast.WinningTemplate == nil || broadcast.TestSentAt == nil || broadcast.WinnerSentAt == nil) {
+		return demoCampaignTemplate{}, false
+	}
+	return demoCampaignTemplate{templateVersion: 1, broadcast: broadcast, messageType: "newsletter"}, true
+}
+
+// demoBroadcastCounts are the emails of a sample broadcast the seed created.
+type demoBroadcastCounts struct {
+	total     int
+	testPhase int // the A/B test's sample
+}
+
+// generateMessagesPerContact creates message history by assigning 2-4 emails to each contact,
+// with what became of them by now.
+func (s *DemoService) generateMessagesPerContact(ctx context.Context, workspaceID string, secretKey string, contacts []*domain.Contact, broadcasts []*domain.Broadcast, now time.Time) (int, error) {
 	s.logger.WithField("workspace_id", workspaceID).Info("Generating messages per contact")
 
-	// Define available campaign/message templates over the last 10 days
-	type campaignTemplate struct {
-		templateID      string
-		templateVersion int64
-		broadcastID     *string // nil for transactional
-		messageType     string  // "newsletter", "welcome", "password-reset"
-		daysAgo         int
-	}
-
-	campaigns := []campaignTemplate{
-		// Transactional messages
-		{templateID: "welcome-email", templateVersion: 1, broadcastID: nil, messageType: "welcome", daysAgo: 2},
-		{templateID: "welcome-email", templateVersion: 1, broadcastID: nil, messageType: "welcome", daysAgo: 5},
-		{templateID: "password-reset", templateVersion: 1, broadcastID: nil, messageType: "password-reset", daysAgo: 3},
-		{templateID: "password-reset", templateVersion: 1, broadcastID: nil, messageType: "password-reset", daysAgo: 8},
-	}
-
-	// Add newsletter campaigns using real broadcast IDs
-	if len(broadcastIDs) >= 4 {
-		campaigns = append(campaigns,
-			campaignTemplate{templateID: "newsletter-weekly", templateVersion: 1, broadcastID: &broadcastIDs[0], messageType: "newsletter", daysAgo: 1},
-			campaignTemplate{templateID: "newsletter-weekly-v2", templateVersion: 1, broadcastID: &broadcastIDs[1], messageType: "newsletter", daysAgo: 4},
-			campaignTemplate{templateID: "newsletter-weekly", templateVersion: 1, broadcastID: &broadcastIDs[2], messageType: "newsletter", daysAgo: 7},
-			campaignTemplate{templateID: "newsletter-weekly-v2", templateVersion: 1, broadcastID: &broadcastIDs[3], messageType: "newsletter", daysAgo: 10},
-		)
+	campaigns := append([]demoCampaignTemplate{}, demoTransactionalCampaigns...)
+	byID := map[string]*domain.Broadcast{}
+	for _, broadcast := range broadcasts {
+		if campaign, ok := demoBroadcastCampaign(broadcast); ok {
+			campaigns = append(campaigns, campaign)
+			byID[broadcast.ID] = broadcast
+		}
 	}
 
 	totalMessages := 0
 	batchSize := 50
+	// The emails created for each broadcast, which its counters are made of.
+	counts := map[string]*demoBroadcastCounts{}
 
 	for i := 0; i < len(contacts); i += batchSize {
 		end := i + batchSize
@@ -1853,41 +1511,27 @@ func (s *DemoService) generateMessagesPerContact(ctx context.Context, workspaceI
 		var messagesWithEngagement []messageEngagementData
 
 		for _, contact := range batch {
-			// Each contact gets 2-4 emails
-			numEmails := 2 + rand.Intn(3) // 2, 3, or 4 emails
-
-			// Randomly select campaigns for this contact
-			selectedCampaigns := make([]campaignTemplate, numEmails)
-			selectedIndexes := rand.Perm(len(campaigns))[:numEmails]
-			for j, idx := range selectedIndexes {
-				selectedCampaigns[j] = campaigns[idx]
-			}
-
-			// Create message history for each selected campaign
-			for _, campaign := range selectedCampaigns {
-				campaignTime := time.Now().AddDate(0, 0, -campaign.daysAgo)
-
-				var message *domain.MessageHistory
-				var engagement messageEngagement
-				if campaign.broadcastID != nil {
-					// Newsletter/broadcast message
-					message, engagement = s.generateMessageHistoryForContact(contact, campaign.templateID, campaign.templateVersion, *campaign.broadcastID, campaignTime)
-				} else {
-					// Transactional message
-					message, engagement = s.generateTransactionalMessageHistoryForContact(contact, campaign.templateID, campaign.templateVersion, campaign.messageType, campaignTime)
-				}
-
-				if err := s.messageHistoryRepo.Create(ctx, workspaceID, secretKey, message); err != nil {
+			create := func(message *domain.MessageHistory) error {
+				err := s.messageHistoryRepo.Create(ctx, workspaceID, secretKey, message)
+				if err != nil {
 					s.logger.WithField("contact_email", contact.Email).WithField("error", err.Error()).Debug("Failed to create message history record")
+				}
+				return err
+			}
+			for _, data := range s.demoContactMessages(contact, campaigns, now, create) {
+				messagesWithEngagement = append(messagesWithEngagement, data)
+				totalMessages++
+				if data.message.BroadcastID == nil {
 					continue
 				}
-
-				messagesWithEngagement = append(messagesWithEngagement, messageEngagementData{
-					message:    message,
-					engagement: engagement,
-				})
-
-				totalMessages++
+				id := *data.message.BroadcastID
+				if counts[id] == nil {
+					counts[id] = &demoBroadcastCounts{}
+				}
+				counts[id].total++
+				if demoInTestPhase(byID[id], data.message.SentAt) {
+					counts[id].testPhase++
+				}
 			}
 		}
 
@@ -1908,9 +1552,104 @@ func (s *DemoService) generateMessagesPerContact(ctx context.Context, workspaceI
 		}
 	}
 
+	setDemoBroadcastCounts(broadcasts, counts)
+
 	s.logger.WithField("workspace_id", workspaceID).WithField("total_messages", totalMessages).Info("Messages per contact generation completed")
 	return totalMessages, nil
 }
+
+// setDemoBroadcastCounts gives each sample broadcast the counters a real send leaves on it,
+// made of the emails the seed created for it. Every broadcast has its emails as enqueued_count,
+// as the orchestrator records when the send finishes. The A/B test also has the recipients of
+// its two phases, its sample and everyone else; a broadcast with one template keeps 0 for both,
+// as setPhaseRecipientCounts leaves it.
+func setDemoBroadcastCounts(broadcasts []*domain.Broadcast, counts map[string]*demoBroadcastCounts) {
+	for _, broadcast := range broadcasts {
+		count := counts[broadcast.ID]
+		if count == nil {
+			continue
+		}
+		broadcast.EnqueuedCount = count.total
+		if demoIsABTest(broadcast) {
+			broadcast.TestPhaseRecipientCount = count.testPhase
+			broadcast.WinnerPhaseRecipientCount = count.total - count.testPhase
+		}
+	}
+}
+
+// saveSampleBroadcasts writes the sample broadcasts as sent, with their counters, in one update
+// each as the orchestrator's last write of a send. It runs once their message history is
+// created: the repository refuses to update a processed broadcast, so counters written after
+// the status are dropped (which left the A/B test with no phase counts).
+//
+// The repository stamps updated_at with the moment it writes, and created_at was the moment the
+// broadcast was created, so both are then set on the rows to the dates the send was given
+// (demoMarkBroadcastSent): left at the seed, the broadcast reads as created after it started.
+func (s *DemoService) saveSampleBroadcasts(ctx context.Context, workspaceID string, broadcasts []*domain.Broadcast) error {
+	ids := make([]string, len(broadcasts))
+	createdAt := make([]string, len(broadcasts))
+	updatedAt := make([]string, len(broadcasts))
+	for i, broadcast := range broadcasts {
+		// UpdateBroadcast overwrites the in-memory UpdatedAt too.
+		ids[i] = broadcast.ID
+		createdAt[i] = broadcast.CreatedAt.UTC().Format(time.RFC3339Nano)
+		updatedAt[i] = broadcast.UpdatedAt.UTC().Format(time.RFC3339Nano)
+		if err := s.broadcastRepo.UpdateBroadcast(ctx, broadcast); err != nil {
+			return fmt.Errorf("failed to mark sample broadcast %s as sent: %w", broadcast.ID, err)
+		}
+	}
+
+	db, err := s.workspaceRepo.GetConnection(ctx, workspaceID)
+	if err != nil {
+		return fmt.Errorf("failed to get workspace connection: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, demoBackdateBroadcastsQuery, pq.Array(ids), pq.Array(createdAt), pq.Array(updatedAt)); err != nil {
+		return fmt.Errorf("failed to date the sample broadcasts: %w", err)
+	}
+	return nil
+}
+
+// demoBackdateBroadcastsQuery sets each broadcast's created_at and updated_at.
+const demoBackdateBroadcastsQuery = `
+	UPDATE broadcasts AS b
+	SET created_at = v.created_at, updated_at = v.updated_at
+	FROM unnest($1::text[], $2::timestamptz[], $3::timestamptz[]) AS v(id, created_at, updated_at)
+	WHERE b.id = v.id`
+
+// backdateDemoMessageTimeline dates the timeline entries of the seeded emails' events at the
+// event. The timeline trigger dates an entry at the message's updated_at, which the repository
+// methods the seed records events with (SetStatusesIfNotSet, SetOpened, SetClicked) set to the
+// moment they run: right for a live event, but it put every delivery, open and click of the
+// seeded history at the moment of the seed. The sent entries are dated right already, from the
+// message's own updated_at.
+func (s *DemoService) backdateDemoMessageTimeline(ctx context.Context, workspaceID string) error {
+	db, err := s.workspaceRepo.GetConnection(ctx, workspaceID)
+	if err != nil {
+		return fmt.Errorf("failed to get workspace connection: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, demoBackdateMessageTimelineQuery); err != nil {
+		return fmt.Errorf("failed to date the message timeline entries: %w", err)
+	}
+	return nil
+}
+
+// demoBackdateMessageTimelineQuery moves each event entry of a message to that event's time on
+// the message. An email.updated entry is a delivery, or the status of a hard bounce.
+const demoBackdateMessageTimelineQuery = `
+	UPDATE contact_timeline t
+	SET created_at = COALESCE(CASE t.kind
+		WHEN 'email.opened' THEN m.opened_at
+		WHEN 'email.clicked' THEN m.clicked_at
+		WHEN 'email.link_clicked' THEN m.clicked_at
+		WHEN 'email.bounced' THEN m.bounced_at
+		WHEN 'email.complained' THEN m.complained_at
+		WHEN 'email.updated' THEN CASE WHEN t.changes ? 'delivered_at' THEN m.delivered_at ELSE m.bounced_at END
+	END, t.created_at)
+	FROM message_history m
+	WHERE t.entity_type = 'message_history'
+		AND t.entity_id = m.id
+		AND t.kind IN ('email.opened', 'email.clicked', 'email.link_clicked', 'email.bounced',
+			'email.complained', 'email.updated')`
 
 // messageEngagementData holds a message and its engagement info
 type messageEngagementData struct {
@@ -1918,7 +1657,10 @@ type messageEngagementData struct {
 	engagement messageEngagement
 }
 
-// generateDeliveredInboundWebhookEventsForBatch creates inbound webhook events for delivered messages
+// generateDeliveredInboundWebhookEventsForBatch records what SES reported about each email of the
+// batch: its delivery, its hard bounce or its spam complaint, as the SNS notification posted to the
+// webhook (demo_ses_events.go), and the same event on the message, as ProcessWebhook writes it.
+// Without the second half the demo showed a "Delivered" webhook beside a message still "Sent".
 func (s *DemoService) generateDeliveredInboundWebhookEventsForBatch(ctx context.Context, workspaceID string, messagesData []messageEngagementData) error {
 	// Skip if workspace service or inbound webhook event repo is not available
 	if s.workspaceService == nil || s.inboundWebhookEventRepo == nil {
@@ -1926,50 +1668,79 @@ func (s *DemoService) generateDeliveredInboundWebhookEventsForBatch(ctx context.
 		return nil
 	}
 
-	// Get the integration ID from the workspace
 	workspace, err := s.workspaceService.GetWorkspace(ctx, workspaceID)
 	if err != nil {
 		return fmt.Errorf("failed to get workspace: %w", err)
 	}
-
-	integrationID := workspace.Settings.TransactionalEmailProviderID
-	if integrationID == "" {
-		s.logger.WithField("workspace_id", workspaceID).Debug("No transactional email provider configured, skipping inbound webhook events")
+	providers := demoProvidersOf(workspace)
+	if providers.transactional == "" {
+		s.logger.WithField("workspace_id", workspaceID).Debug("No email provider configured, skipping inbound webhook events")
 		return nil
 	}
 
-	// Collect inbound webhook events for delivered messages
 	var inboundWebhookEvents []*domain.InboundWebhookEvent
+	var updates []domain.MessageEventUpdate
+	hardBounced := map[string]time.Time{} // address → its bounce
+	record := func(data messageEngagementData, eventType domain.EmailEventType, at time.Time, update domain.MessageEventUpdate) error {
+		integrationID, sender := providers.of(data.message)
+		event, err := demoSESEvent(eventType, integrationID, sender, data.message, at)
+		if err != nil {
+			return err
+		}
+		inboundWebhookEvents = append(inboundWebhookEvents, event)
+		updates = append(updates, update)
+		return nil
+	}
 	for _, data := range messagesData {
-		if !data.engagement.shouldDeliver {
+		engagement := data.engagement
+		if engagement.shouldBounce {
+			reason := demoSESBounceStatusInfo()
+			if err := record(data, domain.EmailEventBounce, engagement.bouncedTime, domain.MessageEventUpdate{
+				ID: data.message.ID, Event: domain.MessageEventBounced, Timestamp: engagement.bouncedTime, StatusInfo: &reason,
+			}); err != nil {
+				return err
+			}
+			hardBounced[data.message.ContactEmail] = engagement.bouncedTime
 			continue
 		}
-
-		inboundWebhookEventID := uuid.New().String()
-		rawPayload := fmt.Sprintf(`{"event":"delivered","message_id":"%s","recipient":"%s","timestamp":"%s"}`,
-			data.message.ID, data.message.ContactEmail, data.engagement.deliveredTime.Format(time.RFC3339))
-
-		inboundWebhookEvent := &domain.InboundWebhookEvent{
-			ID:             inboundWebhookEventID,
-			Type:           domain.EmailEventDelivered,
-			Source:         domain.WebhookSourceSMTP,
-			IntegrationID:  integrationID,
-			RecipientEmail: data.message.ContactEmail,
-			MessageID:      &data.message.ID,
-			Timestamp:      data.engagement.deliveredTime,
-			RawPayload:     rawPayload,
-			CreatedAt:      data.engagement.deliveredTime,
+		if engagement.shouldDeliver {
+			if err := record(data, domain.EmailEventDelivered, engagement.deliveredTime, domain.MessageEventUpdate{
+				ID: data.message.ID, Event: domain.MessageEventDelivered, Timestamp: engagement.deliveredTime,
+			}); err != nil {
+				return err
+			}
 		}
-
-		inboundWebhookEvents = append(inboundWebhookEvents, inboundWebhookEvent)
+		if engagement.shouldComplain {
+			if err := record(data, domain.EmailEventComplaint, engagement.complainedTime, domain.MessageEventUpdate{
+				ID: data.message.ID, Event: domain.MessageEventComplained, Timestamp: engagement.complainedTime,
+			}); err != nil {
+				return err
+			}
+		}
 	}
 
-	// Store inbound webhook events
 	if len(inboundWebhookEvents) > 0 {
 		if err := s.inboundWebhookEventRepo.StoreEvents(ctx, workspaceID, inboundWebhookEvents); err != nil {
 			return fmt.Errorf("failed to store inbound webhook events: %w", err)
 		}
-		s.logger.WithField("count", len(inboundWebhookEvents)).Debug("Generated delivered inbound webhook events")
+		s.logger.WithField("count", len(inboundWebhookEvents)).Debug("Generated SES inbound webhook events")
+	}
+
+	if len(updates) > 0 && s.messageHistoryRepo != nil {
+		if err := s.messageHistoryRepo.SetStatusesIfNotSet(ctx, workspaceID, updates); err != nil {
+			return fmt.Errorf("failed to record deliveries: %w", err)
+		}
+	}
+
+	// As ProcessWebhook does for a hard bounce: the address is bounced on every list it is on,
+	// not only on the list of the email that bounced (which the message's own trigger covers).
+	// At the bounce, as ProcessWebhook marks it when SES reports it, rather than at the seed: the
+	// list change shows on the contact's timeline. Nothing reaches an address after its bounce,
+	// so each address bounces once.
+	if len(hardBounced) > 0 && s.contactRepo != nil {
+		if err := s.contactRepo.MarkEmailsAsBouncedAt(ctx, workspaceID, hardBounced); err != nil {
+			return fmt.Errorf("failed to mark emails as bounced: %w", err)
+		}
 	}
 
 	return nil
@@ -2009,7 +1780,9 @@ func (s *DemoService) updateClickedMessagesForBatch(ctx context.Context, workspa
 		// Use SetClicked to update the message (triggers timeline entry)
 		// SetClicked also sets opened_at if not already set
 		clickedURL := demoClickedURLs[i%len(demoClickedURLs)]
-		if err := s.messageHistoryRepo.SetClicked(ctx, workspaceID, data.message.ID, data.engagement.clickedTime, clickedURL); err != nil {
+		// Verified, as a click through a signed link is: the demo timeline shows which link
+		// each contact clicked, and link-click automations can be tried on it.
+		if err := s.messageHistoryRepo.SetClicked(ctx, workspaceID, data.message.ID, data.engagement.clickedTime, clickedURL, true); err != nil {
 			s.logger.WithField("message_id", data.message.ID).WithField("error", err.Error()).Debug("Failed to set clicked status")
 		}
 	}
@@ -2017,11 +1790,21 @@ func (s *DemoService) updateClickedMessagesForBatch(ctx context.Context, workspa
 	return nil
 }
 
+// notificationIDOf is the ID of the demo notification that sends a message type, nil for none.
+func notificationIDOf(messageType string) *string {
+	id, ok := demoNotificationIDs[messageType]
+	if !ok {
+		return nil
+	}
+	return &id
+}
+
 // generateTransactionalMessageHistoryForContact creates a realistic transactional message history record for a contact
 // Transactional messages have no broadcast ID and different engagement patterns
-// Engagement rates: 100% delivered, 60% open rate, 20% click rate
-func (s *DemoService) generateTransactionalMessageHistoryForContact(contact *domain.Contact, templateID string, templateVersion int64, messageType string, baseTime time.Time) (*domain.MessageHistory, messageEngagement) {
-	messageID := fmt.Sprintf("demo_%s_%s_%d", contact.Email, messageType, baseTime.Unix())
+// Engagement rates: 0.5% hard bounces, the rest delivered, 60% open rate, 20% click rate.
+// The message is sent at sentTime, and its events follow it, by now.
+func (s *DemoService) generateTransactionalMessageHistoryForContact(contact *domain.Contact, templateID string, templateVersion int64, messageType string, sentTime, now time.Time) (*domain.MessageHistory, messageEngagement) {
+	messageID := fmt.Sprintf("demo_%s_%s_%d", contact.Email, messageType, sentTime.Unix())
 
 	// Create message data for transactional message
 	messageData := domain.MessageData{
@@ -2045,44 +1828,46 @@ func (s *DemoService) generateTransactionalMessageHistoryForContact(contact *dom
 	}
 
 	// Base transactional message with sent status
-	sentTime := baseTime.Add(time.Duration(rand.Intn(3600)) * time.Second) // Random time within first hour
 	message := &domain.MessageHistory{
-		ID:              messageID,
-		ContactEmail:    contact.Email,
-		BroadcastID:     nil, // Transactional messages have no broadcast ID
-		TemplateID:      templateID,
-		TemplateVersion: templateVersion,
-		Channel:         "email",
-		MessageData:     messageData,
-		SentAt:          sentTime,
-		CreatedAt:       sentTime,
-		UpdatedAt:       sentTime,
+		ID:                          messageID,
+		ContactEmail:                contact.Email,
+		BroadcastID:                 nil, // Transactional messages have no broadcast ID
+		TemplateID:                  templateID,
+		TransactionalNotificationID: notificationIDOf(messageType),
+		TemplateVersion:             templateVersion,
+		Channel:                     "email",
+		MessageData:                 messageData,
+		SentAt:                      sentTime,
+		CreatedAt:                   sentTime,
+		UpdatedAt:                   sentTime,
 	}
 
 	// Initialize engagement
 	engagement := messageEngagement{}
 
-	// 100% delivery rate - all messages delivered successfully
-	deliveredTime := sentTime.Add(time.Duration(rand.Intn(1800)) * time.Second) // Within 30 minutes
-	engagement.shouldDeliver = true
-	engagement.deliveredTime = deliveredTime
+	// Delivered, or hard-bounced and gone no further.
+	demoBounceOrDeliver(&engagement, now, sentTime, demoTransactionalBounceRate)
+	if engagement.shouldBounce {
+		return message, engagement
+	}
+	deliveredTime := engagement.deliveredTime
 
 	// 60% open rate
 	if rand.Float64() < 0.60 {
-		openedTime := deliveredTime.Add(time.Duration(rand.Intn(24*3600)) * time.Second) // Within 24 hours
+		openedTime := demoEventAfter(now, deliveredTime, 24*time.Hour) // Within 24 hours
 		engagement.shouldOpen = true
 		engagement.openedTime = openedTime
 
 		// 20% click rate (of all messages, so 20/60 = 33.33% of opened messages)
 		if rand.Float64() < 0.20/0.60 {
-			clickedTime := openedTime.Add(time.Duration(rand.Intn(1800)) * time.Second) // Within 30 minutes of opening
+			clickedTime := demoEventAfter(now, openedTime, 30*time.Minute) // Within 30 minutes of opening
 			engagement.shouldClick = true
 			engagement.clickedTime = clickedTime
 		}
 
 		// Very low unsubscribe rates for transactional messages
 		if rand.Float64() < 0.001 {
-			unsubscribeTime := openedTime.Add(time.Duration(rand.Intn(3600)) * time.Second) // Within 1 hour of opening
+			unsubscribeTime := demoEventAfter(now, openedTime, time.Hour) // Within 1 hour of opening
 			message.UnsubscribedAt = &unsubscribeTime
 		}
 	}
@@ -2091,27 +1876,19 @@ func (s *DemoService) generateTransactionalMessageHistoryForContact(contact *dom
 }
 
 // generateMessageHistoryForContact creates a realistic message history record for a contact
-// with the specified engagement rates: 100% delivered, 60% open rate, 20% click rate
-func (s *DemoService) generateMessageHistoryForContact(contact *domain.Contact, templateID string, templateVersion int64, broadcastID string, baseTime time.Time) (*domain.MessageHistory, messageEngagement) {
-	messageID := fmt.Sprintf("demo_%s_%s_%d", contact.Email, broadcastID, baseTime.Unix())
+// with the specified engagement rates: 1.5% hard bounces, the rest delivered, 0.2% spam
+// complaints, 60% open rate, 20% click rate. The message is sent at sentTime, which its
+// broadcast decides (demoBroadcastSend), and its events follow it, by now.
+func (s *DemoService) generateMessageHistoryForContact(contact *domain.Contact, templateID string, templateVersion int64, broadcast *domain.Broadcast, sentTime, now time.Time) (*domain.MessageHistory, messageEngagement) {
+	broadcastID := broadcast.ID
+	messageID := fmt.Sprintf("demo_%s_%s_%d", contact.Email, broadcastID, sentTime.Unix())
 
-	// Determine campaign type based on broadcastID
-	var campaignType string
-	utmMedium := "email"
-
-	if strings.Contains(broadcastID, "transactional") {
-		campaignType = "transactional"
-		switch templateID {
-		case "password-reset":
-			campaignType = "password_reset"
-		case "welcome-email":
-			campaignType = "welcome"
-		}
-	} else {
-		campaignType = "newsletter"
+	// The UTM parameters the broadcast tags its links with: the same campaign name as the
+	// seeded web sessions (demoBroadcastCampaigns).
+	campaign := ""
+	if broadcast.UTMParameters != nil {
+		campaign = broadcast.UTMParameters.Campaign
 	}
-
-	// Create base message data
 	messageData := domain.MessageData{
 		Data: map[string]interface{}{
 			"contact": map[string]interface{}{
@@ -2119,22 +1896,25 @@ func (s *DemoService) generateMessageHistoryForContact(contact *domain.Contact, 
 				"first_name": getStringValue(contact.FirstName),
 				"last_name":  getStringValue(contact.LastName),
 			},
-			"utm_source":   "demo.notifuse.com",
-			"utm_medium":   utmMedium,
-			"utm_campaign": broadcastID,
+			"utm_source":   demoBroadcastUTMSource,
+			"utm_medium":   "email",
+			"utm_campaign": campaign,
 		},
 		Metadata: map[string]interface{}{
 			"demo_generated": true,
-			"campaign_type":  campaignType,
+			"campaign_type":  "newsletter",
 		},
 	}
 
 	// Base message with sent status
-	sentTime := baseTime.Add(time.Duration(rand.Intn(3600)) * time.Second) // Random time within first hour
+	// The list the demo's broadcasts go to, which a broadcast's message stores: a complaint or a
+	// hard bounce on it sets the contact's status on that list (apply_message_status_to_contact_lists).
+	listID := demoListNewsletter
 	message := &domain.MessageHistory{
 		ID:              messageID,
 		ContactEmail:    contact.Email,
 		BroadcastID:     &broadcastID,
+		ListID:          &listID,
 		TemplateID:      templateID,
 		TemplateVersion: templateVersion,
 		Channel:         "email",
@@ -2147,27 +1927,35 @@ func (s *DemoService) generateMessageHistoryForContact(contact *domain.Contact, 
 	// Initialize engagement
 	engagement := messageEngagement{}
 
-	// 100% delivery rate - all messages delivered successfully
-	deliveredTime := sentTime.Add(time.Duration(rand.Intn(1800)) * time.Second) // Within 30 minutes
-	engagement.shouldDeliver = true
-	engagement.deliveredTime = deliveredTime
+	// Delivered, or hard-bounced and gone no further.
+	demoBounceOrDeliver(&engagement, now, sentTime, demoNewsletterBounceRate)
+	if engagement.shouldBounce {
+		return message, engagement
+	}
+	deliveredTime := engagement.deliveredTime
+
+	// A few recipients mark the newsletter as spam once delivered.
+	if rand.Float64() < demoNewsletterComplaintRate {
+		engagement.shouldComplain = true
+		engagement.complainedTime = demoEventAfter(now, deliveredTime, 48*time.Hour) // Within 48 hours
+	}
 
 	// 60% open rate
 	if rand.Float64() < 0.60 {
-		openedTime := deliveredTime.Add(time.Duration(rand.Intn(7*24*3600)) * time.Second) // Within 7 days
+		openedTime := demoEventAfter(now, deliveredTime, 7*24*time.Hour) // Within 7 days
 		engagement.shouldOpen = true
 		engagement.openedTime = openedTime
 
 		// 20% click rate (of all messages, so 20/60 = 33.33% of opened messages)
 		if rand.Float64() < 0.20/0.60 {
-			clickedTime := openedTime.Add(time.Duration(rand.Intn(3600)) * time.Second) // Within 1 hour of opening
+			clickedTime := demoEventAfter(now, openedTime, time.Hour) // Within 1 hour of opening
 			engagement.shouldClick = true
 			engagement.clickedTime = clickedTime
 		}
 
 		// 1% unsubscribed (of all messages, not just opened)
 		if rand.Float64() < 0.01/0.60 {
-			unsubscribeTime := openedTime.Add(time.Duration(rand.Intn(1800)) * time.Second) // Within 30 minutes of opening
+			unsubscribeTime := demoEventAfter(now, openedTime, 30*time.Minute) // Within 30 minutes of opening
 			message.UnsubscribedAt = &unsubscribeTime
 		}
 	}

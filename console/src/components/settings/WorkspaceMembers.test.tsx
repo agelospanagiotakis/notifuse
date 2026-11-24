@@ -6,10 +6,15 @@ import { I18nProvider } from '@lingui/react'
 import { LicenseContext, UNKNOWN_LICENSE } from '../../contexts/licenseState'
 import type { Entitlements } from '../../types/license'
 import { WorkspaceMembers } from './WorkspaceMembers'
+import { ApiError } from '../../services/api/errors'
 import type { PermissionResource, WorkspaceMember } from '../../services/api/types'
 import {
   ALL_PERMISSION_RESOURCES,
   OPT_IN_PERMISSION_RESOURCES,
+  ENFORCED_PERMISSION_VERBS,
+  createEmptyPermissions,
+  createFullPermissions,
+  grantUnenforcedPermissions,
   isPermissionEnforced
 } from '../../services/api/permissions'
 
@@ -18,7 +23,8 @@ const api = vi.hoisted(() => ({
   setUserPermissions: vi.fn(),
   inviteMember: vi.fn(),
   removeMember: vi.fn(),
-  deleteInvitation: vi.fn()
+  deleteInvitation: vi.fn(),
+  setUserPassword: vi.fn()
 }))
 
 vi.mock('../../services/api/workspace', () => ({ workspaceService: api }))
@@ -30,6 +36,11 @@ beforeEach(() => {
   api.createAPIKey.mockResolvedValue({ token: 'tok', email: 'sender@api.example.com' })
   api.setUserPermissions.mockResolvedValue({ status: 'ok', message: '' })
   api.inviteMember.mockResolvedValue({ status: 'ok', message: '' })
+  api.setUserPassword.mockResolvedValue({
+    status: 'success',
+    password: 'AbcDefGhiJkmNpqRstUv',
+    must_change_password: true
+  })
   // Carries a trailing path segment so the normalisation is exercised, not just the host.
   window.API_ENDPOINT = 'https://api.example.com/'
 })
@@ -47,7 +58,18 @@ const apiKeyRow = (permissions: WorkspaceMember['permissions']): WorkspaceMember
 
 // `licensedFor` omitted means the console has not been told, and every advisory read answers
 // "licensed" — the state every other test here runs in.
-const renderMembers = (members: WorkspaceMember[], licensedFor?: Entitlements['features']) =>
+interface RenderOptions {
+  isOwner?: boolean
+  currentUserId?: string
+  error?: boolean
+  onMembersChange?: () => void
+}
+
+const renderMembers = (
+  members: WorkspaceMember[],
+  licensedFor?: Entitlements['features'],
+  options: RenderOptions = {}
+) =>
   render(
     <I18nProvider i18n={i18n}>
       <App>
@@ -71,21 +93,33 @@ const renderMembers = (members: WorkspaceMember[], licensedFor?: Entitlements['f
             workspaceId="ws1"
             members={members}
             loading={false}
-            onMembersChange={vi.fn()}
-            isOwner={true}
+            error={options.error ?? false}
+            onMembersChange={options.onMembersChange ?? vi.fn()}
+            isOwner={options.isOwner ?? true}
+            currentUserId={options.currentUserId}
           />
         </LicenseContext.Provider>
       </App>
     </I18nProvider>
   )
 
-// faUserCog is an alias; Font Awesome renders it under the canonical name.
-const GEAR_ICON = '[data-icon="user-gear"]'
-
+// A member row shows the email; an API key row shows its name, the part before "@".
 const rowFor = (member: WorkspaceMember) => {
-  const row = screen.getByText(member.email).closest('tr')
+  const cell = screen.queryAllByText(member.email)[0] ?? screen.getAllByText(member.email.split('@')[0])[0]
+  const row = cell.closest('tr')
   expect(row).not.toBeNull()
   return row as HTMLTableRowElement
+}
+
+// The row menu: its button, then the item of the dropdown antd renders in the body.
+const openRowMenu = (member: WorkspaceMember) => {
+  const trigger = within(rowFor(member)).queryByRole('button', { name: 'Actions' })
+  expect(trigger).not.toBeNull()
+  fireEvent.click(trigger as HTMLElement)
+}
+
+const chooseInMenu = async (item: string) => {
+  fireEvent.click(await screen.findByRole('menuitem', { name: item }))
 }
 
 // Every host of the editable matrix is a Drawer: the matrix carries fourteen expandable rows and
@@ -106,9 +140,8 @@ const footerOf = (drawer: HTMLElement) => {
 }
 
 const openPermissionsEditor = async (member: WorkspaceMember) => {
-  const gear = rowFor(member).querySelector(GEAR_ICON)?.closest('button')
-  expect(gear).not.toBeNull()
-  fireEvent.click(gear as HTMLButtonElement)
+  openRowMenu(member)
+  await chooseInMenu('Edit permissions')
   return openDrawer(`Edit Permissions for ${member.email}`)
 }
 
@@ -125,30 +158,40 @@ const switchesFor = (dialog: HTMLElement, resource: PermissionResource) => {
   return { read, write }
 }
 
-describe('WorkspaceMembers permissions column', () => {
-  it('renders an API key grant as a count instead of an unconditional Full Access', () => {
+describe('WorkspaceMembers access column', () => {
+  // The shapes the console itself saves: every set leaves the drawer through
+  // grantUnenforcedPermissions, so it carries the unenforced verbs, Audit logs write included.
+  const savedFull = () => grantUnenforcedPermissions(createFullPermissions())
+  // A row with details to show wraps its summary in a Popover, marked cursor-help; one without
+  // renders the pill alone. Read synchronously, so a missing popover costs no timeout.
+  const hasPopover = (member: WorkspaceMember) => rowFor(member).querySelector('.cursor-help') !== null
+
+  it('names the resources of a partial grant instead of an unconditional Full access', () => {
     const member = apiKeyRow({ transactional: { read: false, write: true } })
     renderMembers([member])
 
     const row = rowFor(member)
-    expect(row.textContent).toContain(`1/${ALL_PERMISSION_RESOURCES.length * 2}`)
-    expect(row.textContent).not.toContain('Full Access')
+    expect(row.textContent).toContain('Transactional')
+    expect(row.textContent).not.toContain('read only')
+    expect(row.textContent).not.toContain('Full access')
+    expect(hasPopover(member)).toBe(true)
   })
 
-  it('counts an API key holding every resource as Full Access', () => {
+  it('counts an API key holding every resource as Full access', () => {
     const granted = Object.fromEntries(
       ALL_PERMISSION_RESOURCES.map((resource) => [resource, { read: true, write: true }])
     ) as WorkspaceMember['permissions']
     const member = apiKeyRow(granted)
     renderMembers([member])
 
-    expect(rowFor(member).textContent).toContain('Full Access')
+    expect(rowFor(member).textContent).toContain('Full access')
   })
 
-  it('uses the whole resource list as the badge denominator, not the row key count', () => {
-    expect(ALL_PERMISSION_RESOURCES).toHaveLength(14)
+  it('names two resources, then the number of the others, and keeps the count of verbs in the details', async () => {
+    // Pinned here and in permissions.test.ts: fourteen canonical resources and Audit logs read,
+    // less the three canonical verbs no endpoint enforces.
+    expect(ENFORCED_PERMISSION_VERBS).toHaveLength(26)
 
-    // A row that grants read+write on three resources is not Full Access.
     const member = apiKeyRow({
       contacts: { read: true, write: true },
       lists: { read: true, write: true },
@@ -157,47 +200,288 @@ describe('WorkspaceMembers permissions column', () => {
     renderMembers([member])
 
     const row = rowFor(member)
-    expect(row.textContent).toContain('6/28')
-    expect(row.textContent).not.toContain('Full Access')
+    expect(row.textContent).toContain('Contacts, Lists')
+    expect(row.textContent).toContain('+1')
+    expect(row.textContent).not.toContain('Full access')
+
+    fireEvent.mouseEnter(row.querySelector('.cursor-help') as HTMLElement)
+    expect(await screen.findByText('Permission details')).toBeInTheDocument()
+    expect(await screen.findByText('6 of 26 permissions granted')).toBeInTheDocument()
   })
 
-  it('renders a row whose permissions are undefined without throwing', () => {
-    const member = apiKeyRow(undefined)
-    expect(() => renderMembers([member])).not.toThrow()
-    expect(rowFor(member).textContent).toContain('No Access')
+  it('says read only for a grant without any write', () => {
+    const member = apiKeyRow({ contacts: { read: true, write: false }, lists: { read: true, write: false } })
+    renderMembers([member])
+
+    expect(rowFor(member).textContent).toContain('· read only')
   })
 
-  it('renders a row whose permissions are null without throwing', () => {
-    const member = apiKeyRow(null as unknown as WorkspaceMember['permissions'])
-    expect(() => renderMembers([member])).not.toThrow()
-    expect(rowFor(member).textContent).toContain('No Access')
+  it('shows Full access for a full set as the editor saves it, without details', () => {
+    const member = apiKeyRow(savedFull())
+    renderMembers([member])
+
+    expect(rowFor(member).textContent).toContain('Full access')
+    expect(hasPopover(member)).toBe(false)
   })
 
-  it('renders a row whose permissions are an empty map without throwing', () => {
-    const member = apiKeyRow({})
+  it('shows Full access for a full set that can also read audit logs, and keeps that grant visible', async () => {
+    const member = apiKeyRow({ ...savedFull(), audit_logs: { read: true, write: true } })
+    renderMembers([member])
+
+    expect(rowFor(member).textContent).toContain('Full access')
+    expect(hasPopover(member)).toBe(true)
+
+    fireEvent.mouseEnter(rowFor(member).querySelector('.cursor-help') as HTMLElement)
+    expect(await screen.findByText('Permission details')).toBeInTheDocument()
+  })
+
+  it('does not call a set one verb short of full Full access', () => {
+    const permissions = savedFull()
+    permissions.contacts = { read: true, write: false }
+    const member = apiKeyRow(permissions)
+    renderMembers([member])
+
+    expect(rowFor(member).textContent).not.toContain('Full access')
+    expect(rowFor(member).textContent).toContain('Contacts, Segments')
+  })
+
+  // Older consoles and API callers could store an unenforced verb as false. It gates nothing, the
+  // editor shows it granted and saves it so, so the row is full access.
+  it('shows Full access for a full set stored with an unenforced verb off', () => {
+    const member = apiKeyRow({ ...createFullPermissions(), llm: { read: false, write: true } })
+    renderMembers([member])
+
+    expect(rowFor(member).textContent).toContain('Full access')
+  })
+
+  it('shows No access for the set Revoke all saves, without details', () => {
+    const member = apiKeyRow(grantUnenforcedPermissions(createEmptyPermissions()))
+    renderMembers([member])
+
+    expect(rowFor(member).textContent).toContain('No access')
+    expect(hasPopover(member)).toBe(false)
+  })
+
+  it('names Audit logs for a key that can only read them instead of calling it No access', () => {
+    const member = apiKeyRow({ audit_logs: { read: true, write: true } })
+    renderMembers([member])
+
+    expect(rowFor(member).textContent).not.toContain('No access')
+    expect(rowFor(member).textContent).toContain('Audit Logs')
+  })
+
+  it.each([
+    ['undefined', undefined],
+    ['null', null as unknown as WorkspaceMember['permissions']],
+    ['an empty map', {}]
+  ])('renders a row whose permissions are %s as No access', (_label, permissions) => {
+    const member = apiKeyRow(permissions)
     expect(() => renderMembers([member])).not.toThrow()
-    expect(rowFor(member).textContent).toContain('No Access')
+    expect(rowFor(member).textContent).toContain('No access')
   })
 })
 
-describe('WorkspaceMembers actions', () => {
-  it('offers the edit-permissions control on an API key row', () => {
-    const member = apiKeyRow({ transactional: { read: false, write: true } })
-    renderMembers([member])
-
-    expect(rowFor(member).querySelector(GEAR_ICON)).not.toBeNull()
+describe('WorkspaceMembers tables', () => {
+  const human = (overrides: Partial<WorkspaceMember>): WorkspaceMember => ({
+    user_id: 'user-1',
+    workspace_id: 'ws1',
+    role: 'member',
+    email: 'member@example.com',
+    type: 'user',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    permissions: { contacts: { read: true, write: false } },
+    ...overrides
   })
 
-  it('offers the edit-permissions control on a human member row', () => {
-    const member: WorkspaceMember = {
-      ...apiKeyRow({ contacts: { read: true, write: false } }),
-      user_id: 'user-1',
-      email: 'member@example.com',
-      type: 'user'
-    }
+  const tableOf = (title: string) => {
+    const panel = screen.getByText(title).closest('section')
+    expect(panel).not.toBeNull()
+    return panel as HTMLElement
+  }
+
+  it('lists members and invitations under Members, API keys under API keys', () => {
+    const key = apiKeyRow({ contacts: { read: true, write: false } })
+    renderMembers([
+      human({}),
+      human({ user_id: '', email: 'guest@example.com', invitation_id: 'inv-1', invitation_expires_at: '2099-01-01T00:00:00Z' }),
+      key
+    ])
+
+    const members = tableOf('Members')
+    expect(within(members).getByText('member@example.com')).toBeInTheDocument()
+    expect(within(members).getByText('guest@example.com')).toBeInTheDocument()
+    expect(within(members).queryByText('sender')).not.toBeInTheDocument()
+
+    const keys = tableOf('API keys')
+    expect(within(keys).getByText('sender')).toBeInTheDocument()
+    expect(within(keys).queryByText('member@example.com')).not.toBeInTheDocument()
+  })
+
+  it('shows the name with the email under it, and the email alone without a name', () => {
+    renderMembers([
+      human({ name: 'Julie Martin', email: 'julie@example.com' }),
+      human({ user_id: 'user-2', email: 'noname@example.com' })
+    ])
+
+    const julie = rowFor({ ...human({}), email: 'julie@example.com' })
+    expect(within(julie).getByText('Julie Martin')).toBeInTheDocument()
+    expect(within(julie).getByText('JM')).toBeInTheDocument()
+    expect(within(rowFor({ ...human({}), email: 'noname@example.com' })).getByText('NO')).toBeInTheDocument()
+  })
+
+  it('marks the signed-in member with (you)', () => {
+    renderMembers([human({ user_id: 'me', name: 'Ann', email: 'ann@example.com' })], undefined, { currentUserId: 'me' })
+
+    expect(rowFor({ ...human({}), email: 'ann@example.com' }).textContent).toContain('(you)')
+  })
+
+  it('dates an invitation and says when it expires', () => {
+    const now = Date.now()
+    renderMembers([
+      human({
+        user_id: '',
+        email: 'guest@example.com',
+        invitation_id: 'inv-1',
+        created_at: new Date(now - 60 * 60 * 1000).toISOString(),
+        invitation_expires_at: new Date(now + 6 * 24 * 60 * 60 * 1000 + 60_000).toISOString()
+      })
+    ])
+
+    const row = rowFor({ ...human({}), email: 'guest@example.com' })
+    expect(row.textContent).toMatch(/Invitation sent .*, expires in 7 days/)
+    expect(row.textContent).toContain('Pending')
+  })
+
+  it('says an invitation expired while the page was open', () => {
+    renderMembers([
+      human({
+        user_id: '',
+        email: 'guest@example.com',
+        invitation_id: 'inv-1',
+        invitation_expires_at: new Date(Date.now() - 1000).toISOString()
+      })
+    ])
+
+    expect(rowFor({ ...human({}), email: 'guest@example.com' }).textContent).toContain('Invitation expired')
+  })
+
+  it('keeps two invitations apart, though neither has a user id', () => {
+    renderMembers([
+      human({ user_id: '', email: 'a@example.com', invitation_id: 'inv-1', invitation_expires_at: '2099-01-01T00:00:00Z' }),
+      human({ user_id: '', email: 'b@example.com', invitation_id: 'inv-2', invitation_expires_at: '2099-01-01T00:00:00Z' })
+    ])
+
+    const keys = Array.from(document.querySelectorAll('tr[data-row-key]')).map((row) => row.getAttribute('data-row-key'))
+    expect(keys).toContain('inv-1')
+    expect(keys).toContain('inv-2')
+  })
+
+  it('shows a platform admin without a joined date', () => {
+    window.ROOT_EMAIL = 'root@example.com'
+    renderMembers([human({ role: 'owner', email: 'root@example.com', name: 'Root', created_at: '2026-01-01T00:00:00Z' })])
+
+    const row = rowFor({ ...human({}), email: 'root@example.com' })
+    expect(row.textContent).toContain('Platform admin')
+    expect(row.textContent).not.toContain('2026')
+    // A dash, not an empty cell that reads as a missing date.
+    expect(row.querySelector('[data-joined-none]')).toHaveTextContent('—')
+    window.ROOT_EMAIL = ''
+  })
+
+  it('names an API key after its address, and gives the address in a tooltip', async () => {
+    renderMembers([apiKeyRow({ contacts: { read: true, write: false } })])
+
+    const name = within(tableOf('API keys')).getByText('sender')
+    fireEvent.mouseEnter(name)
+    expect(await screen.findByText('sender@api.example.com')).toBeInTheDocument()
+  })
+
+  it('says there is no API key yet', () => {
+    renderMembers([human({})])
+
+    expect(screen.getByText('No API keys yet. Create one to call the API or connect Zapier.')).toBeInTheDocument()
+  })
+
+  it('offers no menu to a member who is not owner, nor on an owner row', () => {
+    const { unmount } = renderMembers([human({})], undefined, { isOwner: false })
+    expect(screen.queryByRole('button', { name: 'Actions' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Invite' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'New key' })).not.toBeInTheDocument()
+    unmount()
+
+    renderMembers([human({ role: 'owner', email: 'owner@example.com' })])
+    expect(within(rowFor({ ...human({}), email: 'owner@example.com' })).queryByRole('button', { name: 'Actions' })).toBeNull()
+  })
+
+  it('removes a member after confirmation', async () => {
+    api.removeMember.mockResolvedValue({})
+    const member = human({})
     renderMembers([member])
 
-    expect(rowFor(member).querySelector(GEAR_ICON)).not.toBeNull()
+    openRowMenu(member)
+    await chooseInMenu('Remove from workspace')
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove' }))
+
+    await waitFor(() => expect(api.removeMember).toHaveBeenCalledWith({ workspace_id: 'ws1', user_id: 'user-1' }))
+  })
+
+  it('deletes an API key after its confirmation', async () => {
+    api.removeMember.mockResolvedValue({})
+    const key = apiKeyRow({ contacts: { read: true, write: false } })
+    renderMembers([key])
+
+    openRowMenu(key)
+    await chooseInMenu('Delete key')
+    expect(await screen.findByText(/This API key will be permanently deleted/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => expect(api.removeMember).toHaveBeenCalledWith({ workspace_id: 'ws1', user_id: 'key-1' }))
+  })
+
+  it('resends an invitation with the grant it carries', async () => {
+    const invitation = human({ user_id: '', email: 'guest@example.com', invitation_id: 'inv-1', invitation_expires_at: '2099-01-01T00:00:00Z' })
+    renderMembers([invitation])
+
+    openRowMenu(invitation)
+    await chooseInMenu('Resend invitation')
+
+    await waitFor(() => expect(api.inviteMember).toHaveBeenCalled())
+    expect(api.inviteMember.mock.calls[0][0].permissions.contacts).toEqual({ read: true, write: false })
+    expect(api.inviteMember.mock.calls[0][0].permissions.lists).toEqual({ read: false, write: false })
+  })
+
+  it('deletes an invitation after confirmation', async () => {
+    api.deleteInvitation.mockResolvedValue({})
+    const invitation = human({ user_id: '', email: 'guest@example.com', invitation_id: 'inv-1', invitation_expires_at: '2099-01-01T00:00:00Z' })
+    renderMembers([invitation])
+
+    openRowMenu(invitation)
+    await chooseInMenu('Delete invitation')
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => expect(api.deleteInvitation).toHaveBeenCalledWith({ invitation_id: 'inv-1' }))
+  })
+
+  it('tells the owner when the plan has no room for another member', async () => {
+    api.inviteMember.mockRejectedValue(new ApiError('team member limit reached', 403))
+    renderMembers([])
+    fireEvent.click(screen.getByRole('button', { name: 'Invite' }))
+    const drawer = await openDrawer('Invite member')
+    fireEvent.change(within(drawer).getByRole('textbox'), { target: { value: 'new@example.com' } })
+    fireEvent.click(within(footerOf(drawer)).getByRole('button', { name: 'Send invitation' }))
+
+    expect(
+      await screen.findByText('Team member limit reached. Please upgrade your plan to add more members.')
+    ).toBeInTheDocument()
+  })
+
+  it('offers to retry when the members could not load', () => {
+    const onRetry = vi.fn()
+    renderMembers([], undefined, { error: true, onMembersChange: onRetry })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(onRetry).toHaveBeenCalled()
   })
 })
 
@@ -283,7 +567,7 @@ describe('permissions matrix', () => {
 describe('create API key drawer', () => {
   const openCreateApiKey = async () => {
     renderMembers([])
-    fireEvent.click(screen.getByRole('button', { name: 'Create API Key' }))
+    fireEvent.click(screen.getByRole('button', { name: 'New key' }))
     return openDrawer('Create API Key')
   }
 
@@ -313,6 +597,34 @@ describe('create API key drawer', () => {
     // Everything untouched keeps the full access an unscoped key has always had.
     expect(request.permissions.transactional).toEqual({ read: true, write: true })
     expect(Object.keys(request.permissions).sort()).toEqual([...ALL_PERMISSION_RESOURCES, ...OPT_IN_PERMISSION_RESOURCES].sort())
+  })
+
+  it('keeps the hyphens of the name the owner types, as the server accepts them', async () => {
+    const drawer = await openCreateApiKey()
+
+    const input = within(drawer).getByRole('textbox')
+    fireEvent.change(input, { target: { value: 'Website-Signup' } })
+    expect(input).toHaveValue('website-signup')
+    fireEvent.click(
+      within(footerOf(drawer)).getByRole('button', {
+        name: 'Create API Key'
+      })
+    )
+
+    await waitFor(() => expect(api.createAPIKey).toHaveBeenCalled())
+    expect(api.createAPIKey.mock.calls[0][0].email_prefix).toBe('website-signup')
+  })
+
+  it('sends the name without the underscore a trailing space became', async () => {
+    const drawer = await openCreateApiKey()
+
+    const input = within(drawer).getByRole('textbox')
+    fireEvent.change(input, { target: { value: 'website ' } })
+    expect(input).toHaveValue('website_')
+    fireEvent.click(within(footerOf(drawer)).getByRole('button', { name: 'Create API Key' }))
+
+    await waitFor(() => expect(api.createAPIKey).toHaveBeenCalled())
+    expect(api.createAPIKey.mock.calls[0][0].email_prefix).toBe('website')
   })
 
   it('offers a switch for every resource in the canonical list', async () => {
@@ -366,6 +678,45 @@ describe('create API key drawer', () => {
     }
   })
 
+  // The same rule as the invitation: a full key is never gated, a scoped one is. The matrix used
+  // to stay fully live without the licence, so the refusal only came as a 402 on Create.
+  it('greys every choice that narrows the key under an unlicensed deployment, and creates a full key', async () => {
+    renderMembers([], ['template_i18n'])
+    fireEvent.click(screen.getByRole('button', { name: 'New key' }))
+    const drawer = await openDrawer('Create API Key')
+
+    expect(
+      within(drawer).getByText('Custom permissions require a Notifuse Studio licence.')
+    ).toBeInTheDocument()
+    for (const resource of ALL_PERMISSION_RESOURCES) {
+      const { read, write } = switchesFor(drawer, resource)
+      expect(read.disabled).toBe(true)
+      expect(write.disabled).toBe(true)
+    }
+    expect(within(drawer).getByRole('button', { name: 'Revoke all' })).toBeDisabled()
+
+    fireEvent.change(within(drawer).getByRole('textbox'), { target: { value: 'sender' } })
+    const create = within(footerOf(drawer)).getByRole('button', { name: 'Create API Key' })
+    expect(create).toBeEnabled()
+    fireEvent.click(create)
+
+    await waitFor(() => expect(api.createAPIKey).toHaveBeenCalled())
+    const { permissions } = api.createAPIKey.mock.calls[0][0]
+    for (const resource of ALL_PERMISSION_RESOURCES) {
+      expect(permissions[resource]).toEqual({ read: true, write: true })
+    }
+  })
+
+  it('leaves the key matrix live when the licence covers custom permissions', async () => {
+    renderMembers([], ['rbac'])
+    fireEvent.click(screen.getByRole('button', { name: 'New key' }))
+    const drawer = await openDrawer('Create API Key')
+
+    expect(within(drawer).queryByText(/requires? a Notifuse/i)).not.toBeInTheDocument()
+    expect(switchesFor(drawer, 'contacts').write.disabled).toBe(false)
+    expect(within(drawer).getByRole('button', { name: 'Revoke all' })).toBeEnabled()
+  })
+
   it('advertises the address the server actually mints, without a workspace id in it', async () => {
     const drawer = await openCreateApiKey()
 
@@ -395,22 +746,27 @@ describe('create API key drawer', () => {
 describe('invite member drawer', () => {
   const openInvite = async (licensedFor?: Entitlements['features']) => {
     renderMembers([], licensedFor)
-    fireEvent.click(screen.getByRole('button', { name: 'Invite Member' }))
-    return openDrawer('Invite Member')
+    fireEvent.click(screen.getByRole('button', { name: 'Invite' }))
+    return openDrawer('Invite member')
   }
 
-  // An invite starts from a full grant, which the server never gates, so a locked matrix still
-  // holds a legal invitation. What is locked is narrowing it — the licensed capability — and
-  // it is said here, before Send, rather than as a 402 after it.
-  it('locks the matrix under an unlicensed deployment, and says what to buy', async () => {
+  // An invite starts from a full grant, which the server never gates, so it can be sent as it
+  // is. What is locked is narrowing it — the licensed capability — and it is said here, before
+  // Send, rather than as a 402 after it.
+  it('greys every choice that narrows the grant under an unlicensed deployment, and says what to buy', async () => {
     const drawer = await openInvite(['template_i18n'])
 
     expect(
       within(drawer).getByText('Custom permissions require a Notifuse Studio licence.')
     ).toBeInTheDocument()
-    const switches = within(drawer).getAllByRole('switch')
-    expect(switches.length).toBeGreaterThan(0)
-    expect(switches.every((s) => (s as HTMLButtonElement).disabled)).toBe(true)
+    for (const resource of ALL_PERMISSION_RESOURCES) {
+      const { read, write } = switchesFor(drawer, resource)
+      expect(read.disabled).toBe(true)
+      expect(write.disabled).toBe(true)
+    }
+    expect(within(drawer).getByRole('button', { name: 'Revoke all' })).toBeDisabled()
+    expect(within(drawer).getByRole('button', { name: 'Grant all' })).toBeEnabled()
+    expect(within(footerOf(drawer)).getByRole('button', { name: 'Send invitation' })).toBeEnabled()
   })
 
   it('sends a grant naming every canonical resource', async () => {
@@ -420,7 +776,7 @@ describe('invite member drawer', () => {
       target: { value: 'member@example.com' }
     })
     fireEvent.click(switchesFor(drawer, 'webhook_subscriptions').write)
-    fireEvent.click(within(footerOf(drawer)).getByRole('button', { name: 'Send Invitation' }))
+    fireEvent.click(within(footerOf(drawer)).getByRole('button', { name: 'Send invitation' }))
 
     await waitFor(() => expect(api.inviteMember).toHaveBeenCalled())
     const { permissions } = api.inviteMember.mock.calls[0][0]
@@ -439,5 +795,74 @@ describe('invite member drawer', () => {
     for (const resource of ALL_PERMISSION_RESOURCES) {
       expect(drawer.querySelector(`tr[data-row-key="${resource}"]`)).not.toBeNull()
     }
+  })
+})
+
+// The reset control is only meaningful on a human member: an API key authenticates with a
+// token, and the server refuses a password for one.
+describe('WorkspaceMembers password reset', () => {
+  const KEY_ICON = '[data-icon="key"]'
+
+  const humanMember = (): WorkspaceMember => ({
+    ...apiKeyRow({ contacts: { read: true, write: false } }),
+    user_id: 'user-1',
+    email: 'member@example.com',
+    type: 'user'
+  })
+
+  it('offers the control on a human member and not on an API key', () => {
+    renderMembers([humanMember(), apiKeyRow({})])
+
+    expect(rowFor(humanMember()).querySelector(KEY_ICON)).not.toBeNull()
+    expect(rowFor(apiKeyRow({})).querySelector(KEY_ICON)).toBeNull()
+  })
+
+  it('generates the password server-side and shows it once', async () => {
+    const member = humanMember()
+    renderMembers([member])
+
+    fireEvent.click(rowFor(member).querySelector(KEY_ICON)!.closest('button') as HTMLButtonElement)
+
+    const dialog = await screen.findByRole('dialog', { name: 'Reset password' })
+    // Nothing can be requested before it is confirmed: the API mock proves the timing.
+    expect(api.setUserPassword).not.toHaveBeenCalled()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reset password' }))
+
+    await waitFor(() =>
+      expect(api.setUserPassword).toHaveBeenCalledWith({
+        workspace_id: 'ws1',
+        user_id: 'user-1'
+      })
+    )
+
+    // The request carries no password: the field in the request type is absent by design.
+    expect(Object.keys(api.setUserPassword.mock.calls[0][0])).toEqual(['workspace_id', 'user_id'])
+
+    // The value is on screen exactly once, in a read-only field the operator can copy.
+    const shown = (await screen.findByDisplayValue('AbcDefGhiJkmNpqRstUv')) as HTMLInputElement
+    expect(shown.readOnly).toBe(true)
+
+    // Closing drops the value: it is not stored anywhere, so reopening cannot show it again.
+    const liveDialog = await screen.findByRole('dialog')
+    const modalFooter = liveDialog.querySelector('.ant-modal-footer') as HTMLElement
+    fireEvent.click(within(modalFooter).getByRole('button', { name: 'Close' }))
+    await waitFor(() => expect(screen.queryByDisplayValue('AbcDefGhiJkmNpqRstUv')).toBeNull())
+  })
+
+  it('reports the refusal the server gave rather than a generic failure', async () => {
+    const member = humanMember()
+    api.setUserPassword.mockRejectedValueOnce(
+      new Error("cannot reset the password of a platform administrator")
+    )
+    renderMembers([member])
+
+    fireEvent.click(rowFor(member).querySelector(KEY_ICON)!.closest('button') as HTMLButtonElement)
+    const dialog = await screen.findByRole('dialog', { name: 'Reset password' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reset password' }))
+
+    expect(
+      await screen.findByText('cannot reset the password of a platform administrator')
+    ).not.toBeNull()
   })
 })

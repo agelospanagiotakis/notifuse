@@ -522,10 +522,10 @@ func TestBlogRendererGo_DateFilter(t *testing.T) {
 
 		html, err := renderer.Render(template, data, nil)
 		require.NoError(t, err)
-		// When ToDate returns nil, Date filter returns original input (nil pointer)
-		// which gets stringified. This is expected behavior - the filter handles nil gracefully
-		// by returning the original value rather than crashing
-		assert.Contains(t, html, "<nil>")
+		// The date filter returns its input, a nil pointer, which renders as
+		// nothing: an unpublished post shows no date, and no "<nil>"
+		assert.NotContains(t, html, "<nil>")
+		assert.Empty(t, strings.TrimSpace(html))
 	})
 }
 
@@ -569,4 +569,81 @@ func TestRenderBlogTemplateGo(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, html, "Site")
 	})
+}
+
+// liquidgo 5.11 follows Shopify Liquid 5.11: {% snippet %} is gone and {% render %}
+// takes only a quoted partial name, which keeps working.
+func TestBlogRendererGo_RenderTakesAQuotedName(t *testing.T) {
+	partials := map[string]string{"footer": "<footer>{{ year }}</footer>"}
+	data := map[string]interface{}{"year": 2026, "name": "footer"}
+
+	out, err := RenderBlogTemplateGo(`{% render 'footer', year: year %}`, data, partials)
+	require.NoError(t, err)
+	assert.Equal(t, "<footer>2026</footer>", out)
+
+	for _, template := range []string{
+		`{% render name %}`,
+		`{% snippet greeting %}Hi{% endsnippet %}{% render greeting %}`,
+	} {
+		out, err := RenderBlogTemplateGo(template, data, partials)
+		if err == nil {
+			assert.Contains(t, out, "Liquid", template)
+		}
+	}
+}
+
+// A theme is written by users: its render is bounded by liquidgo's resource limits,
+// partials included, and a reached limit is an error, never a page holding
+// "Liquid error: Memory limits exceeded". Each error is the limit's, not the
+// timeout's: the limit stops the render first.
+func TestBlogTemplateRenderer_ResourceLimits(t *testing.T) {
+	cases := []struct {
+		name     string
+		template string
+		partials map[string]string
+		data     map[string]interface{}
+	}{
+		{
+			name:     "output written in few steps",
+			template: `{% for i in (1..2000) %}{{ big }}{% endfor %}`,
+			data:     map[string]interface{}{"big": strings.Repeat("x", 10_000)},
+		},
+		{name: "output", template: `{% for i in (1..1000000) %}{% for j in (1..1000000) %}<div>{{ i }} - {{ j }}</div>{% endfor %}{% endfor %}`},
+		{name: "work of a loop that writes nothing", template: `{% for i in (1..200000000) %}{% endfor %}done`},
+		{name: "a capture", template: `{% capture x %}{% for i in (1..3000000) %}aaaa{% endfor %}{% endcapture %}{{ x | size }}`},
+		{
+			name:     "a partial rendered in a loop",
+			template: `{% for i in (1..100000) %}{% render 'card' %}{% endfor %}`,
+			partials: map[string]string{"card": `{% for j in (1..1000) %}<p>{{ j }}</p>{% endfor %}`},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := tc.data
+			if data == nil {
+				data = map[string]interface{}{}
+			}
+			out, err := RenderBlogTemplateGo(tc.template, data, tc.partials)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "resource limits")
+			assert.NotContains(t, err.Error(), "timeout")
+			assert.Empty(t, out)
+		})
+	}
+}
+
+// A theme well within the limits renders in full.
+func TestBlogTemplateRenderer_UnderLimits(t *testing.T) {
+	out, err := RenderBlogTemplateGo(`{% for i in (1..1000) %}{% render 'card', n: i %}{% endfor %}`, map[string]interface{}{}, map[string]string{"card": `<p>{{ n }}</p>`})
+	require.NoError(t, err)
+	assert.Contains(t, out, "<p>1000</p>")
+	assert.NotContains(t, out, "Liquid error")
+}
+
+// A blog page keeps its Liquid errors in the page: a filter that fails leaves its
+// output empty and the page is served, unlike an email.
+func TestBlogRendererGo_FilterErrorKeepsThePage(t *testing.T) {
+	html, err := RenderBlogTemplateGo(`<p>a</p>{{ 10 | divided_by: 0 }}<p>b</p>`, map[string]interface{}{}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "<p>a</p><p>b</p>", html)
 }

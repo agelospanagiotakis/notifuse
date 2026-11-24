@@ -1,0 +1,370 @@
+// Package trackingtoken mints and reads the tokens of the email tracking routes and of
+// the web version route:
+// /r/<token> for clicks, /t/<token> for opens and /v/<token> for the web version.
+//
+// A token is the plaintext below, sealed with crypto.EncryptTrackingToken. That outer
+// layer uses a public key: it only keeps the content opaque to pixel blockers, and anyone
+// can open or seal one. What makes a token trustworthy is the tag, an HMAC under a key
+// derived from the workspace's secret key, carried as a suffix of the timestamp field:
+//
+//	click: <mid>\n<wid>\n<ts>.<tag>\n<url>
+//	open:  <mid>\n<wid>\n<ts>.<tag>
+//	view:  <mid>\n<wid>\n<ts>.<tag>\n<host>
+//
+// The fields keep the order of the unsigned tokens minted before 42.2, so an instance that
+// still reads the old format finds the message, workspace and destination where they were.
+// It only fails to parse the timestamp, which skips its bot check.
+package trackingtoken
+
+import (
+	"crypto/hkdf"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"net/netip"
+	"net/url"
+	"regexp"
+	"strconv"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/Notifuse/notifuse/pkg/crypto"
+	"golang.org/x/net/idna"
+)
+
+// Purpose tells a click token from an open token, so a tag minted for one is never
+// accepted as the other.
+type Purpose string
+
+const (
+	PurposeClick Purpose = "r"
+	PurposeOpen  Purpose = "t"
+	// PurposeView is the web version of an email. Unlike clicks and opens, it has no
+	// unsigned or legacy form: the token is the only credential to read the email.
+	PurposeView Purpose = "v"
+)
+
+// keyInfo is the HKDF info string. Changing it changes every workspace's key and makes
+// every delivered signed link unverifiable.
+const keyInfo = "notifuse-tracking-v2"
+
+// tagBytes is the length of the truncated HMAC: 128 bits keeps links short.
+const tagBytes = 16
+
+// Workspace is what the tracking routes need to know about a workspace: the key its
+// links are signed with, and the lowercase hostname of its custom endpoint ("" if none).
+type Workspace struct {
+	Key          []byte
+	EndpointHost string
+}
+
+// WorkspaceStatus is what a lookup of a token's workspace found.
+type WorkspaceStatus int
+
+const (
+	// WorkspaceUnknown: no such workspace, or one whose secret no key opens. Nothing
+	// should be recorded for it. It is the zero value, so a status never set fails closed.
+	WorkspaceUnknown WorkspaceStatus = iota
+	// WorkspaceKnown: the workspace exists and its key is usable.
+	WorkspaceKnown
+	// WorkspaceUnavailable: the lookup failed transiently. Nothing verifies, but the
+	// workspace may well exist, so events are still recorded.
+	WorkspaceUnavailable
+)
+
+// validWorkspaceID matches the IDs a workspace database can be named after, as the
+// connection manager checks them (hyphens read as underscores).
+var validWorkspaceID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,63}$`)
+
+// ValidWorkspaceID reports whether id can name a workspace. Anything else is unknown
+// without a lookup: request-supplied IDs must not reach a cache unbounded.
+func ValidWorkspaceID(id string) bool {
+	return validWorkspaceID.MatchString(id)
+}
+
+// HostOf returns the lowercase hostname of an endpoint URL such as API_ENDPOINT or a
+// workspace's custom endpoint, read as https when it has no scheme, or "" when it is
+// empty or does not parse. A Unicode hostname comes back in Punycode, as browsers send
+// it, and one that cannot be converted, or that is not valid UTF-8, comes back "",
+// matching no request. An IP literal comes back in its canonical form (CanonicalIP).
+func HostOf(endpoint string) string {
+	raw := strings.TrimSpace(endpoint)
+	if raw == "" {
+		return ""
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	host := u.Hostname()
+	if ip, ok := CanonicalIP(host); ok {
+		return ip
+	}
+	for i := 0; i < len(host); i++ {
+		if host[i] >= 0x80 {
+			if !utf8.ValidString(host) {
+				return ""
+			}
+			converted, err := hostProfile.ToASCII(host)
+			if err != nil {
+				return ""
+			}
+			return converted
+		}
+	}
+	return strings.ToLower(host)
+}
+
+// CanonicalIP returns hostname in its canonical form when it is an IP address, without
+// brackets ("2001:db8::1" for "2001:0DB8:0:0:0:0:0:1"), and false otherwise. Two
+// spellings of one address name the same host, and an IP literal cannot be a look-alike.
+func CanonicalIP(hostname string) (string, bool) {
+	addr, err := netip.ParseAddr(hostname)
+	if err != nil {
+		return "", false
+	}
+	return addr.String(), true
+}
+
+// hostProfile maps a Unicode hostname as a browser's address bar does. It allows what
+// idna.Lookup refuses and browsers accept, such as underscores and hyphens at a label's
+// ends, so a host written in Unicode and its Punycode form compare equal.
+var hostProfile = idna.New(idna.MapForLookup(), idna.Transitional(false), idna.StrictDomainName(false), idna.CheckHyphens(false))
+
+// SameHost reports whether hostport, a request's Host with or without a port, names
+// host. Letters fold in ASCII only (strings.EqualFold would also fold, for instance, the
+// Kelvin sign onto 'k'), and a trailing dot, which names the same host, is ignored.
+func SameHost(hostport, host string) bool {
+	return SameHostname((&url.URL{Host: hostport}).Hostname(), host)
+}
+
+// SameHostname reports whether two hostnames, without ports, name the same host, with
+// SameHost's folding.
+func SameHostname(a, b string) bool {
+	a = strings.TrimSuffix(a, ".")
+	b = strings.TrimSuffix(b, ".")
+	if a == "" || len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		if asciiLower(a[i]) != asciiLower(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func asciiLower(c byte) byte {
+	if 'A' <= c && c <= 'Z' {
+		return c + 'a' - 'A'
+	}
+	return c
+}
+
+// Token is a parsed, unverified tracking token.
+type Token struct {
+	MessageID   string
+	WorkspaceID string
+	// Timestamp is the send time in Unix seconds, or 0 when the field is missing or not
+	// numeric. It only feeds the bot check.
+	Timestamp int64
+	// URL is the click destination, exactly as minted. Empty for open and view tokens.
+	URL string
+	// Host is the host a view token's link was minted on, as signed. Empty for open and
+	// click tokens.
+	Host string
+	// Tag is the signature, empty for tokens minted unsigned or before 42.2.
+	Tag string
+
+	// rawTimestamp is the timestamp field before the tag, as signed.
+	rawTimestamp string
+}
+
+// DeriveKey derives a workspace's tracking key from its secret key. An empty secret is
+// an error, never a key.
+func DeriveKey(workspaceSecret string) ([]byte, error) {
+	if workspaceSecret == "" {
+		return nil, errors.New("trackingtoken: empty workspace secret")
+	}
+	return hkdf.Key(sha256.New, []byte(workspaceSecret), nil, keyInfo, 32)
+}
+
+// MintClick returns a click token for url. An empty key mints an unsigned token, which
+// still records the click but never redirects without checking the destination.
+func MintClick(key []byte, mid, wid string, ts int64, url string) (string, error) {
+	return crypto.EncryptTrackingToken(mid + "\n" + wid + "\n" + timestampField(key, PurposeClick, mid, wid, ts, url) + "\n" + url)
+}
+
+// MintOpen returns an open token. An empty key mints an unsigned token.
+func MintOpen(key []byte, mid, wid string, ts int64) (string, error) {
+	return crypto.EncryptTrackingToken(mid + "\n" + wid + "\n" + timestampField(key, PurposeOpen, mid, wid, ts, ""))
+}
+
+// MintView returns a web version token for a link on host, the hostname of the endpoint
+// the link is written with. The host is signed: the page opens on it, and on no other
+// workspace's domain. It refuses an empty key: a view token that does not verify is
+// never accepted, so an unsigned one would only be a dead link.
+func MintView(key []byte, mid, wid string, ts int64, host string) (string, error) {
+	if len(key) == 0 {
+		return "", errors.New("trackingtoken: a view token needs a signing key")
+	}
+	return crypto.EncryptTrackingToken(mid + "\n" + wid + "\n" + timestampField(key, PurposeView, mid, wid, ts, host) + "\n" + host)
+}
+
+func timestampField(key []byte, purpose Purpose, mid, wid string, ts int64, url string) string {
+	field := strconv.FormatInt(ts, 10)
+	if len(key) == 0 {
+		return field
+	}
+	return field + "." + computeTag(key, purpose, mid, wid, field, url)
+}
+
+func computeTag(key []byte, purpose Purpose, mid, wid, ts, url string) string {
+	mac := hmac.New(sha256.New, key)
+	for i, part := range []string{string(purpose), mid, wid, ts, url} {
+		if i > 0 {
+			mac.Write([]byte{0})
+		}
+		mac.Write([]byte(part))
+	}
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)[:tagBytes])
+}
+
+// Parse opens and splits a token without verifying it. It fails only for a token that
+// does not open or has the wrong number of fields; a timestamp that is not numeric is
+// read as 0.
+func Parse(token string, purpose Purpose) (Token, error) {
+	plaintext, err := crypto.DecryptTrackingToken(token)
+	if err != nil {
+		return Token{}, err
+	}
+	fields := 3
+	if purpose == PurposeClick || purpose == PurposeView {
+		fields = 4
+	}
+	parts := strings.SplitN(plaintext, "\n", fields)
+	if len(parts) != fields {
+		return Token{}, fmt.Errorf("trackingtoken: expected %d fields, got %d", fields, len(parts))
+	}
+	t := Token{MessageID: parts[0], WorkspaceID: parts[1]}
+	ts, tag, _ := strings.Cut(parts[2], ".")
+	t.Tag = tag
+	if n, err := strconv.ParseInt(ts, 10, 64); err == nil {
+		t.Timestamp = n
+	}
+	switch purpose {
+	case PurposeClick:
+		t.URL = parts[3]
+	case PurposeView:
+		t.Host = parts[3]
+	}
+	t.rawTimestamp = ts
+	return t, nil
+}
+
+// Verify reports whether the token carries a tag minted under key for purpose.
+func (t Token) Verify(key []byte, purpose Purpose) bool {
+	if t.Tag == "" || len(key) == 0 {
+		return false
+	}
+	signed := t.URL
+	if purpose == PurposeView {
+		signed = t.Host
+	}
+	want := computeTag(key, purpose, t.MessageID, t.WorkspaceID, t.rawTimestamp, signed)
+	return hmac.Equal([]byte(want), []byte(t.Tag))
+}
+
+// SchemeOf returns the lowercase scheme of raw, read leniently so that a URL net/url
+// cannot parse still has one: WHATWG preprocessing (leading and trailing C0 controls and
+// spaces trimmed, tab, CR and LF removed), then [a-zA-Z][a-zA-Z0-9+.-]* before the first
+// ':'. It returns "" when there is none.
+func SchemeOf(raw string) string {
+	s := Preprocess(raw)
+	colon := strings.IndexByte(s, ':')
+	if colon <= 0 {
+		return ""
+	}
+	for i := range colon {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z':
+		case i > 0 && (c >= '0' && c <= '9' || c == '+' || c == '.' || c == '-'):
+		default:
+			return ""
+		}
+	}
+	return strings.ToLower(s[:colon])
+}
+
+// Preprocess applies the WHATWG URL parser's preprocessing: leading and trailing C0
+// control characters and spaces are trimmed, and tab, CR and LF are removed anywhere.
+func Preprocess(raw string) string {
+	s := strings.TrimFunc(raw, func(r rune) bool { return r <= 0x20 })
+	if strings.ContainsAny(s, "\t\r\n") {
+		s = strings.NewReplacer("\t", "", "\r", "", "\n", "").Replace(s)
+	}
+	return s
+}
+
+// ParseLenient reads a tracked destination the way browsers do before net/url sees it:
+// WHATWG preprocessing (TrackLinks mints an href as written, so " https://brand.com/sale "
+// is a link browsers open), then ParseRepaired. It returns the preprocessed string and the
+// parsed URL, nil when it still does not parse. The click route and the click recorder
+// both read destinations through it, so they agree on which links are URLs.
+func ParseLenient(raw string) (string, *url.URL) {
+	s := Preprocess(raw)
+	if s == "" {
+		return "", nil
+	}
+	u, err := ParseRepaired(s)
+	if err != nil {
+		return s, nil
+	}
+	return s, u
+}
+
+// ParseRepaired parses s, and when net/url refuses it, parses it again with its invalid
+// percent escapes repaired: browsers open https://shop.com/50%off, net/url does not. The
+// returned URL is for reading only; callers keep the string as written.
+//
+// A host holding a '%' is refused either way, whether the repair put it there
+// ("brand.com%/x") or a valid escape did ("brand.com%25/x"): browsers refuse such a host,
+// and it would slip past host comparisons and allowlist suffix matches. The only
+// exception is the zone of a bracketed IPv6 literal ("[fe80::1%25en0]").
+func ParseRepaired(s string) (*url.URL, error) {
+	u, err := url.Parse(s)
+	if err != nil {
+		repaired, rerr := url.Parse(repairPercentEscapes(s))
+		if rerr != nil {
+			return nil, err
+		}
+		u = repaired
+	}
+	if strings.Contains(u.Host, "%") && !strings.HasPrefix(u.Host, "[") {
+		return nil, fmt.Errorf("trackingtoken: percent sign in host %q", u.Host)
+	}
+	return u, nil
+}
+
+// repairPercentEscapes rewrites every '%' not followed by two hex digits as "%25".
+func repairPercentEscapes(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '%' && (i+2 >= len(s) || !isHex(s[i+1]) || !isHex(s[i+2])) {
+			b.WriteString("%25")
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+func isHex(c byte) bool {
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
+}

@@ -3,14 +3,16 @@ import ReactECharts from 'echarts-for-react'
 import { Empty, Spin } from 'antd'
 import { i18n } from '@lingui/core'
 import { useLingui } from '@lingui/react/macro'
-import { useWebAnalytics } from './context'
+import { useWebAnalytics } from './useWebAnalytics'
+import { Panel } from '../layout'
 import { WidgetTabs } from './WidgetTabs'
-import { HOUR_LABELS, weekdayLabel } from './lib/dictionaries'
+import { hourLabels, weekdayLabel } from './lib/dictionaries'
 import { formatValue, toNumber } from './lib/format'
 import { mergeWidgetFilters } from './lib/dimensions'
 import { getTimescoreCellColor } from './lib/heatmap'
 import { buildWebQuery, readMeasure, useWebQuery } from './lib/query'
 import { PRIMARY_COLOR, WebDimensionFilter } from './lib/types'
+import { alpha, colors, typography } from '../../theme/tokens'
 
 export interface HeatmapTab {
   key: string
@@ -19,8 +21,6 @@ export interface HeatmapTab {
   measure: string
   format: 'number' | 'duration'
 }
-
-
 
 interface TrafficHeatmapWidgetProps {
   title: string
@@ -114,10 +114,13 @@ export function TrafficHeatmapWidget(props: TrafficHeatmapWidgetProps): ReactNod
   // Built here rather than at module scope: the labels follow the console's
   // locale, which is not known when the module is first evaluated. Memoized on
   // the locale so the option below keeps its own memo.
+  const locale = i18n.locale
   const dayLabels = useMemo(
-    () => [1, 2, 3, 4, 5, 6, 7].map((day) => weekdayLabel(day, i18n.locale, 'short') ?? String(day)),
-    [i18n.locale]
+    () => [1, 2, 3, 4, 5, 6, 7].map((day) => weekdayLabel(day, locale, 'short') ?? String(day)),
+    [locale]
   )
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- hourLabels reads the locale itself; memoized on it
+  const hours = useMemo(() => hourLabels(), [locale])
 
   const option = useMemo(() => {
     // A duration is judged against the TimeScore reference rather than against
@@ -129,14 +132,14 @@ export function TrafficHeatmapWidget(props: TrafficHeatmapWidgetProps): ReactNod
       tooltip: {
         trigger: 'item',
         backgroundColor: 'rgba(255, 255, 255, 0.95)',
-        borderColor: '#e5e7eb',
+        borderColor: colors.line,
         borderWidth: 1,
-        textStyle: { color: '#374151', fontSize: 12 },
+        textStyle: { color: colors.ink2, fontSize: typography.size.xs },
         formatter: (params: TooltipParams) => {
           const cell = coordinates(params)
           if (!cell) return ''
           const [hour, day, value] = cell
-          return `<div style="font-weight:500">${dayLabels[day]} ${HOUR_LABELS[hour]}</div><div>${
+          return `<div style="font-weight:500">${dayLabels[day]} ${hours[hour]}</div><div>${
             activeTab.label
           }: ${formatValue(value, activeTab.format)}</div>`
         }
@@ -144,10 +147,10 @@ export function TrafficHeatmapWidget(props: TrafficHeatmapWidgetProps): ReactNod
       grid: { left: 50, right: 20, top: 20, bottom: 40 },
       xAxis: {
         type: 'category',
-        data: HOUR_LABELS,
+        data: hours,
         splitArea: { show: true },
-        axisLine: { lineStyle: { color: '#e5e7eb' } },
-        axisLabel: { color: '#6b7280', fontSize: 10, interval: 2 }
+        axisLine: { lineStyle: { color: colors.line } },
+        axisLabel: { color: colors.ink3, fontSize: typography.size.overline, interval: 2 }
       },
       yAxis: {
         type: 'category',
@@ -156,8 +159,8 @@ export function TrafficHeatmapWidget(props: TrafficHeatmapWidgetProps): ReactNod
         // upside down.
         inverse: true,
         splitArea: { show: true },
-        axisLine: { lineStyle: { color: '#e5e7eb' } },
-        axisLabel: { color: '#6b7280', fontSize: 10 }
+        axisLine: { lineStyle: { color: colors.line } },
+        axisLabel: { color: colors.ink3, fontSize: typography.size.overline }
       },
       visualMap: perCellColor
         ? { show: false }
@@ -167,12 +170,8 @@ export function TrafficHeatmapWidget(props: TrafficHeatmapWidgetProps): ReactNod
             show: false,
             inRange: {
               color: [
-                '#f5f5f5',
-                'rgba(119, 99, 241, 0.2)',
-                'rgba(119, 99, 241, 0.4)',
-                'rgba(119, 99, 241, 0.6)',
-                'rgba(119, 99, 241, 0.8)',
-                'rgba(119, 99, 241, 1)'
+                colors.fill,
+                ...[0.2, 0.4, 0.6, 0.8, 1].map((opacity) => alpha(colors.primary[500], opacity))
               ]
             }
           },
@@ -190,7 +189,7 @@ export function TrafficHeatmapWidget(props: TrafficHeatmapWidgetProps): ReactNod
         }
       ]
     }
-  }, [cells, maxValue, activeTab, dayLabels])
+  }, [cells, maxValue, activeTab, dayLabels, hours])
 
   const onEvents = useMemo(
     () => ({
@@ -213,11 +212,7 @@ export function TrafficHeatmapWidget(props: TrafficHeatmapWidgetProps): ReactNod
   const hasData = (rows?.length ?? 0) > 0
 
   return (
-    <div className="rounded-lg border border-gray-200 overflow-hidden">
-      <div className="px-4 pt-4 pb-4">
-        <h3 className="text-base font-semibold text-gray-900">{title}</h3>
-      </div>
-
+    <Panel title={title} flush>
       <WidgetTabs tabs={tabs} activeKey={activeTab.key} onChange={selectTab} />
 
       {isLoading && !hasData ? (
@@ -239,6 +234,6 @@ export function TrafficHeatmapWidget(props: TrafficHeatmapWidgetProps): ReactNod
           notMerge
         />
       )}
-    </div>
+    </Panel>
   )
 }

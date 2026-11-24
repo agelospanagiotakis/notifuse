@@ -5,7 +5,9 @@ import {
   processInlineContent,
   prepareInlineContent,
   sanitizeRichContent,
-  getInitialInlineContent
+  getInitialInlineContent,
+  formatLinkHref,
+  parseLinkHref
 } from './utils'
 import { parseHtmlInert } from '../../../../../utils/safeHtml'
 
@@ -56,7 +58,7 @@ describe.each([
     run: convertBlockToInline,
     input: '<h1 style="color: red">Title</h1><p>One<br>two</p><div data-x="1">Three</div>',
     expected:
-      '<span style="color: red">Title</span><span>One two </span><span data-x="1">Three</span>'
+      '<span style="color: red">Title </span><span>One<br>two </span><span data-x="1">Three</span>'
   },
   {
     name: 'processInlineContent (wrapped)',
@@ -70,7 +72,8 @@ describe.each([
     rewrites: true,
     run: processInlineContent,
     input: '<p style="text-align: center">Buy</p><p>now</p>',
-    expected: '<span style="text-align: center">Buy</span><span>now</span>'
+    // Separate blocks stay separate words
+    expected: '<span style="text-align: center">Buy </span><span>now</span>'
   },
   {
     name: 'getInitialInlineContent (blocks)',
@@ -170,5 +173,74 @@ describe('getInitialInlineContent text-only fallback', () => {
     expect(getInitialInlineContent('<p>a &lt;a href="javascript:x()"&gt;go&lt;/a&gt; b</p>')).toBe(
       '<span data-inline-doc="">a &lt;a href="javascript:x()"&gt;go&lt;/a&gt; b</span>'
     )
+  })
+})
+
+describe('getInitialInlineContent', () => {
+  it('keeps the text of nested blocks once', () => {
+    expect(getInitialInlineContent('<div><p>Hello</p></div>')).toBe(
+      '<span data-inline-doc="">Hello</span>'
+    )
+  })
+
+  it('keeps text written between blocks', () => {
+    expect(getInitialInlineContent('Buy <p>now</p> today')).toBe(
+      '<span data-inline-doc="">Buy now today</span>'
+    )
+  })
+
+  it('keeps the style of a block it inlines', () => {
+    expect(getInitialInlineContent('<p style="color: red">Red</p>')).toBe(
+      '<span data-inline-doc=""><span style="color: red">Red</span></span>'
+    )
+  })
+
+  it('keeps the style of a heading written in button text', () => {
+    expect(getInitialInlineContent('<h2 style="color: #fff">Shop</h2>')).toBe(
+      '<span data-inline-doc=""><span style="color: #fff">Shop</span></span>'
+    )
+  })
+
+  it('wraps plain text, and gives an empty document for nothing', () => {
+    expect(getInitialInlineContent('Click me')).toBe('<span data-inline-doc="">Click me</span>')
+    expect(getInitialInlineContent('')).toBe('<span data-inline-doc=""></span>')
+  })
+})
+
+describe('formatLinkHref', () => {
+  it.each([
+    ['url', ' https://example.com ', 'https://example.com'],
+    ['email', 'a@example.com', 'mailto:a@example.com'],
+    ['phone', '+331234', 'tel:+331234'],
+    ['anchor', 'top', '#top'],
+    ['web_version', 'https://ignored.example', '{{ view_in_browser_url }}']
+  ])('formats a %s target', (linkType, value, expected) => {
+    expect(formatLinkHref(value, linkType)).toBe(expected)
+  })
+})
+
+describe('parseLinkHref', () => {
+  it.each([
+    ['mailto:a@example.com', 'email', 'a@example.com'],
+    ['tel:+331234', 'phone', '+331234'],
+    ['#top', 'anchor', 'top'],
+    ['https://example.com', 'url', 'https://example.com'],
+    ['{{ cta_url }}', 'url', '{{ cta_url }}'],
+    ['', 'url', '']
+  ])('reads %s as a %s link', (href, type, value) => {
+    expect(parseLinkHref(href)).toEqual({ type, value })
+  })
+
+  it.each(['{{ view_in_browser_url }}', '{{view_in_browser_url}}', '  {{  view_in_browser_url  }} '])(
+    'recognises the web version link %s',
+    (href) => {
+      expect(parseLinkHref(href)).toEqual({ type: 'web_version', value: '' })
+    }
+  )
+
+  it('keeps a link that only mentions the variable as a URL', () => {
+    // A filter or a suffix makes it another target, which the URL field must show as written.
+    const href = '{{ view_in_browser_url }}?ref=footer'
+    expect(parseLinkHref(href)).toEqual({ type: 'url', value: href })
   })
 })

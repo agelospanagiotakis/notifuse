@@ -13,11 +13,13 @@ import {
 } from '@fortawesome/free-solid-svg-icons'
 import { faEye, faFaceFrown } from '@fortawesome/free-regular-svg-icons'
 import dayjs from '../../lib/dayjs'
+import { onZoneClock } from '../../lib/zoneClock'
 import { MessageHistory } from '../../services/api/messages_history'
 import TemplatePreviewDrawer from '../templates/TemplatePreviewDrawer'
 import { templatesApi } from '../../services/api/template'
 import { Workspace } from '../../services/api/types'
 import { useQuery } from '@tanstack/react-query'
+import { useWorkspacePermissions } from '../../contexts/AuthContext'
 import type { Broadcast } from '../../services/api/broadcast'
 import type { List } from '../../services/api/list'
 import { MessageColumnsSelector } from './MessageColumnsSelector'
@@ -58,6 +60,9 @@ const TemplatePreviewButton: React.FC<TemplatePreviewButtonProps> = ({
   messageHistory
 }) => {
   const { t } = useLingui()
+  // Without Templates read, templates.get answers 403: no preview, the Template column showing the template's ID
+  const { permissions } = useWorkspacePermissions(workspace.id)
+  const canReadTemplates = !!permissions?.templates?.read
 
   // Use React Query to fetch the template data
   const { data, isLoading } = useQuery({
@@ -70,12 +75,12 @@ const TemplatePreviewButton: React.FC<TemplatePreviewButtonProps> = ({
       })
 
       if (!response.template) {
-        throw new Error('Failed to load template')
+        throw new Error(t`The server returned no template`)
       }
 
       return response.template
     },
-    enabled: !!workspace.id && !!templateId,
+    enabled: !!workspace.id && !!templateId && canReadTemplates,
     staleTime: 60 * 60 * 1000, // 1 hour
     retry: 1
   })
@@ -133,10 +138,13 @@ export function MessageHistoryTable({
 }: MessageHistoryTableProps) {
   const { t } = useLingui()
 
-  // Format date using dayjs
+  // The full date, in the console's language, on the clock of the workspace timezone it names.
   const formatDate = (dateString: string | undefined): string => {
     if (!dateString) return '-'
-    return `${dayjs(dateString).format('lll')} in ${workspace.settings.timezone}`
+    const clock = onZoneClock(dayjs(dateString), workspace.settings.timezone || 'UTC')
+    const when = clock.when.format('lll')
+    const zone = clock.zone
+    return t`${when} in ${zone}`
   }
 
   // All available columns with their metadata for the selector
@@ -426,7 +434,6 @@ export function MessageHistoryTable({
           <Tooltip title={t`Refresh`}>
             <Button
               type="text"
-              size="small"
               icon={<FontAwesomeIcon icon={faRefresh} />}
               onClick={onRefresh}
               className="opacity-70 hover:opacity-100"

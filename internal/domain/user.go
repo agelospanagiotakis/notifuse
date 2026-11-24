@@ -33,13 +33,20 @@ func WorkspaceUserKey(workspaceID string) contextKey {
 
 // User represents a user in the system
 type User struct {
-	ID        string    `json:"id" db:"id"`
-	Type      UserType  `json:"type" db:"type"`
-	Email     string    `json:"email" db:"email"`
-	Name      string    `json:"name,omitempty" db:"name"`
-	Language  string    `json:"language" db:"language"`
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+	ID    string   `json:"id" db:"id"`
+	Type  UserType `json:"type" db:"type"`
+	Email string   `json:"email" db:"email"`
+	Name  string   `json:"name,omitempty" db:"name"`
+	// PasswordHash is bcrypt. Never serialised: `json:"-"` keeps it out of every API response.
+	PasswordHash string `json:"-" db:"password_hash"`
+	// MustChangePassword is TRUE while an administrator-issued password is in force. The auth
+	// middleware refuses every route but /api/user.setPassword until the holder replaces it,
+	// so a password read off a screen or a chat message can never be used to operate the
+	// account. Exposed to the console so it can explain the refusal instead of looping on 403.
+	MustChangePassword bool      `json:"must_change_password" db:"must_change_password"`
+	Language     string    `json:"language" db:"language"`
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // Session represents a user session
@@ -54,6 +61,15 @@ type Session struct {
 
 type SignInInput struct {
 	Email string `json:"email"`
+	// Password is optional. When present the sign-in is authenticated against the stored
+	// bcrypt hash and a token is returned directly; when absent the magic-code flow runs.
+	Password string `json:"password,omitempty"`
+}
+
+// SetPasswordInput sets or changes the password of the authenticated user.
+type SetPasswordInput struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
 }
 
 type VerifyCodeInput struct {
@@ -77,6 +93,8 @@ type AuthResponse struct {
 // UserServiceInterface defines the interface for user operations
 type UserServiceInterface interface {
 	SignIn(ctx context.Context, input SignInInput) (string, error)
+	SignInWithPassword(ctx context.Context, input SignInInput) (*AuthResponse, error)
+	SetPassword(ctx context.Context, userID string, input SetPasswordInput) error
 	VerifyCode(ctx context.Context, input VerifyCodeInput) (*AuthResponse, error)
 	RootSignin(ctx context.Context, input RootSigninInput) (*AuthResponse, error)
 	VerifyUserSession(ctx context.Context, userID string, sessionID string) (*User, error)
@@ -101,6 +119,15 @@ type UserRepository interface {
 	// GetUserByID retrieves a user by their ID
 	GetUserByID(ctx context.Context, id string) (*User, error)
 
+	// UpdatePasswordHash stores (or clears, with an empty hash) the user's password hash
+	UpdatePasswordHash(ctx context.Context, userID string, hash string) error
+	// SetMustChangePassword raises or clears the forced-change flag. It is a separate write
+	// from UpdatePasswordHash because the two answer different questions and a caller that
+	// only means one of them must not silently do the other.
+	SetMustChangePassword(ctx context.Context, userID string, required bool) error
+	// GetMustChangePassword reads the flag alone, for the middleware's per-request gate: the
+	// middleware must not pull a full user (and a bcrypt hash) to answer a boolean.
+	GetMustChangePassword(ctx context.Context, userID string) (bool, error)
 	// UpdateUserLanguage updates a user's preferred language
 	UpdateUserLanguage(ctx context.Context, userID string, language string) error
 

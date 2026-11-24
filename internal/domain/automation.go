@@ -5,9 +5,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -65,6 +67,9 @@ var ValidEventKinds = []string{
 	// lands in the generic email.updated kind. Enabling them needs a send-loop guard first.
 	"email.opened", "email.clicked",
 	"email.bounced", "email.complained", "email.unsubscribed",
+	// A link of an email clicked for the first time through a signed token. Takes the
+	// optional link_url, broadcast_id and template_id filters.
+	"email.link_clicked",
 	// Custom events (require custom_event_name)
 	"custom_event",
 }
@@ -106,6 +111,9 @@ func (t NodeType) IsValid() bool {
 		return false
 	}
 }
+
+// ErrContactAutomationNotFound is returned when a contact's journey does not exist.
+var ErrContactAutomationNotFound = errors.New("contact automation not found")
 
 // ContactAutomationStatus represents the status of a contact's journey in an automation
 type ContactAutomationStatus string
@@ -157,8 +165,52 @@ type TimelineTriggerConfig struct {
 	SegmentID       *string          `json:"segment_id,omitempty"`        // Required for segment.* events
 	CustomEventName *string          `json:"custom_event_name,omitempty"` // Required for custom_event
 	UpdatedFields   []string         `json:"updated_fields,omitempty"`    // For contact.updated: only trigger on these field changes
+	LinkURL         *string          `json:"link_url,omitempty"`          // For email.link_clicked: case-insensitive substring of the clicked URL
+	BroadcastID     *string          `json:"broadcast_id,omitempty"`      // For email.link_clicked: the broadcast that sent the email
+	TemplateID      *string          `json:"template_id,omitempty"`       // For email.link_clicked: the template the email was sent with
 	Conditions      *TreeNode        `json:"conditions"`                  // Reuse segments condition system
 	Frequency       TriggerFrequency `json:"frequency"`
+}
+
+// MaxClickedURLLength bounds the destination URLs a click records in clicked_links, and so
+// the link_url an email.link_clicked trigger can usefully match.
+const MaxClickedURLLength = 2048
+
+// MaxTriggerIDFilterLength bounds the broadcast_id and template_id filters of an
+// email.link_clicked trigger: the IDs they match are far shorter, and the value is compiled
+// into the trigger's SQL.
+const MaxTriggerIDFilterLength = 64
+
+// validateLinkClickFilters checks the filters only an email.link_clicked trigger takes. Their
+// values reach the trigger's WHEN clause as SQL literals; a NUL byte cannot be stored in one.
+func (c *TimelineTriggerConfig) validateLinkClickFilters() error {
+	filters := []struct {
+		name  string
+		value *string
+	}{{"link_url", c.LinkURL}, {"broadcast_id", c.BroadcastID}, {"template_id", c.TemplateID}}
+	for _, f := range filters {
+		if f.value == nil || *f.value == "" {
+			continue
+		}
+		if c.EventKind != "email.link_clicked" {
+			return fmt.Errorf("%s can only be used with the email.link_clicked event kind", f.name)
+		}
+		if strings.ContainsRune(*f.value, 0) {
+			return fmt.Errorf("%s must not contain a NUL byte", f.name)
+		}
+		if strings.TrimSpace(*f.value) != *f.value {
+			return fmt.Errorf("%s must not start or end with whitespace", f.name)
+		}
+	}
+	if c.LinkURL != nil && len(*c.LinkURL) > MaxClickedURLLength {
+		return fmt.Errorf("link_url must be at most %d characters", MaxClickedURLLength)
+	}
+	for _, f := range filters[1:] {
+		if f.value != nil && len(*f.value) > MaxTriggerIDFilterLength {
+			return fmt.Errorf("%s must be at most %d characters", f.name, MaxTriggerIDFilterLength)
+		}
+	}
+	return nil
 }
 
 // Validate validates the trigger configuration
@@ -189,6 +241,10 @@ func (c *TimelineTriggerConfig) Validate() error {
 		}
 	}
 
+	if err := c.validateLinkClickFilters(); err != nil {
+		return err
+	}
+
 	// custom_event requires custom_event_name
 	if c.EventKind == "custom_event" {
 		if c.CustomEventName == nil || *c.CustomEventName == "" {
@@ -213,16 +269,6 @@ type AutomationStats struct {
 	Completed int64 `json:"completed"`
 	Exited    int64 `json:"exited"`
 	Failed    int64 `json:"failed"`
-}
-
-// AutomationNodeStats holds statistics for a single automation node
-type AutomationNodeStats struct {
-	NodeID    string `json:"node_id"`
-	NodeType  string `json:"node_type"`
-	Entered   int64  `json:"entered"`
-	Completed int64  `json:"completed"`
-	Failed    int64  `json:"failed"`
-	Skipped   int64  `json:"skipped"`
 }
 
 // Automation represents an email marketing automation workflow
@@ -876,7 +922,16 @@ type AutomationRepository interface {
 	// was updated — i.e. the journey was concurrently exited (e.g. by a reply
 	// interrupt) — so the executor stops instead of clobbering the exit.
 	UpdateContactAutomationIfActive(ctx context.Context, workspaceID string, ca *ContactAutomation) (bool, error)
-	GetScheduledContactAutomations(ctx context.Context, workspaceID string, beforeTime time.Time, limit int) ([]*ContactAutomation, error)
+	// ClaimScheduledContactAutomations takes up to limit due journeys of live automations and
+	// moves their scheduled_at to now + lease in the same statement, so that no other instance
+	// takes them meanwhile. Each journey's ScheduledAt is its claim token.
+	ClaimScheduledContactAutomations(ctx context.Context, workspaceID string, limit int, lease time.Duration) ([]*ContactAutomation, error)
+	// RenewContactAutomationClaim extends a claim to now + lease while the journey is active and
+	// still holds token; false when another instance claimed it since or it ended.
+	RenewContactAutomationClaim(ctx context.Context, workspaceID, id string, token time.Time, lease time.Duration) (bool, error)
+	// ReleaseContactAutomationClaim makes a claimed journey due now while it is active and still
+	// holds token; false when another instance claimed it since or it ended.
+	ReleaseContactAutomationClaim(ctx context.Context, workspaceID, id string, token time.Time) (bool, error)
 
 	// ExitContactJourneysOnReply marks the contact's active journeys as exited
 	// (with the given reason) when their automation has exit_on_reply enabled. When
@@ -887,8 +942,9 @@ type AutomationRepository interface {
 	// number of journeys exited.
 	ExitContactJourneysOnReply(ctx context.Context, workspaceID, contactEmail string, automationID *string, reason string, before time.Time) (int, error)
 
-	// Global scheduling (across all workspaces with round-robin)
-	GetScheduledContactAutomationsGlobal(ctx context.Context, beforeTime time.Time, limit int) ([]*ContactAutomationWithWorkspace, error)
+	// Global scheduling (across all workspaces with round-robin). It returns the journeys it
+	// claimed with the errors of the workspaces it skipped.
+	ClaimScheduledContactAutomationsGlobal(ctx context.Context, limit int, lease time.Duration) ([]*ContactAutomationWithWorkspace, error)
 
 	// Node execution logging
 	CreateNodeExecution(ctx context.Context, workspaceID string, entry *NodeExecution) error
@@ -901,6 +957,15 @@ type AutomationRepository interface {
 	UpdateAutomationStats(ctx context.Context, workspaceID, automationID string, stats *AutomationStats) error
 	UpdateAutomationStatsTx(ctx context.Context, tx *sql.Tx, workspaceID, automationID string, stats *AutomationStats) error
 	IncrementAutomationStat(ctx context.Context, workspaceID, automationID, statName string) error
+
+	// Results
+	// CountJourneysByStatus counts the journeys of each automation by status, keyed by
+	// automation ID. An automation without journey is absent.
+	CountJourneysByStatus(ctx context.Context, workspaceID string, automationIDs []string) (map[string]JourneyCounts, error)
+	// GetNodeStats reads the results of each step of an automation that executions
+	// reached, the period bounding the time executions entered their step (both nil: all
+	// time). The email counters are read only when withEmail.
+	GetNodeStats(ctx context.Context, workspaceID, automationID string, since, until *time.Time, withEmail bool) (*NodeStatsRaw, error)
 }
 
 //go:generate mockgen -destination mocks/mock_automation_service.go -package mocks github.com/Notifuse/notifuse/internal/domain AutomationService
@@ -920,6 +985,13 @@ type AutomationService interface {
 
 	// Node executions/debugging
 	GetContactNodeExecutions(ctx context.Context, workspaceID, automationID, email string) (*ContactAutomation, []*NodeExecution, error)
+
+	// Results
+	// CountJourneys counts the journeys of each automation by status, with zeros for an
+	// automation without journey.
+	CountJourneys(ctx context.Context, workspaceID string, automationIDs []string) (map[string]JourneyCounts, error)
+	// GetNodeStats returns the results of every step of the automation's graph.
+	GetNodeStats(ctx context.Context, workspaceID, automationID string, since, until *time.Time) (*NodeStatsResponse, error)
 }
 
 // HTTP Request/Response types for automation API
@@ -1004,6 +1076,8 @@ type ListAutomationsRequest struct {
 	ListID      string             `json:"list_id,omitempty"`
 	Limit       int                `json:"limit,omitempty"`
 	Offset      int                `json:"offset,omitempty"`
+	// WithJourneyCounts adds the journey counts of each listed automation to the response.
+	WithJourneyCounts bool `json:"with_journey_counts,omitempty"`
 }
 
 // FromURLParams parses the request from URL parameters
@@ -1029,6 +1103,13 @@ func (r *ListAutomationsRequest) FromURLParams(params map[string][]string) error
 		var offset int
 		_, _ = fmt.Sscanf(v[0], "%d", &offset)
 		r.Offset = offset
+	}
+	if v, ok := params["with_journey_counts"]; ok && len(v) > 0 && v[0] != "" {
+		withCounts, err := strconv.ParseBool(v[0])
+		if err != nil {
+			return fmt.Errorf("invalid with_journey_counts parameter: must be a boolean")
+		}
+		r.WithJourneyCounts = withCounts
 	}
 	return r.Validate()
 }

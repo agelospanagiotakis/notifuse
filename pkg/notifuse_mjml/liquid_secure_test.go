@@ -1,9 +1,14 @@
 package notifuse_mjml
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSecureLiquidEngine_TimeoutEnforcement(t *testing.T) {
@@ -25,14 +30,13 @@ func TestSecureLiquidEngine_TimeoutEnforcement(t *testing.T) {
 		_, err := engine.RenderWithTimeout(template, data)
 		elapsed := time.Since(start)
 
-		// Should timeout
+		// Should be stopped with an error: the resource limits stop this loop long
+		// before the timeout (liquidgo v5.11.2 counts each iteration)
 		if err == nil {
-			t.Fatal("Expected timeout error, got nil")
+			t.Fatal("Expected an error, got nil")
 		}
-
-		// Should contain timeout message
-		if !strings.Contains(err.Error(), "timeout") {
-			t.Errorf("Expected timeout error, got: %v", err)
+		if !strings.Contains(err.Error(), "timeout") && !strings.Contains(err.Error(), "resource limits") {
+			t.Errorf("Expected a timeout or resource-limit error, got: %v", err)
 		}
 
 		// Should timeout within reasonable time (5 seconds + 1 second tolerance)
@@ -64,8 +68,8 @@ func TestSecureLiquidEngine_TemplateSizeLimit(t *testing.T) {
 	t.Run("rejects templates exceeding size limit", func(t *testing.T) {
 		engine := NewSecureLiquidEngine()
 
-		// Create a template larger than 100KB
-		largeTemplate := strings.Repeat("<div>{{ item }}</div>\n", 10000) // ~200KB
+		// Larger than the engine's configured maximum (the fork raises it to 2MB).
+		largeTemplate := strings.Repeat("x", DefaultMaxTemplateSize+1)
 		data := map[string]interface{}{
 			"item": "test",
 		}
@@ -248,13 +252,14 @@ func TestSecureLiquidEngine_MemoryExhaustion(t *testing.T) {
 		`
 		data := map[string]interface{}{}
 
-		// This should either timeout or complete
+		// This should either be stopped or complete. Each assign copies the growing
+		// string (about 500MB copied in all), which the assign limit refuses.
 		_, err := engine.RenderWithTimeout(template, data)
 
-		// If it times out, that's good (protection working)
+		// If it is stopped, that's good (protection working)
 		// If it completes, that's also ok (Go Liquid handled it)
 		// The important thing is we don't crash
-		if err != nil && !strings.Contains(err.Error(), "timeout") && !strings.Contains(err.Error(), "rendering failed") {
+		if err != nil && !strings.Contains(err.Error(), "timeout") && !strings.Contains(err.Error(), "rendering failed") && !strings.Contains(err.Error(), "resource limits") {
 			t.Errorf("Unexpected error type: %v", err)
 		}
 	})
@@ -283,11 +288,18 @@ func TestSecureLiquidEngine_ErrorMessages(t *testing.T) {
 		// Create engine with very short timeout
 		engine := NewSecureLiquidEngineWithOptions(10*time.Millisecond, 100*1024)
 
-		// Template with loop that will take longer than 10ms
-		template := `{% for i in (1..100000) %}<div>{{ i }}</div>{% endfor %}`
+		// This loop took longer than 10ms before liquidgo v5.11.2; it now renders in
+		// a few milliseconds, within the limits: it must render in full.
+		out, err := NewSecureLiquidEngine().RenderWithTimeout(`{% for i in (1..100000) %}<div>{{ i }}</div>{% endfor %}`, map[string]interface{}{})
+		require.NoError(t, err)
+		assert.True(t, strings.HasSuffix(out, "<div>100000</div>"))
+
+		// An empty loop of 5 million iterations stays within the work limit and takes
+		// about 0.1s, ten times the timeout.
+		template := `{% for i in (1..5000000) %}{% endfor %}`
 		data := map[string]interface{}{}
 
-		_, err := engine.RenderWithTimeout(template, data)
+		_, err = engine.RenderWithTimeout(template, data)
 		if err == nil {
 			t.Fatal("Expected timeout error")
 		}
@@ -348,18 +360,32 @@ func TestSecureLiquidEngine_RenderLengthLimitStopsRunaway(t *testing.T) {
 	start := time.Now()
 	out, err := engine.Render("{% for i in (1..5000) %}0123456789{% endfor %}", map[string]interface{}{})
 	elapsed := time.Since(start)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(out, "Memory limits exceeded") {
-		t.Errorf("expected the render-length cap to stop the loop, got %q", out)
-	}
-	if len(out) > 5000 {
-		t.Errorf("output not bounded by the cap: %d bytes", len(out))
-	}
+	// The cap stops the loop with an error: "Liquid error: Memory limits exceeded",
+	// which liquidgo writes in the output, must never become the text of an email.
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "resource limits")
+	assert.Empty(t, out)
 	if elapsed > 2*time.Second {
 		t.Errorf("cap fired at the timeout (%v), not early", elapsed)
 	}
+}
+
+// The work limit bounds a loop that writes nothing, which the output cap does not see.
+// The error is the limit's, not the timeout's: the limit stops the loop first.
+func TestSecureLiquidEngine_RenderScoreLimitStopsEmptyLoop(t *testing.T) {
+	out, err := NewSecureLiquidEngine().Render("{% for i in (1..200000000) %}{% endfor %}done", map[string]interface{}{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "resource limits")
+	assert.NotContains(t, err.Error(), "timeout")
+	assert.Empty(t, out)
+}
+
+// The assign limit bounds what a capture builds, which the output cap does not see.
+func TestSecureLiquidEngine_AssignScoreLimitStopsCapture(t *testing.T) {
+	out, err := NewSecureLiquidEngine().Render("{% capture x %}{% for i in (1..3000000) %}aaaa{% endfor %}{% endcapture %}{{ x | size }}", map[string]interface{}{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "resource limits")
+	assert.Empty(t, out)
 }
 
 func TestSecureLiquidEngine_NormalRenderUnderLimit(t *testing.T) {
@@ -374,4 +400,94 @@ func TestSecureLiquidEngine_NormalRenderUnderLimit(t *testing.T) {
 	if !strings.Contains(out, "1,2,3,") {
 		t.Errorf("expected rendered sequence, got %q", out[:min(40, len(out))])
 	}
+}
+
+// Data reaches the engine decoded from JSON, so every number is a float64: conditions
+// and filters must treat it as the number written in the template.
+func TestSecureLiquidEngine_JSONDataConformance(t *testing.T) {
+	engine := NewSecureLiquidEngine()
+	var data map[string]interface{}
+	raw := `{"order": {"total": 100, "price": 19.99, "qty": 3}, "tags": ["vip_gold", "new"], "first_name": "élodie", "country": "Trinidad and Tobago", "ts": 1709640000}`
+	if err := json.Unmarshal([]byte(raw), &data); err != nil {
+		t.Fatal(err)
+	}
+
+	testCases := []struct {
+		name     string
+		template string
+		expected string
+	}{
+		{"number equals an integer literal", `{% if order.total == 100 %}yes{% else %}no{% endif %}`, "yes"},
+		{"case when on a number", `{% case order.qty %}{% when 3 %}three{% else %}other{% endcase %}`, "three"},
+		{"contains compares list elements", `{% if tags contains "vip" %}yes{% else %}no{% endif %}`, "no"},
+		{"contains an element", `{% if tags contains "new" %}yes{% else %}no{% endif %}`, "yes"},
+		{"quoted and in a condition", `{% if country == "Trinidad and Tobago" %}yes{% else %}no{% endif %}`, "yes"},
+		{"exact amounts", `{{ order.price | times: order.qty }}`, "59.97"},
+		{"accented capitalize", `{{ first_name | capitalize }}`, "Élodie"},
+		{"timestamp date", `{{ ts | date: "%-d %B %Y" }}`, "5 March 2024"},
+		{"multi-line tag", "{% if order.total\n  > 50 %}big{% endif %}", "big"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := engine.Render(tc.template, data)
+			if err != nil {
+				t.Fatalf("Expected no error, got: %v", err)
+			}
+			if result != tc.expected {
+				t.Errorf("Expected %q, got %q", tc.expected, result)
+			}
+		})
+	}
+}
+
+// liquidgo 5.11 follows Shopify Liquid 5.11: {% snippet %} is gone and {% render %}
+// takes only a quoted template name.
+func TestSecureLiquidEngine_RemovedSnippetAndRenderVariable(t *testing.T) {
+	engine := NewSecureLiquidEngine()
+	for _, template := range []string{
+		`{% snippet greeting %}Hi{% endsnippet %}{% render greeting %}`,
+		`{% assign name = "footer" %}{% render name %}`,
+	} {
+		result, err := engine.Render(template, map[string]interface{}{})
+		if err == nil && !strings.Contains(result, "Liquid") {
+			t.Errorf("%s: expected a Liquid error, got %q", template, result)
+		}
+	}
+}
+
+func TestSecureLiquidEngine_RenderCached(t *testing.T) {
+	t.Run("parses a template once and renders it with each call's data", func(t *testing.T) {
+		engine := NewSecureLiquidEngine()
+		source := `{% assign x = name | upcase %}{{ x }}`
+		out, err := engine.renderCached(source, map[string]interface{}{"name": "ada"})
+		require.NoError(t, err)
+		assert.Equal(t, "ADA", out)
+		parsed := engine.parsed[source]
+		require.NotNil(t, parsed)
+
+		out, err = engine.renderCached(source, map[string]interface{}{"name": "bob"})
+		require.NoError(t, err)
+		assert.Equal(t, "BOB", out)
+		assert.Same(t, parsed, engine.parsed[source])
+	})
+	t.Run("RenderWithTimeout does not cache", func(t *testing.T) {
+		engine := NewSecureLiquidEngine()
+		_, err := engine.RenderWithTimeout(`{{ a }}`, map[string]interface{}{})
+		require.NoError(t, err)
+		assert.Empty(t, engine.parsed)
+	})
+	t.Run("the cache is bounded", func(t *testing.T) {
+		engine := NewSecureLiquidEngine()
+		for i := 0; i <= maxParsedTemplates; i++ {
+			_, err := engine.renderCached(fmt.Sprintf(`{{ a }}%d`, i), map[string]interface{}{})
+			require.NoError(t, err)
+			assert.LessOrEqual(t, len(engine.parsed), maxParsedTemplates)
+		}
+	})
+	t.Run("size cap still applies", func(t *testing.T) {
+		engine := NewSecureLiquidEngine()
+		_, err := engine.renderCached(strings.Repeat("x", DefaultMaxTemplateSize+1), nil)
+		assert.Error(t, err)
+		assert.Empty(t, engine.parsed)
+	})
 }

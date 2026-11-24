@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { useLingui } from '@lingui/react/macro'
-import { Modal, Button, Input, Select, Typography, Form, App, Upload, Space, Tag } from 'antd'
-import { UploadOutlined, DeleteOutlined } from '@ant-design/icons'
+import { Button, Input, Select, Typography, Form, App, Upload, Space, Tag } from 'antd'
+import { Paperclip, Send, X } from 'lucide-react'
+import { SidePanel } from '../layout'
 import { Workspace, Template, Integration } from '../../services/api/types'
 import {
   transactionalNotificationsApi,
@@ -9,6 +10,8 @@ import {
 } from '../../services/api/transactional_notifications'
 import { emailProviders } from '../integrations/EmailProviders'
 import { SUPPORTED_LANGUAGES } from '../../lib/languages'
+import { useQuery } from '@tanstack/react-query'
+import { listsApi } from '../../services/api/list'
 
 const { Text } = Typography
 const { Option } = Select
@@ -20,6 +23,16 @@ interface SendTemplateModalProps {
   workspace: Workspace | null
   loading?: boolean
   withCCAndBCC?: boolean
+  // List preselected for the test, such as a broadcast's audience list
+  defaultListId?: string
+  // When the test is sent for defaultListId, keep its links but leave out the List-Unsubscribe
+  // header, as a broadcast that also goes to the list's unsubscribed contacts does
+  omitListUnsubscribeHeader?: boolean
+  // The list field is shown, and lists loaded, only for members who can read lists
+  canReadLists?: boolean
+  // cc and bcc need contacts:read on the server, so their fields are shown only with it.
+  // Required, so a page that forgets it does not silently hide them from everyone.
+  canReadContacts: boolean
 }
 
 export default function SendTemplateModal({
@@ -28,7 +41,11 @@ export default function SendTemplateModal({
   template,
   workspace,
   loading = false,
-  withCCAndBCC = false
+  withCCAndBCC = false,
+  defaultListId,
+  omitListUnsubscribeHeader = false,
+  canReadLists = false,
+  canReadContacts
 }: SendTemplateModalProps) {
   const { t } = useLingui()
   const [email, setEmail] = useState('')
@@ -40,10 +57,26 @@ export default function SendTemplateModal({
   const [bccEmails, setBccEmails] = useState<string[]>([])
   const [replyTo, setReplyTo] = useState<string>('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
-  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false)
   const [selectedLanguage, setSelectedLanguage] = useState<string>('')
+  const [selectedListId, setSelectedListId] = useState<string | undefined>(undefined)
   const [form] = Form.useForm()
   const { message } = App.useApp()
+
+  const { data: listsData, isLoading: listsLoading } = useQuery({
+    queryKey: ['lists', workspace?.id],
+    queryFn: () => listsApi.list({ workspace_id: workspace?.id ?? '' }),
+    enabled: isOpen && canReadLists && !!workspace?.id
+  })
+  const lists = React.useMemo(() => listsData?.lists ?? [], [listsData])
+  // Only a list of this workspace is used, so a preselected list that was deleted selects nothing
+  const listId =
+    canReadLists && selectedListId && lists.some((list) => list.id === selectedListId)
+      ? selectedListId
+      : undefined
+  // The header is left out only for the broadcast's own audience list
+  const omitHeader = omitListUnsubscribeHeader && !!listId && listId === defaultListId
+  // A preselected list is not sent until the lists have loaded, so wait for them
+  const waitingForDefaultList = canReadLists && !!defaultListId && listsLoading
 
   // Filter to only email integrations
    
@@ -91,11 +124,26 @@ export default function SendTemplateModal({
           ? defaultId
           : emailIntegrations[0]?.id || ''
       )
-
-      // set first sender from email integration
-      setSelectedSenderId(emailIntegrations[0]?.email_provider?.senders[0]?.id || '')
     }
   }, [isOpen, template, workspace, emailIntegrations, selectedIntegrationId])
+
+  // The sender the test starts with, again when the integration or the language changes: the one the email of
+  // that language sends with (the translation's, else the template's) when the integration has it, else the
+  // integration's default, else its first
+  const defaultLanguage = workspace?.settings?.default_language
+  const languageSenderId =
+    (selectedLanguage && selectedLanguage !== defaultLanguage
+      ? template?.translations?.[selectedLanguage]?.email?.sender_id
+      : undefined) || template?.email?.sender_id
+  useEffect(() => {
+    if (!isOpen) return
+    const senders = emailIntegrations.find((i) => i.id === selectedIntegrationId)?.email_provider?.senders ?? []
+    const preselected =
+      senders.find((sender) => sender.id === languageSenderId) ??
+      senders.find((sender) => sender.is_default) ??
+      senders[0]
+    setSelectedSenderId(preselected?.id || '')
+  }, [isOpen, emailIntegrations, selectedIntegrationId, languageSenderId])
 
   // Reset form when modal opens
   useEffect(() => {
@@ -106,11 +154,11 @@ export default function SendTemplateModal({
       setBccEmails([])
       setReplyTo('')
       setAttachments([])
-      setShowAdvancedOptions(false)
       setSelectedLanguage(workspace?.settings?.default_language || '')
+      setSelectedListId(defaultListId)
       form.resetFields()
     }
-  }, [isOpen, form, withCCAndBCC, workspace?.settings?.default_language])
+  }, [isOpen, form, withCCAndBCC, workspace?.settings?.default_language, defaultListId])
 
   const handleSend = async () => {
     if (!template || !workspace || !selectedIntegrationId) return
@@ -126,11 +174,12 @@ export default function SendTemplateModal({
         selectedLanguage || undefined,
         {
           from_name: fromName || undefined,
-          cc: ccEmails,
-          bcc: bccEmails,
+          cc: canReadContacts ? ccEmails : [],
+          bcc: canReadContacts ? bccEmails : [],
           reply_to: replyTo,
           attachments: attachments.length > 0 ? attachments : undefined
-        }
+        },
+        listId ? { listId, omitListUnsubscribeHeader: omitHeader } : undefined
       )
 
       if (response.success) {
@@ -259,59 +308,62 @@ export default function SendTemplateModal({
   )
 
   return (
-    <Modal
-      title={t`Send Test Email`}
+    // A panel on the right, its options shown: the mockup's form, every field kept
+    <SidePanel
       open={isOpen}
-      onCancel={onClose}
-      footer={[
-        <Button key="cancel" onClick={onClose}>
-          {t`Cancel`}
-        </Button>,
-        <Button
-          key="send"
-          type="primary"
-          onClick={handleSend}
-          disabled={!email || !selectedIntegrationId || loading || sendLoading}
-          loading={loading || sendLoading}
-        >
-          {t`Send Test Email`}
-        </Button>
-      ]}
-      width={showAdvancedOptions ? 600 : 520}
+      onClose={onClose}
+      title={t`Send test email`}
+      copyLink={false}
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <Button onClick={onClose}>{t`Cancel`}</Button>
+          <Button
+            type="primary"
+            icon={<Send size={14} aria-hidden="true" />}
+            onClick={handleSend}
+            disabled={!email || !selectedIntegrationId || loading || sendLoading || waitingForDefaultList}
+            loading={loading || sendLoading}
+          >
+            {t`Send test email`}
+          </Button>
+        </div>
+      }
     >
       <Form form={form} layout="vertical">
-        <div className="py-2 space-y-4">
-          <p>{t`Send a test email using this template to verify how it will look.`}</p>
+        <div className="flex flex-col">
+          <p className="m-0 mb-4 text-sm text-ink-3">{t`Send a test email using this template to verify how it will look.`}</p>
 
-          <Form.Item label={t`Email Integration`}>
-            <Select
-              className="w-full"
-              placeholder={t`Select an email integration`}
-              value={selectedIntegrationId}
-              onChange={setSelectedIntegrationId}
-              disabled={emailIntegrations.length === 0}
-            >
-              {emailIntegrations.map(renderIntegrationOption)}
-            </Select>
-            {emailIntegrations.length === 0 && (
-              <Text type="warning" className="mt-1 block">
-                {t`No email integrations available. Please configure one in Settings.`}
-              </Text>
-            )}
-          </Form.Item>
+          <div className="grid grid-cols-2 gap-x-3">
+            <Form.Item label={t`Email Integration`}>
+              <Select
+                className="w-full"
+                placeholder={t`Select an email integration`}
+                value={selectedIntegrationId}
+                onChange={setSelectedIntegrationId}
+                disabled={emailIntegrations.length === 0}
+              >
+                {emailIntegrations.map(renderIntegrationOption)}
+              </Select>
+              {emailIntegrations.length === 0 && (
+                <Text type="warning" className="mt-1 block">
+                  {t`No email integrations available. Please configure one in Settings.`}
+                </Text>
+              )}
+            </Form.Item>
 
-          <Form.Item label={t`Sender`}>
-            <Select
-              className="w-full"
-              placeholder={t`Select a sender`}
-              value={selectedSenderId}
-              onChange={setSelectedSenderId}
-              options={selectedIntegration?.email_provider?.senders.map((sender) => ({
-                label: `${sender.name} <${sender.email}>`,
-                value: sender.id
-              }))}
-            />
-          </Form.Item>
+            <Form.Item label={t`Sender`}>
+              <Select
+                className="w-full"
+                placeholder={t`Select a sender`}
+                value={selectedSenderId}
+                onChange={setSelectedSenderId}
+                options={selectedIntegration?.email_provider?.senders.map((sender) => ({
+                  label: `${sender.name} <${sender.email}>`,
+                  value: sender.id
+                }))}
+              />
+            </Form.Item>
+          </div>
 
           <Form.Item label={t`Recipient Email`} required>
             <Input
@@ -321,6 +373,32 @@ export default function SendTemplateModal({
               type="email"
             />
           </Form.Item>
+
+          {canReadLists && (
+            <Form.Item
+              label={t`Mailing list`}
+              extra={
+                !listId
+                  ? t`Without a list, the test email has no working unsubscribe link and no List-Unsubscribe header.`
+                  : omitHeader
+                    ? t`Adds this list's unsubscribe links, as the broadcast does. The broadcast also goes to the list's unsubscribed contacts, so the test carries no List-Unsubscribe header. Unsubscribing or confirming from this test, or a bounce or complaint on it, really changes the recipient's subscription to the list.`
+                    : t`Adds this list's unsubscribe links and the List-Unsubscribe header, as a broadcast to this list does. Unsubscribing or confirming from this test, or a bounce or complaint on it, really changes the recipient's subscription to the list.`
+              }
+            >
+              <Select
+                className="w-full"
+                allowClear
+                loading={listsLoading}
+                placeholder={t`None (no unsubscribe link)`}
+                value={listId}
+                onChange={(value?: string) => setSelectedListId(value)}
+                options={lists.map((list) => ({
+                  label: list.id === defaultListId ? t`${list.name} (broadcast audience)` : list.name,
+                  value: list.id
+                }))}
+              />
+            </Form.Item>
+          )}
 
           {languageOptions.length > 0 && (
             <Form.Item label={t`Language`}>
@@ -333,26 +411,24 @@ export default function SendTemplateModal({
             </Form.Item>
           )}
 
-          {!showAdvancedOptions && (
-            <Button type="link" onClick={() => setShowAdvancedOptions(true)} className="!p-0">
-              {t`+ add from name, CC, BCC, reply-to, attachments`}
-            </Button>
-          )}
+          <div className="mt-1 mb-4 border-t border-line-soft pt-4 text-xs font-medium tracking-wide text-ink-3 uppercase">
+            {t`Options`}
+          </div>
 
-          {showAdvancedOptions && (
-            <>
-              <Form.Item label={t`From Name (override)`}>
-                <Input
-                  placeholder={t`Custom sender name (optional)`}
-                  value={fromName}
-                  onChange={(e) => setFromName(e.target.value)}
-                  allowClear
-                />
-                <Text type="secondary" className="text-xs mt-1 block">
-                  {t`Override the default sender name for this test email`}
-                </Text>
-              </Form.Item>
+          <Form.Item label={t`From Name (override)`}>
+            <Input
+              placeholder={t`Custom sender name (optional)`}
+              value={fromName}
+              onChange={(e) => setFromName(e.target.value)}
+              allowClear
+            />
+            <Text type="secondary" className="text-xs mt-1 block">
+              {t`Override the default sender name for this test email`}
+            </Text>
+          </Form.Item>
 
+          {canReadContacts && (
+            <div className="grid grid-cols-2 gap-x-3">
               <Form.Item label={t`CC Recipients`}>
                 <Select
                   mode="tags"
@@ -374,56 +450,55 @@ export default function SendTemplateModal({
                   allowClear
                 />
               </Form.Item>
-
-              <Form.Item label={t`Reply-To`}>
-                <Input
-                  placeholder={t`Enter Reply-To email address`}
-                  value={replyTo}
-                  onChange={(e) => setReplyTo(e.target.value)}
-                  allowClear
-                />
-              </Form.Item>
-
-              <Form.Item label={t`Attachments`}>
-                <Upload beforeUpload={handleFileUpload} showUploadList={false} multiple>
-                  <Button icon={<UploadOutlined />} disabled={attachments.length >= 20}>
-                    {t`Upload Files`}
-                  </Button>
-                </Upload>
-                <Text type="secondary" className="text-xs mt-1 block">
-                  {t`Max 3MB per file, 10MB total, 20 files maximum`}
-                </Text>
-                {attachments.length > 0 && (
-                  <Space orientation="vertical" className="mt-2 w-full">
-                    {attachments.map((att, index) => {
-                      // Calculate approximate file size from base64
-                      const sizeBytes = (att.content.length * 3) / 4
-                      return (
-                        <div
-                          key={index}
-                          className="flex items-center justify-between p-2 border border-gray-200 rounded"
-                        >
-                          <Space>
-                            <Text>{att.filename}</Text>
-                            <Tag>{formatFileSize(sizeBytes)}</Tag>
-                          </Space>
-                          <Button
-                            type="text"
-                            danger
-                            size="small"
-                            icon={<DeleteOutlined />}
-                            onClick={() => removeAttachment(index)}
-                          />
-                        </div>
-                      )
-                    })}
-                  </Space>
-                )}
-              </Form.Item>
-            </>
+            </div>
           )}
+
+          <Form.Item label={t`Reply-To`}>
+            <Input
+              placeholder={t`Enter Reply-To email address`}
+              value={replyTo}
+              onChange={(e) => setReplyTo(e.target.value)}
+              allowClear
+            />
+          </Form.Item>
+
+          <Form.Item label={t`Attachments`}>
+            <Upload beforeUpload={handleFileUpload} showUploadList={false} multiple>
+              <Button icon={<Paperclip size={14} aria-hidden="true" />} disabled={attachments.length >= 20}>
+                {t`Upload Files`}
+              </Button>
+            </Upload>
+            <Text type="secondary" className="text-xs mt-1 block">
+              {t`Max 3MB per file, 10MB total, 20 files maximum`}
+            </Text>
+            {attachments.length > 0 && (
+              <Space orientation="vertical" className="mt-2 w-full">
+                {attachments.map((att, index) => {
+                  // Calculate approximate file size from base64
+                  const sizeBytes = (att.content.length * 3) / 4
+                  const filename = att.filename
+                  return (
+                    <div key={index} className="flex items-center justify-between p-2 border border-gray-200 rounded">
+                      <Space>
+                        <Text>{filename}</Text>
+                        <Tag>{formatFileSize(sizeBytes)}</Tag>
+                      </Space>
+                      <Button
+                        type="text"
+                        danger
+                        size="small"
+                        aria-label={t`Remove ${filename}`}
+                        icon={<X size={14} aria-hidden="true" />}
+                        onClick={() => removeAttachment(index)}
+                      />
+                    </div>
+                  )
+                })}
+              </Space>
+            )}
+          </Form.Item>
         </div>
       </Form>
-    </Modal>
+    </SidePanel>
   )
 }

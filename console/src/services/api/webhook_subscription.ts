@@ -112,7 +112,8 @@ export interface TestWebhookResponse {
 }
 
 export interface GetDeliveriesResponse {
-  deliveries: WebhookDelivery[]
+  // null from servers before 44.0 when a page has no rows
+  deliveries: WebhookDelivery[] | null
   total: number
   limit: number
   offset: number
@@ -182,11 +183,13 @@ export const webhookSubscriptionApi = {
     workspaceId: string,
     subscriptionId?: string,
     limit?: number,
-    offset?: number
+    offset?: number,
+    status?: string
   ): Promise<GetDeliveriesResponse> => {
     const searchParams = new URLSearchParams()
     searchParams.append('workspace_id', workspaceId)
     if (subscriptionId) searchParams.append('subscription_id', subscriptionId)
+    if (status) searchParams.append('status', status)
     if (limit !== undefined) searchParams.append('limit', limit.toString())
     if (offset !== undefined) searchParams.append('offset', offset.toString())
     return api.get<GetDeliveriesResponse>(

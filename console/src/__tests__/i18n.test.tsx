@@ -89,6 +89,12 @@ const italianMessages = {
   'Welcome {name}': 'Benvenuto {name}',
 }
 
+const greekMessages = {
+  Hello: 'Γεια',
+  Goodbye: 'Αντίο',
+  'Welcome {name}': 'Καλώς ήρθατε {name}',
+}
+
 // Mock the dynamic imports for locale files
 vi.mock('../i18n/locales/en.po', () => ({ messages: englishMessages }))
 vi.mock('../i18n/locales/fr.po', () => ({ messages: frenchMessages }))
@@ -98,6 +104,7 @@ vi.mock('../i18n/locales/ca.po', () => ({ messages: catalanMessages }))
 vi.mock('../i18n/locales/pt-BR.po', () => ({ messages: portugueseBRMessages }))
 vi.mock('../i18n/locales/ja.po', () => ({ messages: japaneseMessages }))
 vi.mock('../i18n/locales/it.po', () => ({ messages: italianMessages }))
+vi.mock('../i18n/locales/el.po', () => ({ messages: greekMessages }))
 
 describe('i18n utility functions', () => {
   beforeEach(() => {
@@ -183,7 +190,7 @@ describe('i18n utility functions', () => {
 
   describe('locales and localeNames', () => {
     it('exports all supported locales', () => {
-      expect(locales).toEqual(['en', 'fr', 'es', 'de', 'ca', 'pt-BR', 'ja', 'it'])
+      expect(locales).toEqual(['en', 'fr', 'es', 'de', 'ca', 'pt-BR', 'ja', 'it', 'el'])
     })
 
     it('exports locale names for all locales', () => {
@@ -196,6 +203,7 @@ describe('i18n utility functions', () => {
         'pt-BR': 'Português (Brasil)',
         ja: '日本語',
         it: 'Italiano',
+        el: 'Ελληνικά',
       })
     })
 
@@ -271,7 +279,7 @@ describe('LocaleContext', () => {
       expect(screen.getByTestId('is-loading')).toHaveTextContent('ready')
     })
 
-    expect(screen.getByTestId('locale-count')).toHaveTextContent('8')
+    expect(screen.getByTestId('locale-count')).toHaveTextContent('9')
   })
 
   it('provides locale name for current locale', async () => {

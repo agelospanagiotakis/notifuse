@@ -1,17 +1,15 @@
 import { useState, useCallback, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { Splitter, Segmented, Tabs, Button, App, Space, Dropdown } from 'antd'
 import type { MenuProps } from 'antd'
-import {
-  DesktopOutlined,
-  MobileOutlined,
-  ExclamationCircleOutlined
-} from '@ant-design/icons'
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faChevronDown, faQuestion } from '@fortawesome/free-solid-svg-icons'
+import { ExclamationCircleOutlined } from '@ant-design/icons'
+import { ChevronDown, CircleHelp, Monitor, Smartphone } from 'lucide-react'
 import Editor, { type OnMount, type BeforeMount } from '@monaco-editor/react'
 import type { editor as MonacoEditor } from 'monaco-editor'
 import { useLingui } from '@lingui/react/macro'
 import type { MjmlCompileError } from '../../services/api/template'
+import { TextVersionPanel } from './panels/TextVersionPanel'
+import type { CustomTextVersion } from './panels/TextVersionPanel'
+import { COMMON_TEMPLATE_VARIABLES } from './templateVariables'
 
 interface MjmlCodeEditorProps {
   mjmlSource: string
@@ -23,11 +21,14 @@ interface MjmlCodeEditorProps {
     html: string
     mjml: string
     error?: MjmlCompileError
+    text?: string
   }>
   testData?: Record<string, unknown>
   onTestDataChange: (testData: Record<string, unknown>) => void
   height?: string | number
   templateId?: string
+  // With `custom`, the text version tab lets the text be written by hand.
+  textVersion?: { custom?: CustomTextVersion }
 }
 
 export interface MjmlCodeEditorRef {
@@ -224,7 +225,8 @@ const MjmlCodeEditor = forwardRef<MjmlCodeEditorRef, MjmlCodeEditorProps>(({
   testData,
   onTestDataChange,
   height = 'calc(100vh - 200px)',
-  templateId
+  templateId,
+  textVersion
 }, ref) => {
   const { t } = useLingui()
   const { message } = App.useApp()
@@ -241,6 +243,8 @@ const MjmlCodeEditor = forwardRef<MjmlCodeEditorRef, MjmlCodeEditorProps>(({
     testData ? JSON.stringify(testData, null, 2) : '{}'
   )
   const [htmlOutput, setHtmlOutput] = useState<string>('')
+  // null until the first compile returns
+  const [textOutput, setTextOutput] = useState<string | null>(null)
   const [testDataDirty, setTestDataDirty] = useState(false)
 
   // Draft storage key
@@ -249,10 +253,28 @@ const MjmlCodeEditor = forwardRef<MjmlCodeEditorRef, MjmlCodeEditorProps>(({
     ? `mjml-draft-${templateId}`
     : `mjml-draft-new-${draftUniqueId}`
 
+  const clearErrorMarkers = () => {
+    if (monacoRef.current && editorRef.current) {
+      const monaco = monacoRef.current as typeof import('monaco-editor')
+      const model = editorRef.current.getModel()
+      if (model) {
+        monaco.editor.setModelMarkers(model, 'mjml', [])
+      }
+    }
+  }
+
   // Compile function
   const doCompile = useCallback(
     async (source: string) => {
-      if (!source.trim()) return
+      // Nothing to compile: the email is empty, rather than waiting for a compile or showing the last one
+      if (!source.trim()) {
+        setPreviewHtml('')
+        setHtmlOutput('')
+        setTextOutput('')
+        setCompileErrors(undefined)
+        clearErrorMarkers()
+        return
+      }
       setIsCompiling(true)
       try {
         let parsedTestData: Record<string, unknown> | undefined
@@ -266,6 +288,7 @@ const MjmlCodeEditor = forwardRef<MjmlCodeEditorRef, MjmlCodeEditorProps>(({
           setCompileErrors(result.error)
           setPreviewHtml('')
           setHtmlOutput('')
+          setTextOutput('')
           // Set error markers in editor
           if (monacoRef.current && editorRef.current) {
             const monaco = monacoRef.current as typeof import('monaco-editor')
@@ -285,15 +308,9 @@ const MjmlCodeEditor = forwardRef<MjmlCodeEditorRef, MjmlCodeEditorProps>(({
         } else {
           setPreviewHtml(result.html)
           setHtmlOutput(result.html)
+          setTextOutput(result.text ?? '')
           setCompileErrors(undefined)
-          // Clear error markers
-          if (monacoRef.current && editorRef.current) {
-            const monaco = monacoRef.current as typeof import('monaco-editor')
-            const model = editorRef.current.getModel()
-            if (model) {
-              monaco.editor.setModelMarkers(model, 'mjml', [])
-            }
-          }
+          clearErrorMarkers()
         }
       } catch (err) {
         setCompileErrors({
@@ -331,11 +348,9 @@ const MjmlCodeEditor = forwardRef<MjmlCodeEditorRef, MjmlCodeEditorProps>(({
     }
   }, [])
 
-  // Initial compile
+  // Initial compile; an empty source compiles to nothing, without a call
   useEffect(() => {
-    if (mjmlSource) {
-      doCompile(mjmlSource)
-    }
+    doCompile(mjmlSource || '')
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentional mount-only compile
   }, [])
 
@@ -473,21 +488,7 @@ const MjmlCodeEditor = forwardRef<MjmlCodeEditorRef, MjmlCodeEditorProps>(({
         }
         extractKeys(parsedData, '')
 
-        // Add common template variables
-        const commonVars = [
-          'contact.email',
-          'contact.first_name',
-          'contact.last_name',
-          'contact.external_id',
-          'workspace.base_url',
-          'unsubscribe_url',
-          'notification_center_url',
-          'confirm_subscription_url',
-          'message_id',
-          'tracking_opens_url'
-        ]
-
-        const allKeys = [...new Set([...keys, ...commonVars])]
+        const allKeys = [...new Set([...keys, ...COMMON_TEMPLATE_VARIABLES])]
 
         const suggestions = allKeys.map((key) => ({
           label: key,
@@ -688,35 +689,47 @@ const MjmlCodeEditor = forwardRef<MjmlCodeEditorRef, MjmlCodeEditorProps>(({
             )
           },
           { key: 'testdata', label: t`Test Data` },
-          { key: 'html', label: t`Generated HTML` }
+          { key: 'html', label: t`Generated HTML` },
+          { key: 'text', label: t`Text version` }
         ]}
         tabBarExtraContent={
           <Space size="small">
             <Segmented
-              size="small"
               value={viewport}
               onChange={(v) => setViewport(v as 'desktop' | 'mobile')}
+              // The label has the item's height: centring in it puts the icon in the middle.
+              styles={{ label: { display: 'flex', alignItems: 'center', justifyContent: 'center' } }}
               options={[
-                { value: 'desktop', icon: <DesktopOutlined /> },
-                { value: 'mobile', icon: <MobileOutlined /> }
+                {
+                  value: 'desktop',
+                  label: (
+                    <span className="flex items-center justify-center">
+                      <Monitor size={14} aria-hidden="true" />
+                      <span className="sr-only">{t`Desktop`}</span>
+                    </span>
+                  ),
+                  title: t`Desktop`
+                },
+                {
+                  value: 'mobile',
+                  label: (
+                    <span className="flex items-center justify-center">
+                      <Smartphone size={14} aria-hidden="true" />
+                      <span className="sr-only">{t`Mobile`}</span>
+                    </span>
+                  ),
+                  title: t`Mobile`
+                }
               ]}
             />
             <div style={{ width: 300 }} />
             <Dropdown menu={{ items: importExportMenuItems }} placement="bottomRight" trigger={['click']}>
-              <Button size="small" type="primary" ghost>
-                <span>{t`Import / Export`}</span>
-                <FontAwesomeIcon icon={faChevronDown} className="ml-1" size="sm" />
+              <Button icon={<ChevronDown size={14} aria-hidden="true" />} iconPlacement="end">
+                {t`Import / Export`}
               </Button>
             </Dropdown>
             <Dropdown menu={{ items: helpMenuItems }} placement="bottomRight" trigger={['click']}>
-              <Button
-                size="small"
-                type="primary"
-                ghost
-                icon={<FontAwesomeIcon icon={faQuestion} size="sm" />}
-              >
-                {t`Help`}
-              </Button>
+              <Button icon={<CircleHelp size={14} aria-hidden="true" />}>{t`Help`}</Button>
             </Dropdown>
             {isCompiling && (
               <span style={{ fontSize: 12, color: '#999' }}>{t`Compiling...`}</span>
@@ -834,6 +847,15 @@ const MjmlCodeEditor = forwardRef<MjmlCodeEditorRef, MjmlCodeEditorProps>(({
                 }}
               />
               </>
+            )}
+            {activeTab === 'text' && (
+              <TextVersionPanel
+                compact
+                text={textOutput ?? undefined}
+                errors={compileErrors ? [{ message: compileErrors.message }] : undefined}
+                loading={textOutput === null && !compileErrors}
+                custom={textVersion?.custom}
+              />
             )}
             {activeTab === 'html' && (
               <Editor

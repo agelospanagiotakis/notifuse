@@ -11,6 +11,30 @@ import {
 } from "./errors";
 import { licenseRefusalFromBody, licenseRefusedMessage } from "./licenseErrors";
 
+// Reported by the server while must_change_password is set: the account may reach
+// /api/user.setPassword and nothing else. Must match middleware.PasswordChangeCode.
+const PASSWORD_CHANGE_REQUIRED = 'password_change_required'
+
+// One redirect per refusal, not one per request. A console page issues several calls at once,
+// and without this every one of them would push a history entry for the same destination.
+let passwordChangeRedirectIssued = false
+
+// sendToPasswordForm moves the user to the one screen that can clear the flag.
+//
+// The security section is a child of the workspace route, so the id is already in the address
+// bar whenever an authenticated page is on screen. It is read from there rather than fetched,
+// because fetching it is a request, and every request is refused.
+function sendToPasswordForm() {
+  if (passwordChangeRedirectIssued) return
+  const match = window.location.pathname.match(/^\/console\/workspace\/([^/]+)/)
+  if (!match) return
+  passwordChangeRedirectIssued = true
+  router.navigate({
+    to: '/console/workspace/$workspaceId/settings/$section',
+    params: { workspaceId: match[1], section: 'security' }
+  })
+}
+
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const errorData = await response.json().catch(() => null);
@@ -46,6 +70,14 @@ async function handleResponse<T>(response: Response): Promise<T> {
     // capability and the remedy, rather than passing the server's English prose through.
     const refusal = denial ? null : licenseRefusalFromBody(errorData);
 
+    // An administrator-issued password blocks every route until it is replaced, so sending the
+    // user to the sign-in screen would be a loop: their credential is valid, and signing in
+    // again produces another blocked session. The security section holds the one form the
+    // server still accepts, so that is where a refusal points.
+    if (errorData?.code === PASSWORD_CHANGE_REQUIRED) {
+      sendToPasswordForm()
+    }
+
     const message = denial
       ? permissionDeniedMessage(denial)
       : refusal
@@ -58,7 +90,10 @@ async function handleResponse<T>(response: Response): Promise<T> {
       errorData,
     );
   }
-  return response.json();
+  // A success is proof the flag is clear (or was never set), so the next refusal is allowed to
+  // navigate again. Without this a second reset later in the same session would not be routed.
+  passwordChangeRedirectIssued = false
+  return response.json()
 }
 
 // A non-2xx answer is turned into the same ApiError a JSON request would throw,
@@ -66,6 +101,15 @@ async function handleResponse<T>(response: Response): Promise<T> {
 async function throwIfNotOk(response: Response): Promise<void> {
   if (response.ok) return;
   await handleResponse<never>(response);
+}
+
+/** The address every console request goes to: API_ENDPOINT, else this page's origin. */
+export function apiBaseUrl(): string {
+  let defaultOrigin = window.location.origin;
+  if (defaultOrigin.includes("notifusedev.com")) {
+    defaultOrigin = "https://localapi.notifuse.com:4000";
+  }
+  return window.API_ENDPOINT?.trim().replace(/\/+$/, "") || defaultOrigin;
 }
 
 async function fetchWithAuth(
@@ -78,12 +122,7 @@ async function fetchWithAuth(
     ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     ...options.headers,
   };
-  let defaultOrigin = window.location.origin;
-  if (defaultOrigin.includes("notifusedev.com")) {
-    defaultOrigin = "https://localapi.notifuse.com:4000";
-  }
-  const apiEndpoint =
-    window.API_ENDPOINT?.trim().replace(/\/+$/, "") || defaultOrigin;
+  const apiEndpoint = apiBaseUrl();
   try {
     return await fetch(`${apiEndpoint}${endpoint}`, {
       ...options,

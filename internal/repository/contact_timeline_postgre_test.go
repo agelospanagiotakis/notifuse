@@ -3,14 +3,20 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/Notifuse/notifuse/internal/domain"
 	"github.com/Notifuse/notifuse/internal/domain/mocks"
 	"github.com/golang/mock/gomock"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -49,7 +55,7 @@ func TestContactTimelineRepository_List(t *testing.T) {
 			WithArgs(email, sqlmock.AnyArg()).
 			WillReturnRows(rows)
 
-		entries, nextCursor, err := repo.List(ctx, workspaceID, email, limit, nil)
+		entries, nextCursor, err := repo.List(ctx, workspaceID, nil, email, limit, nil, domain.TimelineEntityTypeFilter{})
 
 		require.NoError(t, err)
 		assert.Len(t, entries, 2)
@@ -90,7 +96,7 @@ func TestContactTimelineRepository_List(t *testing.T) {
 			WithArgs(email, sqlmock.AnyArg(), sqlmock.AnyArg(), cursorID, sqlmock.AnyArg()).
 			WillReturnRows(rows)
 
-		entries, nextCursor, err := repo.List(ctx, workspaceID, email, limit, &cursorStr)
+		entries, nextCursor, err := repo.List(ctx, workspaceID, nil, email, limit, &cursorStr, domain.TimelineEntityTypeFilter{})
 
 		require.NoError(t, err)
 		assert.Len(t, entries, 1)
@@ -122,7 +128,7 @@ func TestContactTimelineRepository_List(t *testing.T) {
 			WithArgs(email, sqlmock.AnyArg()).
 			WillReturnRows(rows)
 
-		entries, nextCursor, err := repo.List(ctx, workspaceID, email, 10, nil)
+		entries, nextCursor, err := repo.List(ctx, workspaceID, nil, email, 10, nil, domain.TimelineEntityTypeFilter{})
 
 		require.NoError(t, err)
 		assert.Len(t, entries, 10) // Should return only 10, not 11
@@ -150,7 +156,7 @@ func TestContactTimelineRepository_List(t *testing.T) {
 			WithArgs(email, sqlmock.AnyArg()).
 			WillReturnRows(rows)
 
-		entries, nextCursor, err := repo.List(ctx, workspaceID, email, limit, nil)
+		entries, nextCursor, err := repo.List(ctx, workspaceID, nil, email, limit, nil, domain.TimelineEntityTypeFilter{})
 
 		require.NoError(t, err)
 		assert.Len(t, entries, 1)
@@ -178,9 +184,10 @@ func TestContactTimelineRepository_List(t *testing.T) {
 			WithArgs(email, sqlmock.AnyArg()).
 			WillReturnRows(rows)
 
-		entries, nextCursor, err := repo.List(ctx, workspaceID, email, limit, nil)
+		entries, nextCursor, err := repo.List(ctx, workspaceID, nil, email, limit, nil, domain.TimelineEntityTypeFilter{})
 
 		require.NoError(t, err)
+		assert.NotNil(t, entries, "an empty list, which the API sends as [] rather than null")
 		assert.Empty(t, entries)
 		assert.Nil(t, nextCursor)
 		assert.NoError(t, mock.ExpectationsWereMet())
@@ -202,7 +209,7 @@ func TestContactTimelineRepository_List(t *testing.T) {
 			WillReturnRows(rows)
 
 		// Pass 0 limit, should default to 50
-		entries, nextCursor, err := repo.List(ctx, workspaceID, email, 0, nil)
+		entries, nextCursor, err := repo.List(ctx, workspaceID, nil, email, 0, nil, domain.TimelineEntityTypeFilter{})
 
 		require.NoError(t, err)
 		assert.Empty(t, entries)
@@ -226,7 +233,7 @@ func TestContactTimelineRepository_List(t *testing.T) {
 			WillReturnRows(rows)
 
 		// Pass 150 limit, should be capped at 100
-		entries, nextCursor, err := repo.List(ctx, workspaceID, email, 150, nil)
+		entries, nextCursor, err := repo.List(ctx, workspaceID, nil, email, 150, nil, domain.TimelineEntityTypeFilter{})
 
 		require.NoError(t, err)
 		assert.Empty(t, entries)
@@ -239,7 +246,7 @@ func TestContactTimelineRepository_List(t *testing.T) {
 			GetConnection(ctx, workspaceID).
 			Return(nil, assert.AnError)
 
-		entries, nextCursor, err := repo.List(ctx, workspaceID, email, limit, nil)
+		entries, nextCursor, err := repo.List(ctx, workspaceID, nil, email, limit, nil, domain.TimelineEntityTypeFilter{})
 
 		assert.Error(t, err)
 		assert.Nil(t, entries)
@@ -258,7 +265,7 @@ func TestContactTimelineRepository_List(t *testing.T) {
 
 		invalidCursor := "invalid-cursor!!!"
 
-		entries, nextCursor, err := repo.List(ctx, workspaceID, email, limit, &invalidCursor)
+		entries, nextCursor, err := repo.List(ctx, workspaceID, nil, email, limit, &invalidCursor, domain.TimelineEntityTypeFilter{})
 
 		assert.Error(t, err)
 		assert.Nil(t, entries)
@@ -278,7 +285,7 @@ func TestContactTimelineRepository_List(t *testing.T) {
 		// Valid base64 but wrong format (missing pipe separator)
 		invalidCursor := base64.StdEncoding.EncodeToString([]byte("no-pipe-separator"))
 
-		entries, nextCursor, err := repo.List(ctx, workspaceID, email, limit, &invalidCursor)
+		entries, nextCursor, err := repo.List(ctx, workspaceID, nil, email, limit, &invalidCursor, domain.TimelineEntityTypeFilter{})
 
 		assert.Error(t, err)
 		assert.Nil(t, entries)
@@ -299,7 +306,7 @@ func TestContactTimelineRepository_List(t *testing.T) {
 			WithArgs(email, sqlmock.AnyArg()).
 			WillReturnError(sql.ErrConnDone)
 
-		entries, nextCursor, err := repo.List(ctx, workspaceID, email, limit, nil)
+		entries, nextCursor, err := repo.List(ctx, workspaceID, nil, email, limit, nil, domain.TimelineEntityTypeFilter{})
 
 		assert.Error(t, err)
 		assert.Nil(t, entries)
@@ -325,7 +332,7 @@ func TestContactTimelineRepository_List(t *testing.T) {
 			WithArgs(email, sqlmock.AnyArg()).
 			WillReturnRows(rows)
 
-		entries, nextCursor, err := repo.List(ctx, workspaceID, email, limit, nil)
+		entries, nextCursor, err := repo.List(ctx, workspaceID, nil, email, limit, nil, domain.TimelineEntityTypeFilter{})
 
 		assert.Error(t, err)
 		assert.Nil(t, entries)
@@ -352,7 +359,7 @@ func TestContactTimelineRepository_List(t *testing.T) {
 			WithArgs(email, sqlmock.AnyArg()).
 			WillReturnRows(rows)
 
-		entries, nextCursor, err := repo.List(ctx, workspaceID, email, limit, nil)
+		entries, nextCursor, err := repo.List(ctx, workspaceID, nil, email, limit, nil, domain.TimelineEntityTypeFilter{})
 
 		assert.Error(t, err)
 		assert.Nil(t, entries)
@@ -379,7 +386,7 @@ func TestContactTimelineRepository_List(t *testing.T) {
 			WithArgs(email, sqlmock.AnyArg()).
 			WillReturnRows(rows)
 
-		entries, nextCursor, err := repo.List(ctx, workspaceID, email, limit, nil)
+		entries, nextCursor, err := repo.List(ctx, workspaceID, nil, email, limit, nil, domain.TimelineEntityTypeFilter{})
 
 		assert.Error(t, err)
 		assert.Nil(t, entries)
@@ -545,5 +552,154 @@ func TestContactTimelineRepository_DeleteForEmail(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to delete timeline entries")
 		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestContactTimelineRepository_List_EntityTypeFilter(t *testing.T) {
+	ctx := context.Background()
+	columns := []string{"id", "email", "operation", "entity_type", "kind", "changes", "entity_id", "created_at", "db_created_at", "entity_data"}
+	run := func(t *testing.T, filter domain.TimelineEntityTypeFilter, cursor *string, pattern string, args ...driver.Value) {
+		t.Helper()
+		ctrl := gomock.NewController(t)
+		workspaceRepo := mocks.NewMockWorkspaceRepository(ctrl)
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer func() { _ = db.Close() }()
+		workspaceRepo.EXPECT().GetConnection(ctx, "ws").Return(db, nil)
+		// The query is multi-line: any run of whitespace matches a space of the pattern.
+		mock.ExpectQuery(strings.ReplaceAll(pattern, " ", `\s+`)).WithArgs(args...).WillReturnRows(sqlmock.NewRows(columns))
+
+		_, _, err = NewContactTimelineRepository(workspaceRepo).List(ctx, "ws", nil, "a@example.com", 20, cursor, filter)
+		require.NoError(t, err)
+		require.NoError(t, mock.ExpectationsWereMet())
+	}
+
+	t.Run("Only keeps the listed types", func(t *testing.T) {
+		run(t, domain.TimelineEntityTypeFilter{Only: []string{"contact", "message_history"}}, nil,
+			regexp.QuoteMeta(`WHERE ct.email = $1 AND ct.entity_type = ANY($2) ORDER BY ct.created_at DESC, ct.id DESC LIMIT $3`),
+			"a@example.com", pq.StringArray{"contact", "message_history"}, 21)
+	})
+
+	t.Run("Except drops the listed types", func(t *testing.T) {
+		run(t, domain.TimelineEntityTypeFilter{Except: []string{"web_session", "web_page"}}, nil,
+			regexp.QuoteMeta(`WHERE ct.email = $1 AND ct.entity_type <> ALL($2) ORDER BY`),
+			"a@example.com", pq.StringArray{"web_session", "web_page"}, 21)
+	})
+
+	t.Run("no filter adds no condition", func(t *testing.T) {
+		run(t, domain.TimelineEntityTypeFilter{}, nil,
+			regexp.QuoteMeta(`WHERE ct.email = $1 ORDER BY ct.created_at DESC, ct.id DESC LIMIT $2`),
+			"a@example.com", 21)
+	})
+
+	t.Run("the cursor condition follows the filter", func(t *testing.T) {
+		at := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+		cursor := encodeCursor(at, "e9")
+		run(t, domain.TimelineEntityTypeFilter{Only: []string{"contact"}}, &cursor,
+			regexp.QuoteMeta(`WHERE ct.email = $1 AND ct.entity_type = ANY($2) AND (ct.created_at < $3 OR (ct.created_at = $4 AND ct.id < $5)) ORDER BY ct.created_at DESC, ct.id DESC LIMIT $6`),
+			"a@example.com", pq.StringArray{"contact"}, at, at, "e9", 21)
+	})
+}
+
+func TestContactTimelineRepository_List_DecryptsMessageData(t *testing.T) {
+	ctx := context.Background()
+	const secretKey = "timeline-test-secret-key"
+	columns := []string{"id", "email", "operation", "entity_type", "kind", "changes", "entity_id", "created_at", "db_created_at", "entity_data"}
+
+	// The data as message history stores it: encrypted at rest.
+	stored, err := encryptMessageData(domain.MessageData{
+		Data:     map[string]interface{}{"contact": map[string]interface{}{"first_name": "Mary"}},
+		Metadata: map[string]interface{}{"source": "automation"},
+	}, secretKey)
+	require.NoError(t, err)
+	messageEntity := func(messageData interface{}) []byte {
+		raw, err := json.Marshal(map[string]interface{}{"id": "m1", "template_id": "welcome", "message_data": messageData})
+		require.NoError(t, err)
+		return raw
+	}
+
+	// keyLoader yields key (or err) and counts its calls.
+	type keyLoader struct {
+		calls int
+		key   string
+		err   error
+	}
+	loader := func(l *keyLoader) domain.TimelineSecretKeyLoader {
+		return func(context.Context) (string, error) {
+			l.calls++
+			return l.key, l.err
+		}
+	}
+	list := func(t *testing.T, load domain.TimelineSecretKeyLoader, rows *sqlmock.Rows) []*domain.ContactTimelineEntry {
+		t.Helper()
+		ctrl := gomock.NewController(t)
+		workspaceRepo := mocks.NewMockWorkspaceRepository(ctrl)
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer func() { _ = db.Close() }()
+		workspaceRepo.EXPECT().GetConnection(ctx, "ws").Return(db, nil)
+		mock.ExpectQuery("SELECT(.+)FROM contact_timeline ct(.+)").WillReturnRows(rows)
+		entries, _, err := NewContactTimelineRepository(workspaceRepo).List(ctx, "ws", load, "a@example.com", 20, nil, domain.TimelineEntityTypeFilter{})
+		require.NoError(t, err)
+		require.NoError(t, mock.ExpectationsWereMet())
+		return entries
+	}
+	now := time.Now()
+
+	t.Run("a message's data comes decrypted, as messages.list gives it, with one key load per page", func(t *testing.T) {
+		keys := &keyLoader{key: secretKey}
+		entries := list(t, loader(keys), sqlmock.NewRows(columns).
+			AddRow("e1", "a@example.com", "insert", "message_history", "insert_message_history", nil, "m1", now, now, messageEntity(stored)).
+			AddRow("e2", "a@example.com", "insert", "message_history", "insert_message_history", nil, "m1", now, now, messageEntity(stored)))
+		require.Len(t, entries, 2)
+		assert.Equal(t, 1, keys.calls)
+		assert.Equal(t, entries[0].EntityData["message_data"], entries[1].EntityData["message_data"])
+		assert.Equal(t, map[string]interface{}{
+			"data":     map[string]interface{}{"contact": map[string]interface{}{"first_name": "Mary"}},
+			"metadata": map[string]interface{}{"source": "automation"},
+		}, entries[0].EntityData["message_data"])
+		assert.Equal(t, "welcome", entries[0].EntityData["template_id"])
+	})
+
+	t.Run("data stored before encryption is kept as it is", func(t *testing.T) {
+		plain := map[string]interface{}{"data": map[string]interface{}{"name": "Ann"}}
+		keys := &keyLoader{key: secretKey}
+		entries := list(t, loader(keys), sqlmock.NewRows(columns).
+			AddRow("e1", "a@example.com", "insert", "message_history", "insert_message_history", nil, "m1", now, now, messageEntity(plain)).
+			AddRow("e2", "a@example.com", "insert", "contact", "insert_contact", nil, nil, now, now, []byte(`{"email":"a@example.com"}`)))
+		assert.Equal(t, plain, entries[0].EntityData["message_data"])
+		assert.Equal(t, 0, keys.calls, "nothing to decrypt: the workspace key is not loaded")
+	})
+
+	t.Run("data that cannot be decrypted is left out, not shown encrypted, and the timeline still answers", func(t *testing.T) {
+		entries := list(t, loader(&keyLoader{key: "another-key"}), sqlmock.NewRows(columns).
+			AddRow("e1", "a@example.com", "insert", "message_history", "insert_message_history", nil, "m1", now, now, messageEntity(stored)).
+			AddRow("e2", "a@example.com", "insert", "contact", "insert_contact", nil, nil, now, now, []byte(`{"email":"a@example.com"}`)))
+		require.Len(t, entries, 2)
+		_, present := entries[0].EntityData["message_data"]
+		assert.False(t, present)
+		assert.Equal(t, "welcome", entries[0].EntityData["template_id"])
+	})
+
+	t.Run("a key that cannot be loaded leaves the messages' data out, and the timeline still answers", func(t *testing.T) {
+		keys := &keyLoader{err: assert.AnError}
+		entries := list(t, loader(keys), sqlmock.NewRows(columns).
+			AddRow("e1", "a@example.com", "insert", "message_history", "insert_message_history", nil, "m1", now, now, messageEntity(stored)).
+			AddRow("e2", "a@example.com", "insert", "message_history", "insert_message_history", nil, "m1", now, now, messageEntity(stored)).
+			AddRow("e3", "a@example.com", "insert", "contact", "insert_contact", nil, nil, now, now, []byte(`{"email":"a@example.com"}`)))
+		require.Len(t, entries, 3)
+		for _, entry := range entries[:2] {
+			_, present := entry.EntityData["message_data"]
+			assert.False(t, present)
+			assert.Equal(t, "welcome", entry.EntityData["template_id"])
+		}
+		assert.Equal(t, 1, keys.calls, "a failed load is not retried for every entry")
+	})
+
+	t.Run("no loader: encrypted data is left out rather than shown encrypted", func(t *testing.T) {
+		entries := list(t, nil, sqlmock.NewRows(columns).
+			AddRow("e1", "a@example.com", "insert", "message_history", "insert_message_history", nil, "m1", now, now, messageEntity(stored)))
+		_, present := entries[0].EntityData["message_data"]
+		assert.False(t, present)
 	})
 }

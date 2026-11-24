@@ -1,4 +1,4 @@
-import { Avatar, Button, Popover, Select } from 'antd'
+import { Avatar, Button, Select } from 'antd'
 import { CloseOutlined } from '@ant-design/icons'
 import { Sparkles, User } from 'lucide-react'
 import { Bubble, Sender } from '@ant-design/x'
@@ -37,7 +37,6 @@ export function AIAssistantChat({
   inputValue,
   setInputValue,
   isStreaming,
-  costs,
   inputContainerRef,
   llmIntegration,
   llmIntegrations,
@@ -288,8 +287,12 @@ export function AIAssistantChat({
                   // prompt asks the model to keep tables narrow, but a model will
                   // sometimes emit a wide one anyway, so the table scrolls inside its
                   // own bubble rather than pushing the conversation out of shape.
+                  // Headings take the theme's sizes: the base layer sets them to the body text's otherwise
                   contentRender: (content: string) => (
-                    <div className="[&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
+                    <div
+                      data-assistant-markdown
+                      className="[&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_h1]:text-title [&_h2]:text-subtitle [&_h3]:text-base [&_h4]:text-base"
+                    >
                       <XMarkdown openLinksInNewTab>{content}</XMarkdown>
                     </div>
                   )
@@ -373,20 +376,6 @@ export function AIAssistantChat({
               >
                 {t`New conversation`}
               </Button>
-              {llmIntegration?.llm_provider?.kind !== 'openai' && (
-                <Popover
-                  content={
-                    <div style={{ fontSize: 12 }}>
-                      <div>{t`Input`}: ${costs.input.toFixed(4)}</div>
-                      <div>{t`Output`}: ${costs.output.toFixed(4)}</div>
-                    </div>
-                  }
-                  trigger="hover"
-                  placement="top"
-                >
-                  <span style={{ cursor: 'help' }}>{t`Cost`}: ${costs.total.toFixed(4)}</span>
-                </Popover>
-              )}
             </div>
           </div>
         </div>

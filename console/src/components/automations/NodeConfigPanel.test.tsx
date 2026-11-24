@@ -1,16 +1,34 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
+import { App } from 'antd'
+import type { ReactNode } from 'react'
 import { i18n } from '@lingui/core'
 import { I18nProvider } from '@lingui/react'
 import type { Node } from '@xyflow/react'
 import { NodeConfigPanel } from './NodeConfigPanel'
 import type { AutomationNodeData } from './utils/flowConverter'
-import type { NodeType } from '../../services/api/automation'
+import type { NodeStats, NodeType } from '../../services/api/automation'
+import { NO_NODE_STATS, NodeStatsContext, type NodeStatsState } from './stats/nodeStatsState'
+
+// The step's link to Logs goes through the router; here it only shows where it leads.
+vi.mock('@tanstack/react-router', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@tanstack/react-router')>()),
+  createLink:
+    (Comp: (props: Record<string, unknown>) => ReactNode) =>
+    ({ to, params, search, ...rest }: { to: string; params: { workspaceId: string }; search: Record<string, string> }) => (
+      <Comp href={`${to.replace('$workspaceId', params.workspaceId)}?${new URLSearchParams(search).toString()}`} {...rest} />
+    )
+}))
 
 // The per-type forms are exercised by their own tests; stubbing the barrel keeps this one about
 // the description field the panel owns, and keeps a single textbox on screen to address.
 vi.mock('./config', () => {
-  const Stub = () => <div data-testid="type-form" />
+  // The email form shows the preview it is given, under its template field.
+  const Stub = ({ canReadTemplates, preview }: { canReadTemplates?: boolean; preview?: ReactNode }) => (
+    <div data-testid="type-form" data-can-read-templates={String(canReadTemplates)}>
+      {preview}
+    </div>
+  )
   return {
     TriggerConfigForm: Stub,
     DelayConfigForm: Stub,
@@ -24,8 +42,34 @@ vi.mock('./config', () => {
   }
 })
 
+// The preview reads the template: it has its own test. Its stand-in keeps an antd button, so
+// whether the panel's read-only setting reaches it shows.
+vi.mock('./stats/EmailStepPreview', async () => {
+  const { Button } = await import('antd')
+  return {
+    EmailStepPreview: ({ canReadTemplates }: { canReadTemplates: boolean }) => (
+      <div data-testid="email-preview" data-can-read-templates={String(canReadTemplates)}>
+        <Button>Retry</Button>
+      </div>
+    )
+  }
+})
+
+const context = vi.hoisted(() => ({
+  canReadTemplates: true,
+  readOnly: false,
+  workspace: { id: 'ws-1' } as Record<string, unknown>,
+  templates: [] as { id: string; name: string }[]
+}))
+
 vi.mock('./context', () => ({
-  useAutomation: () => ({ workspace: { id: 'ws-1' } })
+  useAutomation: () => ({
+    workspace: context.workspace,
+    canReadTemplates: context.canReadTemplates,
+    readOnly: context.readOnly,
+    automationId: 'auto-1',
+    templates: context.templates
+  })
 }))
 
 // The NodeType union has no runtime counterpart; build the list from a map typed against it so a
@@ -54,11 +98,18 @@ const makeNode = (
   data: { nodeType, config, label: nodeType }
 })
 
-const renderPanel = (selectedNode: Node<AutomationNodeData>) => {
+const renderPanel = (
+  selectedNode: Node<AutomationNodeData>,
+  { stats = NO_NODE_STATS }: { stats?: NodeStatsState } = {}
+) => {
   const onNodeUpdate = vi.fn()
   const view = render(
     <I18nProvider i18n={i18n}>
-      <NodeConfigPanel selectedNode={selectedNode} onNodeUpdate={onNodeUpdate} workspaceId="ws-1" />
+      <App>
+        <NodeStatsContext.Provider value={stats}>
+          <NodeConfigPanel selectedNode={selectedNode} onNodeUpdate={onNodeUpdate} workspaceId="ws-1" />
+        </NodeStatsContext.Provider>
+      </App>
     </I18nProvider>
   )
   return { onNodeUpdate, ...view }
@@ -158,3 +209,196 @@ describe('NodeConfigPanel description', () => {
     expect(container).toBeEmptyDOMElement()
   })
 })
+
+// Without Templates read the trigger's template filter and the email node's template are locked:
+// the panel hands the editor's permission to both forms.
+describe('NodeConfigPanel Templates read', () => {
+  afterEach(() => {
+    context.canReadTemplates = true
+  })
+
+  it.each([
+    { nodeType: 'trigger' as NodeType, canRead: false },
+    { nodeType: 'email' as NodeType, canRead: false },
+    { nodeType: 'trigger' as NodeType, canRead: true },
+    { nodeType: 'email' as NodeType, canRead: true }
+  ])('passes $canRead to the $nodeType form', ({ nodeType, canRead }) => {
+    context.canReadTemplates = canRead
+    renderPanel(makeNode('n1', nodeType, {}))
+
+    expect(screen.getByTestId('type-form').getAttribute('data-can-read-templates')).toBe(String(canRead))
+  })
+})
+
+const statsOn = (over: Partial<NodeStatsState> = {}): NodeStatsState => ({
+  ...NO_NODE_STATS,
+  enabled: true,
+  neverRan: false,
+  canReadHistory: true,
+  savedNodeIds: new Set(['n1']),
+  ...over
+})
+
+const nodeStats = (over: Partial<NodeStats> = {}): NodeStats => ({
+  node_type: 'email',
+  visits: 10,
+  completed: 8,
+  failed_attempts: 0,
+  skipped: 0,
+  skip_reasons: {},
+  errors: 0,
+  failed_journeys: 1,
+  in_progress: 1,
+  waiting: 0,
+  retrying: 0,
+  branches: {},
+  ...over
+})
+
+describe('NodeConfigPanel title', () => {
+  afterEach(() => {
+    context.templates = []
+  })
+
+  const title = () => document.querySelector('[data-step-panel] .truncate')?.textContent
+
+  it("shows the step's description first", () => {
+    context.templates = [{ id: 'tpl-1', name: 'Welcome Email' }]
+    renderPanel(makeNode('n1', 'email', { template_id: 'tpl-1', description: 'Day 1' }))
+    expect(title()).toBe('Day 1')
+  })
+
+  it('names an email step by its template without a description', () => {
+    context.templates = [{ id: 'tpl-1', name: 'Welcome Email' }]
+    renderPanel(makeNode('n1', 'email', { template_id: 'tpl-1' }))
+    expect(title()).toBe('Welcome Email')
+  })
+
+  it('falls back to the type when the template is not listed', () => {
+    renderPanel(makeNode('n1', 'email', { template_id: 'tpl-gone' }))
+    expect(title()).toBe('Email')
+  })
+
+  it('names other steps by their type', () => {
+    context.templates = [{ id: 'tpl-1', name: 'Welcome Email' }]
+    renderPanel(makeNode('n1', 'delay', { template_id: 'tpl-1' }))
+    expect(title()).toBe('Delay')
+  })
+
+  it('puts the preview inside the email form', () => {
+    renderPanel(makeNode('n1', 'email', { template_id: 'tpl-1' }))
+    expect(screen.getByTestId('type-form')).toContainElement(screen.getByTestId('email-preview'))
+  })
+})
+
+describe('NodeConfigPanel actions', () => {
+  it('leaves deleting a step to its card: no Delete step in the panel', () => {
+    renderPanel(makeNode('n1', 'delay', {}))
+    expect(screen.queryByRole('button', { name: /Delete step/ })).not.toBeInTheDocument()
+  })
+
+  it('says a branch is edited through the API', () => {
+    renderPanel(makeNode('n1', 'branch', {}))
+    expect(screen.getByText('This step is edited through the API.')).toBeInTheDocument()
+  })
+})
+
+describe('NodeConfigPanel results', () => {
+  afterEach(() => {
+    context.workspace = { id: 'ws-1' }
+    context.readOnly = false
+  })
+
+  it('shows no results for a draft that never ran', () => {
+    renderPanel(makeNode('n1', 'delay', {}))
+    expect(document.querySelector('[data-step-results]')).toBeNull()
+  })
+
+  it('asks to save an unsaved step', () => {
+    renderPanel(makeNode('n2', 'delay', {}), { stats: statsOn() })
+    expect(screen.getByText('Save to start counting this step')).toBeInTheDocument()
+  })
+
+  it('names the period', () => {
+    const { unmount } = renderPanel(makeNode('n1', 'delay', {}), { stats: statsOn({ nodes: { n1: nodeStats() } }) })
+    expect(screen.getByRole('region', { name: 'Last 30 days' })).toBeInTheDocument()
+    unmount()
+    const seven = renderPanel(makeNode('n1', 'delay', {}), {
+      stats: statsOn({ period: 'last7', nodes: { n1: nodeStats() } })
+    })
+    expect(screen.getByRole('region', { name: 'Last 7 days' })).toBeInTheDocument()
+    seven.unmount()
+    renderPanel(makeNode('n1', 'delay', {}), { stats: statsOn({ period: 'all', nodes: { n1: nodeStats() } }) })
+    expect(screen.getByRole('region', { name: 'All time' })).toBeInTheDocument()
+  })
+
+  it('says the results could not load', () => {
+    renderPanel(makeNode('n1', 'delay', {}), { stats: statsOn({ error: true }) })
+    expect(screen.getByText("Couldn't load stats")).toBeInTheDocument()
+  })
+
+  it('links an email step to its messages, with its template', () => {
+    renderPanel(makeNode('n1', 'email', { template_id: 'tpl-1' }), { stats: statsOn({ nodes: { n1: nodeStats() } }) })
+    expect(screen.getByRole('link', { name: 'View messages' })).toHaveAttribute(
+      'href',
+      '/console/workspace/ws-1/logs?automation_id=auto-1&template_id=tpl-1'
+    )
+    expect(screen.getByTestId('email-preview')).toBeInTheDocument()
+  })
+
+  it('keeps View messages and the preview on a read-only step', () => {
+    context.readOnly = true
+    renderPanel(makeNode('n1', 'email', { template_id: 'tpl-1' }), { stats: statsOn({ nodes: { n1: nodeStats() } }) })
+    const link = screen.getByRole('link', { name: 'View messages' })
+    expect(link).toHaveAttribute('href')
+    expect(link).not.toHaveAttribute('aria-disabled', 'true')
+    // The preview sits in the disabled form, yet its buttons (Retry) stay usable.
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled()
+  })
+
+  it.each([
+    { case: "the step's SMTP provider", integration_id: 'smtp', marketing: 'ses', smtp: true },
+    { case: "the step's API provider over the workspace's SMTP", integration_id: 'ses', marketing: 'smtp', smtp: false },
+    { case: "the workspace's SMTP provider", integration_id: undefined, marketing: 'smtp', smtp: true }
+  ])('reads deliveries by $case', ({ integration_id, marketing, smtp }) => {
+    context.workspace = {
+      id: 'ws-1',
+      settings: { marketing_email_provider_id: marketing },
+      integrations: [
+        { id: 'smtp', email_provider: { kind: 'smtp' } },
+        { id: 'ses', email_provider: { kind: 'ses' } }
+      ]
+    }
+    renderPanel(makeNode('n1', 'email', { template_id: 'tpl-1', integration_id }), {
+      stats: statsOn({ nodes: { n1: nodeStats({ email: { ...EMAIL, sent: 10, delivered: 9 } }) } })
+    })
+    const delivered = document.querySelector('[data-email-row="delivered"]')!
+    expect(delivered.textContent?.includes('—')).toBe(smtp)
+  })
+
+  it('shows the journeys and splits of a filter', () => {
+    renderPanel(makeNode('n1', 'filter', {}), {
+      stats: statsOn({ nodes: { n1: nodeStats({ node_type: 'filter', branches: { yes: 3, no: 1 } }) } })
+    })
+    expect(screen.getByText('Reached')).toBeInTheDocument()
+    const splits = document.querySelector('[data-step-splits]')!
+    expect(splits).toHaveTextContent('Yes')
+    expect(splits).toHaveTextContent('No')
+  })
+})
+
+const EMAIL = {
+  executions: 0,
+  queued: 0,
+  not_sent: 0,
+  sent: 0,
+  delivered: 0,
+  opened: 0,
+  opens_tracked: 0,
+  clicked: 0,
+  clicks_tracked: 0,
+  failed: 0,
+  bounced: 0,
+  complained: 0,
+  unsubscribed: 0
+}

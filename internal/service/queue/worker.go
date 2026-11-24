@@ -41,9 +41,17 @@ type EmailQueueWorkerConfig struct {
 	// poll tick.
 	RoundWindow time.Duration // default: 2s
 
-	// Stop lets the sends in flight finish for ShutdownGrace, then cancels them and
-	// waits at most AbortWait more for those that ignore cancellation (SMTP).
-	ShutdownGrace time.Duration // default: 10s
+	// SendTimeout bounds one claimed row, from its claim to the provider's answer: the
+	// stop-on-reply lookup, the history row written before the send, and the send. It stays
+	// below the two minutes after which a row left processing is claimed again.
+	SendTimeout time.Duration // default: 100s
+
+	// Stop lets the sends in flight finish for ShutdownGrace, then cancels them and waits at
+	// most AbortWait more for them to return. A send still running at the end of the grace is
+	// cut and may be sent again after the restart: a send through an HTTP provider ends well
+	// within it (their client gives up after 10 s), an SMTP or SES send slower than the grace
+	// does not.
+	ShutdownGrace time.Duration // default: 40s
 	AbortWait     time.Duration // default: 5s
 
 	// OrphanCheckInterval is how often each workspace is checked for rows whose email
@@ -73,7 +81,8 @@ func DefaultWorkerConfig() *EmailQueueWorkerConfig {
 		SendConcurrency:         10,
 		SMTPSendConcurrency:     1,
 		RoundWindow:             2 * time.Second,
-		ShutdownGrace:           10 * time.Second,
+		SendTimeout:             100 * time.Second,
+		ShutdownGrace:           40 * time.Second,
 		AbortWait:               5 * time.Second,
 		OrphanCheckInterval:     time.Minute,
 		CircuitBreakerThreshold: 5,
@@ -98,6 +107,9 @@ func (c EmailQueueWorkerConfig) withSendDefaults() *EmailQueueWorkerConfig {
 	}
 	if c.RoundWindow <= 0 {
 		c.RoundWindow = d.RoundWindow
+	}
+	if c.SendTimeout <= 0 {
+		c.SendTimeout = d.SendTimeout
 	}
 	if c.ShutdownGrace <= 0 {
 		c.ShutdownGrace = d.ShutdownGrace
@@ -138,18 +150,12 @@ func integrationRate(integration *domain.Integration) int {
 	return defaultRatePerMinute
 }
 
-// EmailSentCallback is called when an email is successfully sent
-type EmailSentCallback func(workspaceID string, sourceType domain.EmailQueueSourceType, sourceID string, messageID string)
-
 // CircuitOpenCallback is called the moment an integration's circuit breaker opens.
 // The transition is the signal, not the state: one outage is observed by every send in
 // flight. It is called once per opening, after the sends that were in flight have
 // recorded their outcome, so whatever it pauses includes them. It fires again each time
 // a probe fails after a cooldown, so whatever it triggers has to be idempotent.
 type CircuitOpenCallback func(workspaceID string, integrationID string, lastErr *emailerror.ClassifiedError)
-
-// EmailFailedCallback is called when an email fails to send
-type EmailFailedCallback func(workspaceID string, sourceType domain.EmailQueueSourceType, sourceID string, messageID string, err error, isPermanent bool)
 
 // EmailQueueWorker processes queued emails
 type EmailQueueWorker struct {
@@ -178,7 +184,8 @@ type EmailQueueWorker struct {
 
 	// Control. Stop cancels ctx: no new round, token or claim. A send already claimed
 	// runs on contexts the stop does not cancel. sendCtx carries what leads up to the
-	// email leaving and is cancelled only once the shutdown grace runs out; writeCtx
+	// email leaving (each row under its own SendTimeout) and is cancelled only once the
+	// shutdown grace runs out; writeCtx
 	// records the outcome and is never cancelled, since a lost MarkAsSent means the
 	// email is sent again after the restart.
 	ctx        context.Context
@@ -195,10 +202,6 @@ type EmailQueueWorker struct {
 
 	// inFlight counts the rows dispatched and not yet done, for the shutdown log.
 	inFlight atomic.Int64
-
-	// Callbacks for progress tracking
-	onEmailSent   EmailSentCallback
-	onEmailFailed EmailFailedCallback
 
 	// onCircuitOpen is optional; when unset an opening circuit only throttles.
 	onCircuitOpen CircuitOpenCallback
@@ -248,13 +251,6 @@ func NewEmailQueueWorker(
 	}
 }
 
-// SetCallbacks sets callback functions for progress tracking. They are called from
-// concurrent sends, so they must be safe for concurrent use.
-func (w *EmailQueueWorker) SetCallbacks(onSent EmailSentCallback, onFailed EmailFailedCallback) {
-	w.onEmailSent = onSent
-	w.onEmailFailed = onFailed
-}
-
 // SetCircuitOpenCallback registers what happens when an integration's circuit opens.
 // Without one the breaker only slows the queue down and tells nobody, which is how a
 // provider refusing every message could burn through a campaign's retries unnoticed.
@@ -299,6 +295,7 @@ func (w *EmailQueueWorker) Start(ctx context.Context) error {
 		"send_concurrency":      w.config.SendConcurrency,
 		"smtp_send_concurrency": w.config.SMTPSendConcurrency,
 		"round_window":          w.config.RoundWindow.String(),
+		"send_timeout":          w.config.SendTimeout.String(),
 	}).Info("Starting email queue worker")
 
 	// Start the main processing loop
@@ -311,8 +308,8 @@ func (w *EmailQueueWorker) Start(ctx context.Context) error {
 }
 
 // Stop stops taking new work and waits for the sends in flight. Those still running
-// after ShutdownGrace are cancelled; Stop then waits at most AbortWait for them, since
-// an SMTP send cannot be interrupted, and returns.
+// after ShutdownGrace are cancelled; Stop then waits at most AbortWait for them to return
+// (and for the writes that record them), and returns.
 func (w *EmailQueueWorker) Stop() {
 	w.mu.Lock()
 	if !w.running {
@@ -455,7 +452,9 @@ func (w *EmailQueueWorker) processLane(workspace *domain.Workspace, integration 
 		return
 	}
 
-	limit := laneBatchSize(ratePerMinute, w.config.RoundWindow, w.config.BatchSize)
+	// Sized to the current pace, which is below the configured rate while the provider
+	// asks to slow down.
+	limit := laneBatchSize(w.rateLimiter.EffectivePerMinute(integration.ID, ratePerMinute), w.config.RoundWindow, w.config.BatchSize)
 	if ticket.Probe {
 		// After the cooldown, one email tells whether the provider is back.
 		limit = 1
@@ -504,6 +503,11 @@ func (w *EmailQueueWorker) processLane(workspace *domain.Workspace, integration 
 	var openedMu sync.Mutex
 	var openedErr *emailerror.ClassifiedError
 
+	// The generation of the round's first token. Once a throttle cuts the pace, the rows
+	// left wait for the next round, so they still go out in order.
+	var roundGeneration uint64
+	dispatched := false
+
 	for _, entry := range entries {
 		select {
 		case <-w.ctx.Done():
@@ -516,10 +520,17 @@ func (w *EmailQueueWorker) processLane(workspace *domain.Workspace, integration 
 		if !ticket.Probe && w.circuitBreaker.IsOpen(integration.ID) {
 			break
 		}
-		reservation, delay, ok := w.rateLimiter.ReserveBefore(integration.ID, ratePerMinute, deadline)
+		if dispatched && w.rateLimiter.CurrentGeneration(integration.ID) != roundGeneration {
+			break
+		}
+		slot, ok := w.rateLimiter.ReserveBefore(integration.ID, ratePerMinute, deadline)
 		if !ok {
 			// The next token falls in the next round; so do the rows left.
 			break
+		}
+		if !dispatched {
+			roundGeneration = slot.Generation
+			dispatched = true
 		}
 
 		var probe *Ticket
@@ -535,13 +546,18 @@ func (w *EmailQueueWorker) processLane(workspace *domain.Workspace, integration 
 			defer w.inFlight.Add(-1)
 			defer func() { <-slots }()
 
-			if !w.waitForToken(reservation, delay) {
+			// A throttle while this send waited cut the pace: its token belongs to the
+			// old pace, so the row is left for the next round. The lane's own deferred
+			// CancelProbe does not fire once probeSent is set, so a probe is given back
+			// here, or the breaker would refuse every later probe.
+			if !w.waitForToken(slot.Reservation, slot.Delay) ||
+				w.rateLimiter.CurrentGeneration(integration.ID) != slot.Generation {
 				if probe != nil {
 					w.circuitBreaker.CancelProbe(integration.ID, *probe)
 				}
 				return
 			}
-			if opened := w.processEntry(workspace, integration, entry, probe); opened != nil {
+			if opened := w.processEntry(workspace, integration, entry, probe, slot.Generation); opened != nil {
 				openedMu.Lock()
 				if openedErr == nil {
 					openedErr = opened
@@ -660,9 +676,10 @@ func (w *EmailQueueWorker) SetAutomationRepo(repo domain.AutomationRepository) {
 
 // processEntry claims and sends one row whose token is due. A probe row carries the
 // ticket its lane was granted; any other row asks the breaker now, since the circuit
-// may have opened while it waited for its token. It returns the classified error when
-// this send's failure opened the circuit, for the lane to act on once its sends are done.
-func (w *EmailQueueWorker) processEntry(workspace *domain.Workspace, integration *domain.Integration, entry *domain.EmailQueueEntry, probe *Ticket) *emailerror.ClassifiedError {
+// may have opened while it waited for its token. generation is the one its token was
+// reserved in. It returns the classified error when this send's failure opened the
+// circuit, for the lane to act on once its sends are done.
+func (w *EmailQueueWorker) processEntry(workspace *domain.Workspace, integration *domain.Integration, entry *domain.EmailQueueEntry, probe *Ticket, generation uint64) *emailerror.ClassifiedError {
 	var ticket Ticket
 	if probe != nil {
 		ticket = *probe
@@ -700,6 +717,11 @@ func (w *EmailQueueWorker) processEntry(workspace *domain.Workspace, integration
 		return nil
 	}
 
+	// The row's own deadline, counted from its claim, so the send ends before the row could be
+	// reclaimed and sent again. A stop cancels the sends still running at the end of its grace.
+	sendCtx, cancelSend := context.WithTimeout(w.sendCtx, w.config.SendTimeout)
+	defer cancelSend()
+
 	// Build the send request
 	request := entry.Payload.ToSendEmailProviderRequest(
 		workspace.ID,
@@ -718,8 +740,8 @@ func (w *EmailQueueWorker) processEntry(workspace *domain.Workspace, integration
 	}
 
 	// Stop-on-reply just-in-time guard: for automation sends flagged with a
-	// contact_automation_id, re-check the journey is still active right before
-	// sending. If a reply exited it after this email was enqueued, cancel the send.
+	// contact_automation_id, re-check the journey right before sending. If a reply
+	// exited it after this email was enqueued, cancel the send.
 	//
 	// This check belongs HERE, at the actual provider call, and moving it earlier
 	// reopens the hole it exists to close. Stopping a journey has two async windows:
@@ -730,22 +752,27 @@ func (w *EmailQueueWorker) processEntry(workspace *domain.Workspace, integration
 	// third layer is the optimistic lock on the journey persist, which stops the
 	// executor writing over an exit that landed mid-tick. Remove any one and
 	// "exited" stops meaning no further mail goes out.
+	//
+	// Only an exited journey (a reply, or the automation's removal) cancels the email. The
+	// executor completes a journey in the pass that queues its last email, so a completed
+	// or failed journey still sends what it queued. A journey that no longer exists has
+	// finished. One that cannot be read fails closed: the entry is retried later.
 	if w.automationRepo != nil && entry.Payload.ContactAutomationID != nil {
-		ca, lookupErr := w.automationRepo.GetContactAutomation(w.sendCtx, workspace.ID, *entry.Payload.ContactAutomationID)
-		if lookupErr != nil {
-			// Fail open (send) but make it observable — a silent allow could mask a
-			// systematically broken guard.
+		ca, lookupErr := w.automationRepo.GetContactAutomation(sendCtx, workspace.ID, *entry.Payload.ContactAutomationID)
+		switch {
+		case lookupErr != nil && !errors.Is(lookupErr, domain.ErrContactAutomationNotFound):
+			w.retryAfterGuardError(workspace, entry, lookupErr)
+			return nil
+		case lookupErr != nil || (ca != nil && ca.Status == domain.ContactAutomationStatusExited):
+			status := "not found"
+			if ca != nil {
+				status = string(ca.Status)
+			}
 			w.logger.WithFields(map[string]interface{}{
 				"entry_id":              entry.ID,
 				"contact_automation_id": *entry.Payload.ContactAutomationID,
-				"error":                 lookupErr.Error(),
-			}).Warn("Stop-on-reply JIT guard lookup failed; proceeding with send (fail-open)")
-		} else if ca != nil && ca.Status != domain.ContactAutomationStatusActive {
-			w.logger.WithFields(map[string]interface{}{
-				"entry_id":              entry.ID,
-				"contact_automation_id": *entry.Payload.ContactAutomationID,
-				"status":                string(ca.Status),
-			}).Info("Skipping automation email: journey no longer active (stop-on-reply)")
+				"status":                status,
+			}).Info("Skipping automation email: journey exited or removed (stop-on-reply)")
 			// Remove the entry from the queue without sending.
 			if delErr := w.queueRepo.MarkAsSent(w.writeCtx, workspace.ID, entry.ID); delErr != nil {
 				w.logger.WithFields(map[string]interface{}{
@@ -763,11 +790,26 @@ func (w *EmailQueueWorker) processEntry(workspace *domain.Workspace, integration
 	// window before the post-send upsert. The post-send upsert below preserves the value
 	// (ON CONFLICT COALESCE). Only matters for automation sends where we set the Message-ID.
 	if entry.SourceType == domain.EmailQueueSourceAutomation && domain.ProviderSetsOwnMessageID(entry.ProviderKind) {
-		w.upsertMessageHistory(w.sendCtx, workspace.ID, workspace.Settings.SecretKey, entry, "", nil)
+		w.upsertMessageHistory(sendCtx, workspace.ID, workspace.Settings.SecretKey, entry, "", nil)
+	}
+
+	// The lookup and the history row above used the whole budget (a slow database): the
+	// provider is not asked at all, and the row is retried without counting against it. A
+	// stop's abort leaves the row processing, as below.
+	if w.sendCtx.Err() != nil {
+		return nil
+	}
+	if sendCtx.Err() != nil {
+		w.logger.WithFields(map[string]interface{}{
+			"entry_id":     entry.ID,
+			"send_timeout": w.config.SendTimeout.String(),
+		}).Warn("The email's send timeout ran out before it was sent; retrying it later")
+		w.retryUnsent(workspace, entry, "the send timeout ran out before the email was sent")
+		return nil
 	}
 
 	// Send the email
-	err := w.emailService.SendEmail(w.sendCtx, *request, true) // isMarketing = true
+	err := w.emailService.SendEmail(sendCtx, *request, true) // isMarketing = true
 	if err != nil {
 		if w.sendCtx.Err() != nil {
 			// Cancelled because the shutdown grace ran out: the provider did not refuse
@@ -795,9 +837,39 @@ func (w *EmailQueueWorker) processEntry(workspace *domain.Workspace, integration
 			"original":    err.Error(),
 		}).Debug("Classified send error")
 
+		// A refusal for the sending pace slows the integration down and gives the email
+		// back, without counting against the provider, until the pace has sat at its
+		// floor: then the provider is refusing more than slowing down can fix.
+		if classifiedErr.RateLimited {
+			outcome := w.rateLimiter.RecordThrottle(integration.ID, integrationRate(integration), generation)
+			if outcome.Decreased {
+				w.logger.WithFields(map[string]interface{}{
+					"integration_id": integration.ID,
+					"workspace_id":   workspace.ID,
+					"from_per_min":   outcome.From,
+					"to_per_min":     outcome.To,
+					"error":          err.Error(),
+				}).Warn("Provider asked to send more slowly; lowering the integration's pace")
+			}
+			if !outcome.AtFloor {
+				settled = true
+				if ticket.Probe {
+					// Neither back nor down: the next probe goes once the lower pace
+					// gives a token.
+					w.circuitBreaker.CancelProbe(integration.ID, ticket)
+				}
+				w.releaseThrottled(workspace, entry, err)
+				return nil
+			}
+		}
+
 		// Record failure to circuit breaker (only counts provider errors)
 		settled = true
 		counted, opened := w.circuitBreaker.RecordFailure(integration.ID, ticket, classifiedErr)
+		if classifiedErr.IsRecipientError() {
+			// The provider took the request at this pace.
+			w.rateLimiter.RecordAccepted(integration.ID, generation)
+		}
 
 		// A send allowed before the circuit opened and refused after it shares the
 		// outage of the sends that opened it. It is scheduled for a retry even when the
@@ -818,6 +890,7 @@ func (w *EmailQueueWorker) processEntry(workspace *domain.Workspace, integration
 
 	settled = true
 	w.circuitBreaker.RecordSuccess(integration.ID, ticket)
+	w.rateLimiter.RecordAccepted(integration.ID, generation)
 
 	// Mark as sent
 	if err := w.queueRepo.MarkAsSent(w.writeCtx, workspace.ID, entry.ID); err != nil {
@@ -840,12 +913,65 @@ func (w *EmailQueueWorker) processEntry(workspace *domain.Workspace, integration
 		"source_id":    entry.SourceID,
 		"workspace_id": workspace.ID,
 	}).Debug("Email sent successfully")
-
-	// Call success callback
-	if w.onEmailSent != nil {
-		w.onEmailSent(workspace.ID, entry.SourceType, entry.SourceID, entry.MessageID)
-	}
 	return nil
+}
+
+// releaseThrottled gives back a row whose send the provider refused for its pace. The
+// row keeps its attempt and is sent again at the lower pace. Message history is written
+// only over the row the pre-send upsert left, which would otherwise read as sent:
+// writing a first row would fire the email.sent webhook and timeline entries for an
+// email not sent yet.
+func (w *EmailQueueWorker) releaseThrottled(workspace *domain.Workspace, entry *domain.EmailQueueEntry, sendErr error) {
+	if entry.SourceType == domain.EmailQueueSourceAutomation && domain.ProviderSetsOwnMessageID(entry.ProviderKind) {
+		w.upsertMessageHistory(w.writeCtx, workspace.ID, workspace.Settings.SecretKey, entry, "", sendErr)
+	}
+
+	if err := w.queueRepo.ReleaseThrottled(w.writeCtx, workspace.ID, entry.ID, sendErr.Error()); err != nil {
+		// The row stays processing and is reclaimed after two minutes, as a send cut
+		// by a crash is.
+		w.logger.WithFields(map[string]interface{}{
+			"entry_id": entry.ID,
+			"error":    err.Error(),
+		}).Error("Failed to give back an email the provider refused for its pace")
+		return
+	}
+
+	w.logger.WithFields(map[string]interface{}{
+		"entry_id":   entry.ID,
+		"message_id": entry.MessageID,
+		"error":      sendErr.Error(),
+	}).Debug("Provider refused the email for its pace; it will be sent again more slowly")
+}
+
+// retryAfterGuardError puts back an entry whose journey could not be checked before
+// sending, through retryUnsent.
+func (w *EmailQueueWorker) retryAfterGuardError(workspace *domain.Workspace, entry *domain.EmailQueueEntry, lookupErr error) {
+	w.logger.WithFields(map[string]interface{}{
+		"entry_id":              entry.ID,
+		"contact_automation_id": *entry.Payload.ContactAutomationID,
+		"attempts":              entry.Attempts + 1,
+		"error":                 lookupErr.Error(),
+	}).Warn("Stop-on-reply guard could not read the journey; retrying the email later")
+	w.retryUnsent(workspace, entry, fmt.Sprintf("failed to check the automation journey before sending: %v", lookupErr))
+}
+
+// retryUnsent puts back an entry that was not sent: like a failed send it is retried with
+// backoff and fails for good after its last attempt, but nothing reached the provider, so no
+// message history failure is recorded and the provider's circuit breaker does not count it.
+func (w *EmailQueueWorker) retryUnsent(workspace *domain.Workspace, entry *domain.EmailQueueEntry, reason string) {
+	attempts := entry.Attempts + 1 // MarkAsProcessing counted this attempt
+	if attempts >= entry.MaxAttempts {
+		if err := w.queueRepo.MarkAsPermanentlyFailed(w.writeCtx, workspace.ID, entry.ID, reason); err != nil {
+			w.logger.WithFields(map[string]interface{}{"entry_id": entry.ID, "error": err.Error()}).
+				Error("Failed to record permanently failed queue entry")
+		}
+		return
+	}
+	nextRetry := domain.CalculateNextRetryTime(attempts)
+	if err := w.queueRepo.MarkAsFailed(w.writeCtx, workspace.ID, entry.ID, reason, &nextRetry); err != nil {
+		w.logger.WithFields(map[string]interface{}{"entry_id": entry.ID, "error": err.Error()}).
+			Error("Failed to mark as failed for retry")
+	}
 }
 
 // handleError handles a send error, scheduling retry or deleting permanently failed entries
@@ -894,11 +1020,6 @@ func (w *EmailQueueWorker) handleError(workspace *domain.Workspace, entry *domai
 				"error":    err.Error(),
 			}).Error("Failed to record permanently failed queue entry")
 		}
-
-		// Call failure callback (isPermanent = true)
-		if w.onEmailFailed != nil {
-			w.onEmailFailed(workspace.ID, entry.SourceType, entry.SourceID, entry.MessageID, sendErr, true)
-		}
 		return
 	}
 
@@ -909,11 +1030,6 @@ func (w *EmailQueueWorker) handleError(workspace *domain.Workspace, entry *domai
 			"entry_id": entry.ID,
 			"error":    err.Error(),
 		}).Error("Failed to mark as failed for retry")
-	}
-
-	// Call failure callback (isPermanent = false, will retry)
-	if w.onEmailFailed != nil {
-		w.onEmailFailed(workspace.ID, entry.SourceType, entry.SourceID, entry.MessageID, sendErr, false)
 	}
 }
 
@@ -940,6 +1056,16 @@ func (w *EmailQueueWorker) upsertMessageHistory(
 		SentAt:          entry.CreatedAt,                                      // Use queue entry creation time (stable across retries)
 		CreatedAt:       entry.CreatedAt,
 		UpdatedAt:       now,
+	}
+	// What the compiled HTML carries, decided when the entry was built. An entry
+	// queued before the flags existed has neither and records NULL.
+	message.OpensTracked = entry.Payload.OpensTracked
+	message.ClicksTracked = entry.Payload.ClicksTracked
+	// The translation it was rendered in, so its web version shows the same language.
+	if entry.Payload.RenderedLanguage != nil {
+		message.MessageData.Metadata = map[string]interface{}{
+			domain.MessageMetadataRenderedLanguage: *entry.Payload.RenderedLanguage,
+		}
 	}
 
 	// Set source (broadcast or automation)

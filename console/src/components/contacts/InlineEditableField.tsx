@@ -25,6 +25,10 @@ interface InlineEditableFieldProps {
   onSave: (fieldKey: string, value: string | number | object | null) => Promise<void>
   isLoading?: boolean
   disabled?: boolean
+  /** The value alone, for a field whose label a KeyValueList already shows. */
+  hideLabel?: boolean
+  /** A line under the value (« Local time 14:32 »), shown while the field is not edited. */
+  hint?: string
 }
 
 export function InlineEditableField({
@@ -38,7 +42,9 @@ export function InlineEditableField({
   workspace,
   onSave,
   isLoading = false,
-  disabled = false
+  disabled = false,
+  hideLabel = false,
+  hint
 }: InlineEditableFieldProps) {
   const { t } = useLingui()
   const [isEditing, setIsEditing] = React.useState(false)
@@ -77,6 +83,14 @@ export function InlineEditableField({
     setEditValue(value)
     setJsonError(null)
     setIsEditing(false)
+  }
+
+  // Escape cancels the edit and stops there: the drawer around the field (the contact sheet) closes
+  // on an Escape that reaches it. An open dropdown or date picker keeps its Escape to itself.
+  const handleEditKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key !== 'Escape') return
+    event.stopPropagation()
+    if (!isSaving) handleCancel()
   }
 
   const handleSave = async () => {
@@ -279,10 +293,64 @@ export function InlineEditableField({
 
   const labelToDisplay = displayLabel || label || fieldKey
 
+  const clearButton = value !== null && value !== undefined && value !== '' && (
+    <Popconfirm
+      title={t`Clear field`}
+      description={t`This will set the value to NULL. Are you sure?`}
+      onConfirm={handleSetNull}
+      okText={t`Yes, clear it`}
+      cancelText={t`Cancel`}
+      okButtonProps={{ danger: true }}
+    >
+      <Button size="small" type="link" danger disabled={isSaving}>
+        {t`Clear`}
+      </Button>
+    </Popconfirm>
+  )
+
+  if (hideLabel && isEditing) {
+    return (
+      <div className="flex flex-col gap-1.5" onKeyDown={handleEditKeyDown}>
+        {renderInput()}
+        <div className="flex justify-end">
+          <Space size={4}>
+            <Button size="small" type="link" onClick={handleCancel} disabled={isSaving}>
+              {t`Cancel`}
+            </Button>
+            {clearButton}
+            <Button size="small" type="primary" onClick={handleSave} loading={isSaving}>
+              {t`Save`}
+            </Button>
+          </Space>
+        </div>
+      </div>
+    )
+  }
+
+  if (hideLabel) {
+    // A KeyValueList row: the value, and a pencil on hover when it can be edited.
+    return (
+      <div
+        className={`group flex min-w-0 items-start justify-between gap-1 ${disabled ? '' : 'cursor-pointer'}`}
+        onClick={disabled ? undefined : handleStartEdit}
+      >
+        <span className="min-w-0 break-words">
+          {formatDisplayValue()}
+          {hint ? <span className="block text-xs text-ink-3">{hint}</span> : null}
+        </span>
+        {!disabled && (
+          <span className="flex shrink-0 items-center text-ink-4 opacity-0 transition-opacity group-hover:opacity-100">
+            {isLoading ? '…' : <EditOutlined />}
+          </span>
+        )}
+      </div>
+    )
+  }
+
   // Edit mode
   if (isEditing) {
     return (
-      <div className="py-2 px-4 bg-blue-50 border-b border-dashed border-gray-300">
+      <div className="py-2 px-4 bg-blue-50 border-b border-dashed border-gray-300" onKeyDown={handleEditKeyDown}>
         <div className="text-xs font-semibold text-slate-600 mb-2">{labelToDisplay}</div>
         <div className="mb-2">{renderInput()}</div>
         <div className="flex justify-end">
@@ -290,25 +358,7 @@ export function InlineEditableField({
             <Button size="small" type="link" onClick={handleCancel} disabled={isSaving}>
               {t`Cancel`}
             </Button>
-            {value !== null && value !== undefined && value !== '' && (
-              <Popconfirm
-                title={t`Clear field`}
-                description={t`This will set the value to NULL. Are you sure?`}
-                onConfirm={handleSetNull}
-                okText={t`Yes, clear it`}
-                cancelText={t`Cancel`}
-                okButtonProps={{ danger: true }}
-              >
-                <Button
-                  size="small"
-                  type="link"
-                  danger
-                  disabled={isSaving}
-                >
-                  {t`Clear`}
-                </Button>
-              </Popconfirm>
-            )}
+            {clearButton}
             <Button
               size="small"
               type="primary"

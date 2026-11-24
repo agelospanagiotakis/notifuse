@@ -1,5 +1,4 @@
 import { api } from './client'
-import { FormInstance } from 'antd'
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 
 // Utility types
@@ -156,6 +155,28 @@ export interface Segment {
   db_created_at: string
   db_updated_at: string
   users_count?: number
+  /** Why the segment's last computation failed, until a build completes or its tree changes. */
+  last_error?: SegmentLastError
+  last_error_at?: string
+}
+
+/**
+ * A contact value a segment's conditions cannot convert (a custom JSON date such as 2026-02-30).
+ * column, path and type are empty when the failing filter is not known; email and value are empty
+ * when no contact was found, or for a member without contacts read.
+ */
+export interface SegmentValueErrorDetails {
+  column?: string
+  path?: string[]
+  type?: 'date' | 'number' | ''
+  email?: string
+  value?: string
+}
+
+export interface SegmentLastError extends SegmentValueErrorDetails {
+  kind: 'value_conversion' | 'other'
+  cause?: string
+  source: 'build' | 'contact_queue'
 }
 
 // Editing state type
@@ -163,58 +184,6 @@ export interface EditingNodeLeaf extends TreeNode {
   is_new?: boolean // flag to remove node from tree if cancel a new condition without confirm
   path: string
   key: number
-}
-
-// Field definition type
-export interface FieldDefinition {
-  source: string
-  field_name: string
-  definition: FieldSchema
-}
-
-// Type alias for backwards compatibility
-export type FieldTypeValue = FieldType
-
-// Operator type (used by UI components)
-export type Operator =
-  | 'is_set'
-  | 'is_not_set'
-  | 'equals'
-  | 'not_equals'
-  | 'contains'
-  | 'not_contains'
-  | 'gt'
-  | 'gte'
-  | 'lt'
-  | 'lte'
-  | 'in_date_range'
-  | 'not_in_date_range'
-  | 'before_date'
-  | 'after_date'
-  | 'in_the_last_days'
-  | 'not_in_the_last_days'
-  | 'in_array'
-
-// Field type renderer interfaces
-export interface FieldTypeRenderer {
-  operators: IOperator[]
-  render: (
-    filter: DimensionFilter,
-    schema: FieldSchema,
-    customFieldLabels?: Record<string, string>
-  ) => JSX.Element
-  renderFormItems: (fieldType: FieldTypeValue, fieldName: string, form: FormInstance) => JSX.Element
-}
-
-export interface FieldTypeRendererDictionary {
-  [key: string]: FieldTypeRenderer
-}
-
-export interface IOperator {
-  type: Operator
-  label: string
-  render: (filter: DimensionFilter) => JSX.Element
-  renderFormItems: (fieldType: FieldTypeValue, fieldName: string, form: FormInstance) => JSX.Element
 }
 
 // Schema interfaces for segmentation

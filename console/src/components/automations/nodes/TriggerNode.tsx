@@ -1,12 +1,14 @@
 import React from 'react'
-import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { Zap } from 'lucide-react'
+import type { NodeProps } from '@xyflow/react'
 import { useLingui } from '@lingui/react/macro'
+import { useQuery } from '@tanstack/react-query'
 import { BaseNode } from './BaseNode'
-import { nodeTypeColors, getNodeDescription } from './constants'
+import { SourceHandle } from './handles'
+import { getNodeDescription } from './constants'
 import { useAutomation } from '../context'
 import type { AutomationFlowNode } from '../utils/flowConverter'
 import type { TimelineTriggerConfig } from '../../../services/api/automation'
+import { broadcastApi } from '../../../services/api/broadcast'
 
 type TriggerNodeProps = NodeProps<AutomationFlowNode>
 
@@ -14,16 +16,30 @@ type TriggerNodeProps = NodeProps<AutomationFlowNode>
 // a Partial of the API's trigger config rather than assuming event_kind/frequency are present.
 type TriggerConfig = Partial<TimelineTriggerConfig>
 
-export const TriggerNode: React.FC<TriggerNodeProps> = ({ data, selected }) => {
+export const TriggerNode: React.FC<TriggerNodeProps> = ({ id, data, selected }) => {
   const { t } = useLingui()
-  const { lists, segments } = useAutomation()
+  const { workspace, lists, segments, templates } = useAutomation()
   const config = data.config as TriggerConfig
+  const linkClick = config.event_kind === 'email.link_clicked'
+  // The broadcast filter by its name, read as the trigger's form reads it (same cache); its ID
+  // while the broadcast is loading or cannot be read.
+  const broadcastId = linkClick ? config.broadcast_id : undefined
+  const { data: broadcast } = useQuery({
+    queryKey: ['broadcast-selected', workspace.id, broadcastId],
+    queryFn: () => broadcastApi.get({ workspace_id: workspace.id, id: broadcastId as string }),
+    enabled: !!broadcastId,
+    retry: false
+  })
+  const broadcastName = broadcast?.broadcast?.id === broadcastId ? broadcast?.broadcast?.name : undefined
+  const templateId = linkClick ? config.template_id : undefined
+  const templateName = templateId ? templates.find((tpl) => tpl.id === templateId)?.name : undefined
   const hasEventKind = !!config.event_kind
   const frequency = config.frequency === 'every_time' ? t`Every time` : t`Once`
 
   // Format event kind for display (e.g., "list.subscribed" -> "List Subscribed")
   const formatEventKind = (eventKind: string): string => {
-    if (eventKind === 'custom_event') return t`Custom Event`
+    if (eventKind === 'custom_event') return t`Custom event`
+    if (eventKind === 'email.link_clicked') return t`Email Link Clicked`
     const parts = eventKind.split('.')
     return parts.map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
   }
@@ -39,6 +55,10 @@ export const TriggerNode: React.FC<TriggerNodeProps> = ({ data, selected }) => {
     }
     if (config.event_kind?.startsWith('segment.') && segmentName) {
       return segmentName
+    }
+    if (config.event_kind === 'email.link_clicked') {
+      const link = config.link_url
+      return link ? t`Link contains ${link}` : t`Any link`
     }
     return null
   }
@@ -56,27 +76,32 @@ export const TriggerNode: React.FC<TriggerNodeProps> = ({ data, selected }) => {
   return (
     <>
       <BaseNode
+        nodeId={id}
         type="trigger"
-        label={t`Trigger`}
         description={getNodeDescription(data.config)}
-        icon={<Zap size={16} color={selected ? undefined : nodeTypeColors.trigger} />}
         selected={selected}
       >
         {hasEventKind ? (
           <div>
             <div>{getEventDisplay()}</div>
-            {detail && <div className="text-gray-500">{detail}</div>}
-            <div className="text-gray-400">{frequency}</div>
+            {detail && <div className="text-ink-3 truncate" title={detail}>{detail}</div>}
+            {broadcastId ? (
+              <div data-trigger-broadcast className="text-ink-3 truncate">
+                {t`Broadcast: ${broadcastName || broadcastId}`}
+              </div>
+            ) : null}
+            {templateId ? (
+              <div data-trigger-template className="text-ink-3 truncate">
+                {t`Template: ${templateName || templateId}`}
+              </div>
+            ) : null}
+            <div className="text-ink-3">{frequency}</div>
           </div>
         ) : (
-          <div className="text-orange-500">{t`Configure`}</div>
+          <div className="text-warning-fg">{t`Configure`}</div>
         )}
       </BaseNode>
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        style={{ background: '#3b82f6', width: 10, height: 10 }}
-      />
+      <SourceHandle isOrphan={data.isOrphan} />
     </>
   )
 }

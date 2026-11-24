@@ -30,8 +30,12 @@ const (
 	AuditCategorySegments      = "segments"
 	AuditCategoryTransactional = "transactional"
 	AuditCategoryBlog          = "blog"
-	AuditCategoryContacts      = "contacts"
-	AuditCategoryAudit         = "audit"
+	// Web analytics: its settings (goals, filter rules), the chart annotations and the
+	// attribution backfill. Rows written before it existed keep the category they were written
+	// with (workspaces, contacts).
+	AuditCategoryWebAnalytics = "web_analytics"
+	AuditCategoryContacts     = "contacts"
+	AuditCategoryAudit        = "audit"
 )
 
 // AuditCategories is every category, in the order the console groups them.
@@ -51,6 +55,7 @@ var AuditCategories = []string{
 	AuditCategorySegments,
 	AuditCategoryTransactional,
 	AuditCategoryBlog,
+	AuditCategoryWebAnalytics,
 	AuditCategoryContacts,
 	AuditCategoryAudit,
 }
@@ -113,7 +118,7 @@ var AuditedActions = map[string]AuditActionSpec{
 	"workspaces.delete":                  {Category: AuditCategoryWorkspaces, TargetType: AuditTargetWorkspace, TargetKey: "id"},
 	"workspaces.setBlogSettings":         {Category: AuditCategoryWorkspaces, TargetType: AuditTargetWorkspace, TargetKey: "workspace_id"},
 	"workspaces.setCustomFieldLabels":    {Category: AuditCategoryWorkspaces, TargetType: AuditTargetWorkspace, TargetKey: "workspace_id"},
-	"workspaces.setWebAnalyticsSettings": {Category: AuditCategoryWorkspaces, TargetType: AuditTargetWorkspace, TargetKey: "workspace_id"},
+	"workspaces.setWebAnalyticsSettings": {Category: AuditCategoryWebAnalytics, TargetType: AuditTargetWorkspace, TargetKey: "workspace_id"},
 	"workspaces.setAuditLogSettings":     {Category: AuditCategoryWorkspaces, TargetType: AuditTargetWorkspace, TargetKey: "workspace_id"},
 
 	// members
@@ -123,6 +128,7 @@ var AuditedActions = map[string]AuditActionSpec{
 	"workspaces.joinInvitation":     {Category: AuditCategoryMembers, TargetType: AuditTargetInvitation, TargetKey: "invitation_id"},
 	"workspaces.removeMember":       {Category: AuditCategoryMembers, TargetType: AuditTargetUser, TargetKey: "user_id"},
 	"workspaces.setUserPermissions": {Category: AuditCategoryMembers, TargetType: AuditTargetUser, TargetKey: "user_id"},
+	"workspaces.setUserPassword":    {Category: AuditCategoryMembers, TargetType: AuditTargetUser, TargetKey: "user_id"},
 
 	// api keys
 	"workspaces.createAPIKey":  {Category: AuditCategoryAPIKeys, TargetType: AuditTargetAPIKey},
@@ -157,6 +163,7 @@ var AuditedActions = map[string]AuditActionSpec{
 	"broadcasts.pause":            {Category: AuditCategoryBroadcasts, TargetType: AuditTargetBroadcast, TargetKey: "id"},
 	"broadcasts.resume":           {Category: AuditCategoryBroadcasts, TargetType: AuditTargetBroadcast, TargetKey: "id"},
 	"broadcasts.cancel":           {Category: AuditCategoryBroadcasts, TargetType: AuditTargetBroadcast, TargetKey: "id"},
+	"broadcasts.unschedule":       {Category: AuditCategoryBroadcasts, TargetType: AuditTargetBroadcast, TargetKey: "id"},
 	"broadcasts.delete":           {Category: AuditCategoryBroadcasts, TargetType: AuditTargetBroadcast, TargetKey: "id"},
 	"broadcasts.retryFailed":      {Category: AuditCategoryBroadcasts, TargetType: AuditTargetBroadcast, TargetKey: "id"},
 	"broadcasts.selectWinner":     {Category: AuditCategoryBroadcasts, TargetType: AuditTargetBroadcast, TargetKey: "id"},
@@ -192,22 +199,34 @@ var AuditedActions = map[string]AuditActionSpec{
 	"blogCategories.create": {Category: AuditCategoryBlog, TargetType: AuditTargetBlogCategory, ResponseKey: "category.id"},
 	"blogCategories.update": {Category: AuditCategoryBlog, TargetType: AuditTargetBlogCategory, TargetKey: "id"},
 	"blogCategories.delete": {Category: AuditCategoryBlog, TargetType: AuditTargetBlogCategory, TargetKey: "id"},
-	"blogThemes.create":     {Category: AuditCategoryBlog, TargetType: AuditTargetBlogTheme, ResponseKey: "theme.version"},
-	"blogThemes.update":     {Category: AuditCategoryBlog, TargetType: AuditTargetBlogTheme, TargetKey: "version"},
-	"blogThemes.publish":    {Category: AuditCategoryBlog, TargetType: AuditTargetBlogTheme, TargetKey: "version"},
+	// Named by its handler: the response carries the theme's files, past what the
+	// middleware keeps of a response.
+	"blogThemes.create":  {Category: AuditCategoryBlog, TargetType: AuditTargetBlogTheme},
+	"blogThemes.update":  {Category: AuditCategoryBlog, TargetType: AuditTargetBlogTheme, TargetKey: "version"},
+	"blogThemes.publish": {Category: AuditCategoryBlog, TargetType: AuditTargetBlogTheme, TargetKey: "version"},
 
 	// contacts: only the destructive and the bulk operations
-	"contacts.delete":             {Category: AuditCategoryContacts, TargetType: AuditTargetContact, TargetKey: "email"},
-	"contacts.import":             {Category: AuditCategoryContacts},
-	"customEvents.import":         {Category: AuditCategoryContacts},
-	"annotations.create":          {Category: AuditCategoryContacts, TargetType: AuditTargetAnnotation, ResponseKey: "annotation.id"},
-	"annotations.update":          {Category: AuditCategoryContacts, TargetType: AuditTargetAnnotation, TargetKey: "id"},
-	"annotations.delete":          {Category: AuditCategoryContacts, TargetType: AuditTargetAnnotation, TargetKey: "id"},
-	"webAnalytics.backfillStart":  {Category: AuditCategoryContacts},
-	"webAnalytics.backfillCancel": {Category: AuditCategoryContacts},
+	"contacts.delete":     {Category: AuditCategoryContacts, TargetType: AuditTargetContact, TargetKey: "email"},
+	"contacts.import":     {Category: AuditCategoryContacts},
+	"customEvents.import": {Category: AuditCategoryContacts},
+
+	// web analytics
+	"annotations.create":          {Category: AuditCategoryWebAnalytics, TargetType: AuditTargetAnnotation, ResponseKey: "annotation.id"},
+	"annotations.update":          {Category: AuditCategoryWebAnalytics, TargetType: AuditTargetAnnotation, TargetKey: "id"},
+	"annotations.delete":          {Category: AuditCategoryWebAnalytics, TargetType: AuditTargetAnnotation, TargetKey: "id"},
+	"webAnalytics.backfillStart":  {Category: AuditCategoryWebAnalytics},
+	"webAnalytics.backfillCancel": {Category: AuditCategoryWebAnalytics},
 
 	// the audit log itself
 	"auditLogs.export": {Category: AuditCategoryAudit, TargetType: AuditTargetAuditLog},
+
+	// e-Pragma fork: campaign archive settings, the Mailchimp import and password sign-in
+	"archive.publish":           {Category: AuditCategoryWorkspaces, TargetType: AuditTargetWorkspace},
+	"archive.update":            {Category: AuditCategoryWorkspaces, TargetType: AuditTargetWorkspace},
+	"archive.remove":            {Category: AuditCategoryWorkspaces, TargetType: AuditTargetWorkspace},
+	"archive.setAudienceListed": {Category: AuditCategoryWorkspaces, TargetType: AuditTargetWorkspace},
+	"import.key":                {Category: AuditCategoryIntegrations, TargetType: AuditTargetIntegration},
+	"user.setPassword":          {Category: AuditCategoryAuth, TargetType: AuditTargetUser},
 }
 
 // AuditLoggedRead is a GET route recorded under a different action name, and
@@ -254,6 +273,7 @@ var AuditExcludedRoutes = map[string]struct{}{
 	"user.updateLanguage":          {},
 	"user.oidc.start":              {},
 	"demo.reset":                   {},
+	"demo.seed":                    {},
 	"detect-favicon":               {},
 	// task plumbing and the cron endpoint
 	"cron":          {},
@@ -270,20 +290,26 @@ var AuditExcludedRoutes = map[string]struct{}{
 	"analytics.schemas":                {},
 	"annotations.get":                  {},
 	"annotations.list":                 {},
+	"archive.get":                      {},
+	"import.status":                    {},
+	"import.inventory":                 {},
 	"auditLogs.actions":                {},
 	"auditLogs.get":                    {},
 	"auditLogs.list":                   {},
 	"automations.get":                  {},
 	"automations.list":                 {},
 	"automations.nodeExecutions":       {},
+	"automations.nodeStats":            {},
 	"blogCategories.get":               {},
 	"blogCategories.list":              {},
 	"blogPosts.get":                    {},
+	"blogPosts.counts":                 {},
 	"blogPosts.list":                   {},
 	"blogThemes.get":                   {},
 	"blogThemes.getPublished":          {},
 	"blogThemes.list":                  {},
 	"broadcasts.get":                   {},
+	"broadcasts.estimateAudience":      {},
 	"broadcasts.getTestResults":        {},
 	"broadcasts.list":                  {},
 	"contactLists.getByIDs":            {},
@@ -302,6 +328,7 @@ var AuditExcludedRoutes = map[string]struct{}{
 	"messages.broadcastLinkStats":      {},
 	"messages.broadcastStats":          {},
 	"messages.broadcastVariationStats": {},
+	"messages.count":                   {},
 	"messages.list":                    {},
 	"segments.contacts":                {},
 	"segments.get":                     {},
@@ -314,12 +341,15 @@ var AuditExcludedRoutes = map[string]struct{}{
 	"templateBlocks.list":              {},
 	"templates.get":                    {},
 	"templates.list":                   {},
+	"templates.usage":                  {},
 	"timeline.list":                    {},
 	"transactional.get":                {},
 	"transactional.list":               {},
 	"usage.get":                        {},
 	"user.me":                          {},
 	"webAnalytics.backfillStatus":      {},
+	"webAnalytics.contactSessionPages": {},
+	"webAnalytics.contactVisits":       {},
 	"webhooks.status":                  {},
 	"webhookSubscriptions.deliveries":  {},
 	"webhookSubscriptions.eventTypes":  {},

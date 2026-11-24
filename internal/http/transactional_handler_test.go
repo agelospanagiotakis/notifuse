@@ -557,9 +557,10 @@ func TestTransactionalNotificationHandler_HandleUpdate(t *testing.T) {
 	notificationID := "test-notification"
 
 	// Valid request body for update
+	updatedDescription := "Updated description"
 	validUpdateParams := domain.TransactionalNotificationUpdateParams{
 		Name:        "Updated Notification",
-		Description: "Updated description",
+		Description: &updatedDescription,
 	}
 
 	validReqBody := domain.UpdateTransactionalRequest{
@@ -712,6 +713,45 @@ func TestTransactionalNotificationHandler_HandleUpdate(t *testing.T) {
 		})
 	}
 }
+
+// The handler decodes the body the console sends: an empty description reaches the service as an
+// instruction to clear it, an absent one as nothing to change.
+func TestTransactionalNotificationHandler_HandleUpdate_Description(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		// nil when the service must receive no description
+		want *string
+	}{
+		{name: "empty clears", body: `{"workspace_id":"workspace1","id":"n1","updates":{"description":""}}`, want: ptrToString("")},
+		{name: "absent keeps", body: `{"workspace_id":"workspace1","id":"n1","updates":{"name":"Renamed"}}`, want: nil},
+		{name: "text replaces", body: `{"workspace_id":"workspace1","id":"n1","updates":{"description":"New"}}`, want: ptrToString("New")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockService, _, handler := setupTransactionalHandlerTest(t)
+			mockService.EXPECT().
+				UpdateNotification(gomock.Any(), "workspace1", "n1", gomock.Any()).
+				DoAndReturn(func(_ context.Context, _, _ string, params domain.TransactionalNotificationUpdateParams) (*domain.TransactionalNotification, error) {
+					if tt.want == nil {
+						assert.Nil(t, params.Description)
+					} else {
+						require.NotNil(t, params.Description)
+						assert.Equal(t, *tt.want, *params.Description)
+					}
+					return createTestTransactionalNotification(), nil
+				})
+
+			req := httptest.NewRequest(http.MethodPost, "/api/transactional.update", bytes.NewBufferString(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			handler.handleUpdate(w, req)
+			assert.Equal(t, http.StatusOK, w.Code)
+		})
+	}
+}
+
+func ptrToString(s string) *string { return &s }
 
 func TestTransactionalNotificationHandler_HandleDelete(t *testing.T) {
 	mockService, mockLogger, handler := setupTransactionalHandlerTest(t)
@@ -957,6 +997,37 @@ func TestTransactionalNotificationHandler_HandleSend(t *testing.T) {
 			checkResponse:  nil,
 		},
 		{
+			name:   "sender chosen in email_options that the integration does not have",
+			method: http.MethodPost,
+			requestBody: map[string]interface{}{
+				"workspace_id": workspaceID,
+				"notification": map[string]interface{}{
+					"id":            notificationID,
+					"contact":       map[string]interface{}{"email": "test@example.com"},
+					"channels":      []string{"email"},
+					"email_options": map[string]interface{}{"sender_id": "no-such-sender"},
+				},
+			},
+			setupMock: func() {
+				mockService.EXPECT().
+					SendNotification(gomock.Any(), gomock.Eq(workspaceID), gomock.Any()).
+					DoAndReturn(func(_ context.Context, _ string, params domain.TransactionalNotificationSendParams) (string, error) {
+						assert.Equal(t, "no-such-sender", params.EmailOptions.SenderID)
+						return "", fmt.Errorf("%w: %s", domain.ErrSenderNotFound, params.EmailOptions.SenderID)
+					})
+
+				mockLogger.EXPECT().
+					WithField(gomock.Eq("error"), gomock.Any()).
+					Return(mockLogger)
+				mockLogger.EXPECT().
+					Error(gomock.Eq("Failed to send transactional notification"))
+			},
+			expectedStatus: http.StatusBadRequest,
+			checkResponse: func(t *testing.T, response map[string]interface{}) {
+				assert.Equal(t, "sender not found: no-such-sender", response["error"])
+			},
+		},
+		{
 			name:        "notification inactive",
 			method:      http.MethodPost,
 			requestBody: validReqBody,
@@ -1115,6 +1186,23 @@ func TestTransactionalNotificationHandler_HandleSend(t *testing.T) {
 			},
 			expectedStatus: http.StatusInternalServerError,
 			checkResponse:  nil,
+		},
+		{
+			// A template that does not render with the data of the send names what the caller
+			// has to change, and is the same at every retry.
+			name:        "a template that does not render is reported as unprocessable, with its error",
+			method:      http.MethodPost,
+			requestBody: validReqBody,
+			setupMock: func() {
+				mockService.EXPECT().
+					SendNotification(gomock.Any(), gomock.Eq(workspaceID), gomock.Any()).
+					Return("", fmt.Errorf("failed to send notification through any channel: %w",
+						&domain.TemplateRenderError{Message: "template compilation failed: Liquid error: divided by 0"}))
+			},
+			expectedStatus: http.StatusUnprocessableEntity,
+			checkResponse: func(t *testing.T, response map[string]interface{}) {
+				assert.Equal(t, "template compilation failed: Liquid error: divided by 0", response["error"])
+			},
 		},
 		{
 			name:        "no email provider configured is reported as a bad request",
@@ -1277,6 +1365,8 @@ func TestTransactionalNotificationHandler_HandleTestTemplate(t *testing.T) {
 						"sender123",
 						"test@example.com",
 						"",
+						"",
+						false,
 						domain.EmailOptions{},
 					).
 					Return(fmt.Errorf("integration not found: invalid"))
@@ -1317,6 +1407,8 @@ func TestTransactionalNotificationHandler_HandleTestTemplate(t *testing.T) {
 						"sender123",
 						"test@example.com",
 						"",
+						"",
+						false,
 						domain.EmailOptions{},
 					).
 					Return(errors.New("service error"))
@@ -1357,6 +1449,8 @@ func TestTransactionalNotificationHandler_HandleTestTemplate(t *testing.T) {
 						"sender123",
 						"test@example.com",
 						"",
+						"",
+						false,
 						domain.EmailOptions{},
 					).
 					Return(&domain.ErrTemplateNotFound{Message: "not found"})
@@ -1388,6 +1482,8 @@ func TestTransactionalNotificationHandler_HandleTestTemplate(t *testing.T) {
 						"sender123",
 						"test@example.com",
 						"",
+						"",
+						false,
 						domain.EmailOptions{
 							CC:  []string{"cc1@example.com", "cc2@example.com"},
 							BCC: []string{"bcc@example.com"},
@@ -1420,6 +1516,8 @@ func TestTransactionalNotificationHandler_HandleTestTemplate(t *testing.T) {
 						"sender123",
 						"test@example.com",
 						"",
+						"",
+						false,
 						domain.EmailOptions{},
 					).
 					Return(nil)
@@ -1452,6 +1550,8 @@ func TestTransactionalNotificationHandler_HandleTestTemplate(t *testing.T) {
 						"sender123",
 						"test@example.com",
 						"",
+						"",
+						false,
 						domain.EmailOptions{
 							ReplyTo: "custom-reply@example.com",
 						},
@@ -1504,6 +1604,8 @@ func TestTransactionalNotificationHandler_HandleTestTemplate(t *testing.T) {
 						"sender123",
 						"test@example.com",
 						"",
+						"",
+						false,
 						domain.EmailOptions{
 							CC:      []string{"cc@example.com"},
 							BCC:     []string{"bcc@example.com"},
@@ -1538,6 +1640,8 @@ func TestTransactionalNotificationHandler_HandleTestTemplate(t *testing.T) {
 						"sender123",
 						"test@example.com",
 						"fr",
+						"",
+						false,
 						domain.EmailOptions{},
 					).
 					Return(nil)
@@ -1747,7 +1851,7 @@ func TestTransactionalNotificationHandler_PermissionErrorMapping(t *testing.T) {
 			serviceErr: fmt.Errorf("failed to retrieve template: %w", newDenial()),
 			invoke: func(m *mocks.MockTransactionalNotificationService, h *TransactionalNotificationHandler, svcErr error) *httptest.ResponseRecorder {
 				m.EXPECT().
-					TestTemplate(gomock.Any(), "workspace123", "template123", "marketing", "sender123", "test@example.com", gomock.Any(), gomock.Any()).
+					TestTemplate(gomock.Any(), "workspace123", "template123", "marketing", "sender123", "test@example.com", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(svcErr)
 				body, err := json.Marshal(domain.TestTemplateRequest{
 					WorkspaceID:    "workspace123",
@@ -1794,7 +1898,7 @@ func TestTransactionalNotificationHandler_HandleTestTemplate_WrappedTemplateNotF
 	mockLogger.EXPECT().Error(gomock.Any()).AnyTimes()
 
 	mockService.EXPECT().
-		TestTemplate(gomock.Any(), "workspace123", "template123", "marketing", "sender123", "test@example.com", gomock.Any(), gomock.Any()).
+		TestTemplate(gomock.Any(), "workspace123", "template123", "marketing", "sender123", "test@example.com", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(fmt.Errorf("failed to retrieve template: %w", &domain.ErrTemplateNotFound{Message: "template not found"}))
 
 	body, err := json.Marshal(domain.TestTemplateRequest{
@@ -1815,6 +1919,71 @@ func TestTransactionalNotificationHandler_HandleTestTemplate_WrappedTemplateNotF
 	var response map[string]string
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&response))
 	assert.Equal(t, "Template not found", response["error"])
+}
+
+func TestTransactionalNotificationHandler_HandleTestTemplate_List(t *testing.T) {
+	send := func(t *testing.T, handler *TransactionalNotificationHandler, body domain.TestTemplateRequest) *httptest.ResponseRecorder {
+		raw, err := json.Marshal(body)
+		require.NoError(t, err)
+		req := httptest.NewRequest(http.MethodPost, "/api/transactional.testTemplate", bytes.NewReader(raw))
+		w := httptest.NewRecorder()
+		handler.handleTestTemplate(w, req)
+		return w
+	}
+	base := domain.TestTemplateRequest{
+		WorkspaceID:    "workspace123",
+		TemplateID:     "template123",
+		IntegrationID:  "marketing",
+		SenderID:       "sender123",
+		RecipientEmail: "test@example.com",
+	}
+
+	t.Run("passes the list and the header choice to the service", func(t *testing.T) {
+		mockService, _, handler := setupTransactionalHandlerTest(t)
+		mockService.EXPECT().
+			TestTemplate(gomock.Any(), "workspace123", "template123", "marketing", "sender123", "test@example.com", "", "newsletter", true, gomock.Any()).
+			Return(nil)
+
+		body := base
+		body.ListID = "newsletter"
+		body.OmitListUnsubscribeHeader = true
+		w := send(t, handler, body)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var response domain.TestTemplateResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&response))
+		assert.True(t, response.Success)
+	})
+
+	t.Run("without a list the service gets no list and the header", func(t *testing.T) {
+		mockService, _, handler := setupTransactionalHandlerTest(t)
+		mockService.EXPECT().
+			TestTemplate(gomock.Any(), "workspace123", "template123", "marketing", "sender123", "test@example.com", "", "", false, gomock.Any()).
+			Return(nil)
+
+		w := send(t, handler, base)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("a wrapped list not found answers 404", func(t *testing.T) {
+		mockService, mockLogger, handler := setupTransactionalHandlerTest(t)
+		mockLogger.EXPECT().WithField(gomock.Any(), gomock.Any()).Return(mockLogger).AnyTimes()
+		mockLogger.EXPECT().WithFields(gomock.Any()).Return(mockLogger).AnyTimes()
+		mockLogger.EXPECT().Error(gomock.Any()).AnyTimes()
+		mockService.EXPECT().
+			TestTemplate(gomock.Any(), "workspace123", "template123", "marketing", "sender123", "test@example.com", "", "gone", false, gomock.Any()).
+			Return(fmt.Errorf("failed to get list: %w", &domain.ErrListNotFound{Message: "list not found"}))
+
+		body := base
+		body.ListID = "gone"
+		w := send(t, handler, body)
+
+		assert.Equal(t, http.StatusNotFound, w.Code)
+		var response map[string]string
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&response))
+		assert.Equal(t, "List not found", response["error"])
+	})
 }
 
 // An id or name longer than its column is refused before the service runs, with the
@@ -1887,4 +2056,52 @@ func TestTransactionalNotificationHandler_LengthLimits(t *testing.T) {
 			assert.Equal(t, tc.wantErr, response["error"])
 		})
 	}
+}
+
+// A refusal to change or delete a notification managed by an integration answers 400 with its
+// reason rather than 500. The logger mock is strict: the 400 must not log an error.
+func TestTransactionalNotificationHandler_IntegrationManagedRefusal(t *testing.T) {
+	refusal := func(what string) error {
+		return fmt.Errorf("service: %w", domain.NewValidationError(what+": notification is managed by integration supabase"))
+	}
+
+	t.Run("update", func(t *testing.T) {
+		mockService, _, handler := setupTransactionalHandlerTest(t)
+		mockService.EXPECT().
+			UpdateNotification(gomock.Any(), "workspace1", "magic-link", gomock.Any()).
+			Return(nil, refusal("cannot update channels of integration-managed notification"))
+
+		body, err := json.Marshal(map[string]interface{}{
+			"workspace_id": "workspace1",
+			"id":           "magic-link",
+			"updates": map[string]interface{}{
+				"channels": map[string]interface{}{"email": map[string]interface{}{"template_id": "tpl-other"}},
+			},
+		})
+		require.NoError(t, err)
+		w := httptest.NewRecorder()
+		handler.handleUpdate(w, httptest.NewRequest(http.MethodPost, "/api/transactional.update", bytes.NewReader(body)))
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		var resp map[string]interface{}
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		assert.Equal(t, "validation error: cannot update channels of integration-managed notification: notification is managed by integration supabase", resp["error"])
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		mockService, _, handler := setupTransactionalHandlerTest(t)
+		mockService.EXPECT().
+			DeleteNotification(gomock.Any(), "workspace1", "magic-link").
+			Return(refusal("cannot delete integration-managed notification"))
+
+		body, err := json.Marshal(map[string]interface{}{"workspace_id": "workspace1", "id": "magic-link"})
+		require.NoError(t, err)
+		w := httptest.NewRecorder()
+		handler.handleDelete(w, httptest.NewRequest(http.MethodPost, "/api/transactional.delete", bytes.NewReader(body)))
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		var resp map[string]interface{}
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		assert.Equal(t, "validation error: cannot delete integration-managed notification: notification is managed by integration supabase", resp["error"])
+	})
 }

@@ -4,6 +4,8 @@ import ReactECharts from 'echarts-for-react'
 import { Spin } from 'antd'
 import { useLingui } from '@lingui/react/macro'
 import { PRIMARY_COLOR } from './lib/types'
+import { numberFormat } from '../layout'
+import { colors, over } from '../../theme/tokens'
 import worldGeoJson from './lib/worldGeo.json'
 
 // Same lazy registration as CountryMapView: parsing the 240 KB collection is
@@ -23,6 +25,10 @@ export interface LiveSessionLocation {
   sessions: number
 }
 
+/** Land in a faint primary tint, its borders and a hovered country a shade deeper. */
+const LAND = over(colors.primary[500], 0.11)
+const LAND_EDGE = over(colors.primary[500], 0.29)
+
 interface LiveSessionMapProps {
   data: LiveSessionLocation[]
   loading?: boolean
@@ -39,7 +45,9 @@ interface TooltipParams {
  * the same country stay two marks — which is the point of watching live.
  */
 export function LiveSessionMap(props: LiveSessionMapProps): ReactNode {
-  const { t } = useLingui()
+  const { t, i18n } = useLingui()
+  // The options are rebuilt on a language change, for the counts of the tooltip
+  const locale = i18n.locale
 
   const points = useMemo(
     () =>
@@ -63,18 +71,18 @@ export function LiveSessionMap(props: LiveSessionMapProps): ReactNode {
         top: 10,
         bottom: 10,
         itemStyle: {
-          areaColor: '#eeebfc',
-          borderColor: '#d4cdf7',
+          areaColor: LAND,
+          borderColor: LAND_EDGE,
           borderWidth: 0.5
         },
-        emphasis: { itemStyle: { areaColor: '#d4cdf7' } }
+        emphasis: { itemStyle: { areaColor: LAND_EDGE } }
       },
       tooltip: {
         trigger: 'item',
         formatter: (params: TooltipParams) => {
           if (!params.value) return ''
           const sessions = params.value[2]
-          return `${params.name}: ${sessions}`
+          return `${params.name}: ${numberFormat(locale, i18n).int(sessions)}`
         }
       },
       series: [
@@ -92,11 +100,11 @@ export function LiveSessionMap(props: LiveSessionMapProps): ReactNode {
         }
       ]
     }
-  }, [points])
+  }, [points, locale, i18n])
 
   if (props.loading && props.data.length === 0) {
     return (
-      <div className="flex aspect-[2/1] items-center justify-center rounded-md">
+      <div className="flex aspect-[2/1] items-center justify-center">
         <Spin />
       </div>
     )
@@ -105,7 +113,7 @@ export function LiveSessionMap(props: LiveSessionMapProps): ReactNode {
   // Rendered even with nothing on it: an empty world map still says "nobody is
   // here right now", where an empty state would read as a broken widget.
   return (
-    <div className="aspect-[2/1] overflow-hidden rounded-md">
+    <div className="aspect-[2/1] overflow-hidden">
       <ReactECharts
         option={option}
         notMerge

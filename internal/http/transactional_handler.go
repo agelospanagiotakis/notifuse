@@ -181,6 +181,9 @@ func (h *TransactionalNotificationHandler) handleUpdate(w http.ResponseWriter, r
 		if writePermissionError(w, err) {
 			return
 		}
+		if writeValidationError(w, err) {
+			return
+		}
 		if strings.Contains(err.Error(), "not found") {
 			WriteJSONError(w, "Notification not found", http.StatusNotFound)
 			return
@@ -221,6 +224,9 @@ func (h *TransactionalNotificationHandler) handleDelete(w http.ResponseWriter, r
 		if writePermissionError(w, err) {
 			return
 		}
+		if writeValidationError(w, err) {
+			return
+		}
 		if strings.Contains(err.Error(), "not found") {
 			WriteJSONError(w, "Notification not found", http.StatusNotFound)
 			return
@@ -258,6 +264,9 @@ func (h *TransactionalNotificationHandler) handleSend(w http.ResponseWriter, r *
 		if writePermissionError(w, err) {
 			return
 		}
+		if writeTemplateRenderError(w, err) {
+			return
+		}
 
 		h.logger.WithField("error", err.Error()).Error("Failed to send transactional notification")
 
@@ -267,8 +276,8 @@ func (h *TransactionalNotificationHandler) handleSend(w http.ResponseWriter, r *
 		// in our logs.
 		//
 		// "failed to send notification through any channel" deliberately does NOT join them.
-		// It is the catch-all for every SendEmailForTemplate failure — provider outage, rate
-		// limit, timeout, template error — with the real cause logged and dropped, so it names
+		// It is the catch-all for every other SendEmailForTemplate failure — provider outage, rate
+		// limit, timeout — with the real cause logged and dropped, so it names
 		// nothing a 400 would help the caller fix, and telling a client not to retry a
 		// provider that was briefly down loses a send that would have gone out.
 		if strings.Contains(err.Error(), "not found") ||
@@ -309,7 +318,7 @@ func (h *TransactionalNotificationHandler) handleTestTemplate(w http.ResponseWri
 		return
 	}
 
-	err = h.service.TestTemplate(r.Context(), req.WorkspaceID, req.TemplateID, req.IntegrationID, req.SenderID, req.RecipientEmail, req.Language, req.EmailOptions)
+	err = h.service.TestTemplate(r.Context(), req.WorkspaceID, req.TemplateID, req.IntegrationID, req.SenderID, req.RecipientEmail, req.Language, req.ListID, req.OmitListUnsubscribeHeader, req.EmailOptions)
 
 	// Create response
 	response := domain.TestTemplateResponse{
@@ -325,6 +334,12 @@ func (h *TransactionalNotificationHandler) handleTestTemplate(w http.ResponseWri
 		var notFound *domain.ErrTemplateNotFound
 		if errors.As(err, &notFound) {
 			WriteJSONError(w, "Template not found", http.StatusNotFound)
+			return
+		}
+
+		var listNotFound *domain.ErrListNotFound
+		if errors.As(err, &listNotFound) {
+			WriteJSONError(w, "List not found", http.StatusNotFound)
 			return
 		}
 

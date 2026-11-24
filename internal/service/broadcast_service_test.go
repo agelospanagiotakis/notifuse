@@ -12,9 +12,10 @@ import (
 	domainmocks "github.com/Notifuse/notifuse/internal/domain/mocks"
 	broadcastmocks "github.com/Notifuse/notifuse/internal/service/broadcast/mocks"
 	"github.com/Notifuse/notifuse/pkg/logger"
+	pkgmocks "github.com/Notifuse/notifuse/pkg/mocks"
 	notifusemjml "github.com/Notifuse/notifuse/pkg/notifuse_mjml"
+	"github.com/Notifuse/safe-mjml/mjml"
 	"github.com/golang/mock/gomock"
-	"github.com/preslavrachev/gomjml/mjml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -67,6 +68,14 @@ type broadcastSvcDeps struct {
 	listService        *domainmocks.MockListService
 	dataFeedFetcher    *broadcastmocks.MockDataFeedFetcher
 	svc                *BroadcastService
+}
+
+// runsInTx lets the repository's transaction wrapper run its function, with no real
+// transaction: the Tx methods are mocked.
+func runsInTx(d *broadcastSvcDeps, workspaceID string) {
+	d.repo.EXPECT().WithTransaction(gomock.Any(), workspaceID, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, fn func(*sql.Tx) error) error { return fn(nil) },
+	)
 }
 
 func setupBroadcastSvc(t *testing.T) *broadcastSvcDeps {
@@ -139,6 +148,23 @@ func authOK(auth *domainmocks.MockAuthService, ctx context.Context, workspaceID 
 	auth.EXPECT().AuthenticateUserForWorkspace(ctx, workspaceID).Return(ctx, &domain.User{ID: "user1"}, userWorkspace, nil)
 }
 
+// authAs authenticates a member of the workspace with the given role and permissions.
+func authAs(auth *domainmocks.MockAuthService, ctx context.Context, workspaceID, role string, perms domain.UserPermissions) {
+	userWorkspace := &domain.UserWorkspace{
+		UserID:      "user1",
+		WorkspaceID: workspaceID,
+		Role:        role,
+		Permissions: perms,
+	}
+	auth.EXPECT().AuthenticateUserForWorkspace(ctx, workspaceID).Return(ctx, &domain.User{ID: "user1"}, userWorkspace, nil)
+}
+
+// broadcastsAndTemplatesRead is what listing broadcasts with their templates takes.
+var broadcastsAndTemplatesRead = domain.UserPermissions{
+	domain.PermissionResourceBroadcasts: {Read: true, Write: true},
+	domain.PermissionResourceTemplates:  {Read: true},
+}
+
 func TestBroadcastService_CreateBroadcast_Success(t *testing.T) {
 	d := setupBroadcastSvc(t)
 	defer d.ctrl.Finish()
@@ -181,22 +207,27 @@ func TestBroadcastService_ScheduleBroadcast_SendNow_Success(t *testing.T) {
 	d.workspaceRepo.EXPECT().GetByID(ctx, req.WorkspaceID).Return(workspace, nil)
 
 	// Transaction flow
+	committed := false
 	d.repo.EXPECT().WithTransaction(ctx, req.WorkspaceID, gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, fn func(*sql.Tx) error) error {
-			return fn(nil)
+			err := fn(nil)
+			committed = err == nil
+			return err
 		},
 	)
 
-	// Inside tx: get -> update -> publish ack -> wait
+	// Inside tx: get -> update -> the broadcast's task; after the commit, that task runs
 	draft := testBroadcast(req.WorkspaceID, req.ID)
-	d.repo.EXPECT().GetBroadcastTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(draft, nil)
+	d.repo.EXPECT().GetBroadcastForUpdateTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(draft, nil)
 	d.repo.EXPECT().UpdateBroadcastTx(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
-
-	d.eventBus.EXPECT().PublishWithAck(gomock.Any(), gomock.Any(), gomock.Any()).Do(
-		func(_ context.Context, _ domain.EventPayload, ack domain.EventAckCallback) {
-			ack(nil)
-		},
-	)
+	d.taskService.EXPECT().ScheduleBroadcastTask(gomock.Any(), "w1", "b1", true, (*time.Time)(nil)).DoAndReturn(
+		func(context.Context, string, string, bool, *time.Time) (string, error) {
+			assert.False(t, committed, "the task is written before the broadcast commits")
+			return "task-1", nil
+		})
+	d.taskService.EXPECT().RunTaskNow("w1", "task-1").Do(func(string, string) {
+		assert.True(t, committed, "this broadcast's task runs once the broadcast has committed")
+	})
 
 	err := d.svc.ScheduleBroadcast(ctx, req)
 	require.NoError(t, err)
@@ -232,6 +263,7 @@ func TestBroadcastService_ResumeBroadcast_ToScheduled_Success(t *testing.T) {
 	ctx := context.Background()
 	req := &domain.ResumeBroadcastRequest{WorkspaceID: "w1", ID: "b1"}
 	authOK(d.authService, ctx, req.WorkspaceID)
+	noTaskStateYet(d)
 
 	d.repo.EXPECT().WithTransaction(ctx, req.WorkspaceID, gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, fn func(*sql.Tx) error) error { return fn(nil) },
@@ -413,6 +445,70 @@ func TestBroadcastService_SendToIndividual_NeverMintsIdentityToken(t *testing.T)
 	}
 }
 
+// TestBroadcastService_SendToIndividual_SetsTrackingSigningKey pins that a
+// send-to-individual compiles with the workspace's tracking key, so its tracked links
+// are signed like those of the broadcast itself.
+func TestBroadcastService_SendToIndividual_SetsTrackingSigningKey(t *testing.T) {
+	const secretKey = "sk_test_signing_key"
+	want := domain.TrackingSigningKey(secretKey)
+	require.NotEmpty(t, want)
+
+	d := setupBroadcastSvc(t)
+	defer d.ctrl.Finish()
+
+	ctx := context.Background()
+	req := &domain.SendToIndividualRequest{WorkspaceID: "w1", BroadcastID: "b1", RecipientEmail: "to@example.com"}
+	authOK(d.authService, ctx, req.WorkspaceID)
+
+	sender := domain.NewEmailSender("from@example.com", "From")
+	workspace := &domain.Workspace{
+		ID: "w1",
+		Settings: domain.WorkspaceSettings{
+			MarketingEmailProviderID: "mkt",
+			SecretKey:                secretKey,
+			EmailTrackingEnabled:     true,
+		},
+		Integrations: domain.Integrations{
+			{ID: "mkt", Type: domain.IntegrationTypeEmail, EmailProvider: domain.EmailProvider{Kind: domain.EmailProviderKindSMTP, Senders: []domain.EmailSender{sender}}},
+		},
+	}
+	d.workspaceRepo.EXPECT().GetByID(ctx, req.WorkspaceID).Return(workspace, nil)
+
+	b := testBroadcast(req.WorkspaceID, req.BroadcastID)
+	b.TestSettings.Variations = []domain.BroadcastVariation{{VariationName: "A", TemplateID: "tplA"}}
+	d.repo.EXPECT().GetBroadcast(ctx, req.WorkspaceID, req.BroadcastID).Return(b, nil)
+
+	d.contactRepo.EXPECT().GetContactByEmail(ctx, req.WorkspaceID, req.RecipientEmail).Return(nil, errors.New("not found")).AnyTimes()
+
+	template := &domain.Template{
+		ID:      "tplA",
+		Name:    "Template A",
+		Channel: "email",
+		Email: &domain.EmailTemplate{
+			SenderID:         sender.ID,
+			Subject:          "Hello",
+			VisualEditorTree: createMJMLRootBlock(),
+		},
+		Category: string(domain.TemplateCategoryMarketing),
+	}
+	d.templateSvc.EXPECT().GetTemplateByID(ctx, req.WorkspaceID, "tplA", int64(0)).Return(template, nil)
+
+	var captured *domain.CompileTemplateRequest
+	compiledHTML := "<html>ok</html>"
+	d.templateSvc.EXPECT().CompileTemplate(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, payload domain.CompileTemplateRequest) (*domain.CompileTemplateResponse, error) {
+		captured = &payload
+		return &domain.CompileTemplateResponse{Success: true, HTML: &compiledHTML}, nil
+	})
+
+	d.emailSvc.EXPECT().SendEmail(gomock.Any(), gomock.Any(), true).Return(nil)
+	d.messageHistoryRepo.EXPECT().Create(gomock.Any(), req.WorkspaceID, gomock.Any(), gomock.Any()).Return(nil)
+
+	require.NoError(t, d.svc.SendToIndividual(ctx, req))
+
+	require.NotNil(t, captured)
+	assert.Equal(t, want, captured.TrackingSettings.SigningKey)
+}
+
 func TestBroadcastService_GetTestResults_ComputesRecommendation(t *testing.T) {
 	d := setupBroadcastSvc(t)
 	defer d.ctrl.Finish()
@@ -433,8 +529,8 @@ func TestBroadcastService_GetTestResults_ComputesRecommendation(t *testing.T) {
 	d.repo.EXPECT().GetBroadcast(ctx, workspaceID, broadcastID).Return(b, nil)
 
 	// stats for A and B
-	d.messageHistoryRepo.EXPECT().GetBroadcastVariationStats(ctx, workspaceID, broadcastID, "tplA").Return(&domain.MessageHistoryStatusSum{TotalSent: 100, TotalDelivered: 100, TotalOpened: 30, TotalClicked: 5}, nil)
-	d.messageHistoryRepo.EXPECT().GetBroadcastVariationStats(ctx, workspaceID, broadcastID, "tplB").Return(&domain.MessageHistoryStatusSum{TotalSent: 100, TotalDelivered: 100, TotalOpened: 25, TotalClicked: 10}, nil)
+	d.messageHistoryRepo.EXPECT().GetBroadcastVariationStats(ctx, workspaceID, broadcastID, "tplA").Return(&domain.MessageHistoryStatusSum{TotalSent: 100, TotalDelivered: 100, TotalOpensTracked: 100, TotalClicksTracked: 100, TotalOpened: 30, TotalClicked: 5}, nil)
+	d.messageHistoryRepo.EXPECT().GetBroadcastVariationStats(ctx, workspaceID, broadcastID, "tplB").Return(&domain.MessageHistoryStatusSum{TotalSent: 100, TotalDelivered: 100, TotalOpensTracked: 100, TotalClicksTracked: 100, TotalOpened: 25, TotalClicked: 10}, nil)
 
 	res, err := d.svc.GetTestResults(ctx, workspaceID, broadcastID)
 	require.NoError(t, err)
@@ -454,9 +550,14 @@ func TestBroadcastService_SelectWinner_SetsWinnerAndResumesTask(t *testing.T) {
 	winner := "tplA"
 	authOK(d.authService, ctx, workspaceID)
 
-	// transaction wrapper
+	// transaction wrapper; committed turns true once it has returned
+	committed := false
 	d.repo.EXPECT().WithTransaction(ctx, workspaceID, gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ string, fn func(*sql.Tx) error) error { return fn(nil) },
+		func(_ context.Context, _ string, fn func(*sql.Tx) error) error {
+			err := fn(nil)
+			committed = err == nil
+			return err
+		},
 	)
 
 	b := testBroadcast(workspaceID, broadcastID)
@@ -465,29 +566,32 @@ func TestBroadcastService_SelectWinner_SetsWinnerAndResumesTask(t *testing.T) {
 	b.TestSettings.AutoSendWinner = false
 	b.TestSettings.Variations = []domain.BroadcastVariation{{VariationName: "A", TemplateID: winner}, {VariationName: "B", TemplateID: "tplB"}}
 
-	d.repo.EXPECT().GetBroadcastTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
+	d.repo.EXPECT().GetBroadcastForUpdateTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
 	d.repo.EXPECT().UpdateBroadcastTx(ctx, gomock.Any(), gomock.Any()).Return(nil)
 
-	// Task repo: wake the task if present. Never Update: writing back the task it
-	// read would hand a running task to a second execution.
+	// Task repo: wake the task if present, once the winner is committed, so the
+	// broadcast row is not held during calls to the system database. Never
+	// Update: writing back the task it read would hand a running task to a
+	// second execution.
 	task := &domain.Task{ID: "task1", WorkspaceID: workspaceID, Status: domain.TaskStatusPaused}
-	d.taskRepo.EXPECT().GetTaskByBroadcastID(ctx, workspaceID, broadcastID).Return(task, nil)
-	d.taskRepo.EXPECT().WakeTask(ctx, workspaceID, task.ID, gomock.Any()).Return(true, nil)
+	d.taskRepo.EXPECT().GetTaskByBroadcastID(ctx, workspaceID, broadcastID).DoAndReturn(
+		func(context.Context, string, string) (*domain.Task, error) {
+			assert.True(t, committed, "the task is looked up after the winner is committed")
+			return task, nil
+		})
+	d.taskRepo.EXPECT().WakeTask(ctx, workspaceID, task.ID, gomock.Any()).DoAndReturn(
+		func(context.Context, string, string, time.Time) (bool, error) {
+			assert.True(t, committed, "the task is woken after the winner is committed")
+			return true, nil
+		})
 
-	// A woken task is run straight away when auto-execution is on.
-	executed := make(chan struct{})
-	d.taskService.EXPECT().IsAutoExecuteEnabled().Return(true).AnyTimes()
-	d.taskService.EXPECT().ExecutePendingTasks(gomock.Any(), 1).DoAndReturn(
-		func(context.Context, int) error { close(executed); return nil })
+	// A woken task is run straight away: this broadcast's task, by its ID.
+	d.taskService.EXPECT().RunTaskNow(workspaceID, task.ID).Do(func(string, string) {
+		assert.True(t, committed, "the task runs after the winner is committed")
+	})
 
 	err := d.svc.SelectWinner(ctx, workspaceID, broadcastID, winner)
 	require.NoError(t, err)
-
-	select {
-	case <-executed:
-	case <-time.After(2 * time.Second):
-		t.Fatal("a woken task must be executed straight away")
-	}
 }
 
 // TestBroadcastService_SelectWinner_LeavesAHeldTaskToItsRun covers a pick made
@@ -514,7 +618,7 @@ func TestBroadcastService_SelectWinner_LeavesAHeldTaskToItsRun(t *testing.T) {
 	b.TestSettings.AutoSendWinner = false
 	b.TestSettings.Variations = []domain.BroadcastVariation{{VariationName: "A", TemplateID: winner}, {VariationName: "B", TemplateID: "tplB"}}
 
-	d.repo.EXPECT().GetBroadcastTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
+	d.repo.EXPECT().GetBroadcastForUpdateTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
 	d.repo.EXPECT().UpdateBroadcastTx(ctx, gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ *sql.Tx, saved *domain.Broadcast) error {
 			require.NotNil(t, saved.WinningTemplate)
@@ -527,15 +631,10 @@ func TestBroadcastService_SelectWinner_LeavesAHeldTaskToItsRun(t *testing.T) {
 	d.taskRepo.EXPECT().GetTaskByBroadcastID(ctx, workspaceID, broadcastID).Return(task, nil)
 	d.taskRepo.EXPECT().WakeTask(ctx, workspaceID, task.ID, gomock.Any()).Return(false, nil)
 
-	d.taskService.EXPECT().IsAutoExecuteEnabled().Return(true).AnyTimes()
-	d.taskService.EXPECT().ExecutePendingTasks(gomock.Any(), gomock.Any()).Times(0)
+	d.taskService.EXPECT().RunTaskNow(gomock.Any(), gomock.Any()).Times(0)
 
 	err := d.svc.SelectWinner(ctx, workspaceID, broadcastID, winner)
 	require.NoError(t, err)
-
-	// Leave room for the delayed execution a woken task would get, so the
-	// Times(0) above has something to catch.
-	time.Sleep(300 * time.Millisecond)
 }
 
 // TestBroadcastService_SelectWinner_TaskGoneBeforeWake keeps the "no task"
@@ -555,7 +654,7 @@ func TestBroadcastService_SelectWinner_TaskGoneBeforeWake(t *testing.T) {
 			b := testBroadcast(workspaceID, broadcastID)
 			b.Status = domain.BroadcastStatusTestCompleted
 			b.TestSettings.Variations = []domain.BroadcastVariation{{VariationName: "A", TemplateID: templateID}}
-			d.repo.EXPECT().GetBroadcastTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
+			d.repo.EXPECT().GetBroadcastForUpdateTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
 			d.repo.EXPECT().UpdateBroadcastTx(ctx, gomock.Any(), gomock.Any()).Return(nil)
 
 			task := &domain.Task{ID: "task1", WorkspaceID: workspaceID, Status: domain.TaskStatusPending}
@@ -568,6 +667,97 @@ func TestBroadcastService_SelectWinner_TaskGoneBeforeWake(t *testing.T) {
 
 	err := d.svc.SelectWinner(ctx, workspaceID, broadcastID, templateID)
 	require.NoError(t, err)
+}
+
+// A wake that fails after the winner is saved returns its error and leaves the
+// winner saved (the next test covers the owner repeating that pick).
+func TestBroadcastService_SelectWinner_WakeErrorKeepsTheSavedWinner(t *testing.T) {
+	d := setupBroadcastSvc(t)
+	defer d.ctrl.Finish()
+
+	ctx := context.Background()
+	workspaceID := "w1"
+	broadcastID := "b1"
+	templateID := "tplA"
+	authOK(d.authService, ctx, workspaceID)
+
+	d.repo.EXPECT().WithTransaction(ctx, workspaceID, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, fn func(*sql.Tx) error) error { return fn(nil) },
+	)
+	b := testBroadcast(workspaceID, broadcastID)
+	b.Status = domain.BroadcastStatusTestCompleted
+	b.TestSettings.Variations = []domain.BroadcastVariation{{VariationName: "A", TemplateID: templateID}}
+	d.repo.EXPECT().GetBroadcastForUpdateTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
+	d.repo.EXPECT().UpdateBroadcastTx(ctx, gomock.Any(), gomock.Any()).Return(nil)
+
+	task := &domain.Task{ID: "task1", WorkspaceID: workspaceID, Status: domain.TaskStatusPaused}
+	d.taskRepo.EXPECT().GetTaskByBroadcastID(ctx, workspaceID, broadcastID).Return(task, nil)
+	d.taskRepo.EXPECT().WakeTask(ctx, workspaceID, task.ID, gomock.Any()).Return(false, errors.New("system db down"))
+	d.taskService.EXPECT().ExecutePendingTasks(gomock.Any(), gomock.Any()).Times(0)
+
+	err := d.svc.SelectWinner(ctx, workspaceID, broadcastID, templateID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "system db down")
+}
+
+// Repeating the pick recorded on a broadcast in winner_selected saves nothing
+// again and wakes the task.
+func TestBroadcastService_SelectWinner_RepeatingTheRecordedPickWakesTheTask(t *testing.T) {
+	d := setupBroadcastSvc(t)
+	defer d.ctrl.Finish()
+
+	ctx := context.Background()
+	workspaceID := "w1"
+	broadcastID := "b1"
+	templateID := "tplA"
+	authOK(d.authService, ctx, workspaceID)
+
+	d.repo.EXPECT().WithTransaction(ctx, workspaceID, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, fn func(*sql.Tx) error) error { return fn(nil) },
+	)
+	b := testBroadcast(workspaceID, broadcastID)
+	b.Status = domain.BroadcastStatusWinnerSelected
+	recorded := templateID
+	b.WinningTemplate = &recorded
+	b.TestSettings.Variations = []domain.BroadcastVariation{{VariationName: "A", TemplateID: templateID}, {VariationName: "B", TemplateID: "tplB"}}
+	d.repo.EXPECT().GetBroadcastForUpdateTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
+	d.repo.EXPECT().UpdateBroadcastTx(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	task := &domain.Task{ID: "task1", WorkspaceID: workspaceID, Status: domain.TaskStatusPaused}
+	d.taskRepo.EXPECT().GetTaskByBroadcastID(ctx, workspaceID, broadcastID).Return(task, nil)
+	d.taskRepo.EXPECT().WakeTask(ctx, workspaceID, task.ID, gomock.Any()).Return(true, nil)
+	d.taskService.EXPECT().RunTaskNow(workspaceID, task.ID)
+
+	require.NoError(t, d.svc.SelectWinner(ctx, workspaceID, broadcastID, templateID))
+}
+
+// Once the owner's pick is recorded and the broadcast waits for its run
+// (winner_selected), another pick is refused and wakes nothing.
+func TestBroadcastService_SelectWinner_RefusesADifferentPickOnceChosen(t *testing.T) {
+	d := setupBroadcastSvc(t)
+	defer d.ctrl.Finish()
+
+	ctx := context.Background()
+	workspaceID := "w1"
+	broadcastID := "b1"
+	authOK(d.authService, ctx, workspaceID)
+
+	d.repo.EXPECT().WithTransaction(ctx, workspaceID, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, fn func(*sql.Tx) error) error { return fn(nil) },
+	)
+	b := testBroadcast(workspaceID, broadcastID)
+	b.Status = domain.BroadcastStatusWinnerSelected
+	recorded := "tplA"
+	b.WinningTemplate = &recorded
+	b.TestSettings.Variations = []domain.BroadcastVariation{{VariationName: "A", TemplateID: "tplA"}, {VariationName: "B", TemplateID: "tplB"}}
+	d.repo.EXPECT().GetBroadcastForUpdateTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
+	d.repo.EXPECT().UpdateBroadcastTx(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	d.taskRepo.EXPECT().GetTaskByBroadcastID(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	d.taskRepo.EXPECT().WakeTask(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	err := d.svc.SelectWinner(ctx, workspaceID, broadcastID, "tplB")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not in test completed state")
 }
 
 func TestBroadcastService_SetTaskService_SetsField(t *testing.T) {
@@ -594,9 +784,82 @@ func TestBroadcastService_GetBroadcast_Success(t *testing.T) {
 	expected := testBroadcast(workspaceID, broadcastID)
 	d.repo.EXPECT().GetBroadcast(ctx, workspaceID, broadcastID).Return(expected, nil)
 
-	b, err := d.svc.GetBroadcast(ctx, workspaceID, broadcastID)
+	b, err := d.svc.GetBroadcast(ctx, workspaceID, broadcastID, domain.GetBroadcastOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, expected, b)
+}
+
+// broadcasts.get with with_templates: the service sets the variations' templates, as
+// ListBroadcasts does, and a template it cannot read leaves its variation without it.
+func TestBroadcastService_GetBroadcast_WithTemplates(t *testing.T) {
+	ctx := context.Background()
+	workspaceID, broadcastID := "w1", "b1"
+	withVariations := func() *domain.Broadcast {
+		b := testBroadcast(workspaceID, broadcastID)
+		b.TestSettings.Variations = []domain.BroadcastVariation{
+			{VariationName: "A", TemplateID: "tplA"},
+			{VariationName: "B", TemplateID: "tplB"},
+		}
+		return b
+	}
+
+	t.Run("sets each template, and warns once for one it cannot read", func(t *testing.T) {
+		d := setupBroadcastSvc(t)
+		defer d.ctrl.Finish()
+		log := pkgmocks.NewMockLogger(d.ctrl)
+		d.svc.logger = log
+		authAs(d.authService, ctx, workspaceID, "member", broadcastsAndTemplatesRead)
+		// The unreadable template is not the last: the variation after it still gets its own.
+		broadcast := withVariations()
+		broadcast.TestSettings.Variations = append(broadcast.TestSettings.Variations, domain.BroadcastVariation{VariationName: "C", TemplateID: "tplC"})
+		d.repo.EXPECT().GetBroadcast(ctx, workspaceID, broadcastID).Return(broadcast, nil)
+		d.templateSvc.EXPECT().GetTemplateByID(ctx, workspaceID, "tplA", int64(0)).Return(&domain.Template{ID: "tplA"}, nil)
+		d.templateSvc.EXPECT().GetTemplateByID(ctx, workspaceID, "tplB", int64(0)).Return(nil, errors.New("template error"))
+		d.templateSvc.EXPECT().GetTemplateByID(ctx, workspaceID, "tplC", int64(0)).Return(&domain.Template{ID: "tplC"}, nil)
+		log.EXPECT().WithFields(map[string]interface{}{
+			"error": "template error", "broadcast_id": broadcastID, "template_id": "tplB",
+		}).Return(log)
+		log.EXPECT().Warn("Failed to fetch template for broadcast variation")
+
+		b, err := d.svc.GetBroadcast(ctx, workspaceID, broadcastID, domain.GetBroadcastOptions{WithTemplates: true})
+
+		require.NoError(t, err)
+		require.NotNil(t, b.TestSettings.Variations[0].Template)
+		assert.Equal(t, "tplA", b.TestSettings.Variations[0].Template.ID)
+		assert.Nil(t, b.TestSettings.Variations[1].Template)
+		require.NotNil(t, b.TestSettings.Variations[2].Template)
+		assert.Equal(t, "tplC", b.TestSettings.Variations[2].Template.ID)
+	})
+
+	// The strict mocks refuse any template lookup and any log.
+	t.Run("a member without Templates read gets the variations without their templates", func(t *testing.T) {
+		d := setupBroadcastSvc(t)
+		defer d.ctrl.Finish()
+		d.svc.logger = pkgmocks.NewMockLogger(d.ctrl)
+		authAs(d.authService, ctx, workspaceID, "member", domain.UserPermissions{
+			domain.PermissionResourceBroadcasts: {Read: true},
+		})
+		d.repo.EXPECT().GetBroadcast(ctx, workspaceID, broadcastID).Return(withVariations(), nil)
+
+		b, err := d.svc.GetBroadcast(ctx, workspaceID, broadcastID, domain.GetBroadcastOptions{WithTemplates: true})
+
+		require.NoError(t, err)
+		assert.Equal(t, "tplA", b.TestSettings.Variations[0].TemplateID)
+		assert.Nil(t, b.TestSettings.Variations[0].Template)
+		assert.Nil(t, b.TestSettings.Variations[1].Template)
+	})
+
+	t.Run("without the option the templates are not read", func(t *testing.T) {
+		d := setupBroadcastSvc(t)
+		defer d.ctrl.Finish()
+		authAs(d.authService, ctx, workspaceID, "member", broadcastsAndTemplatesRead)
+		d.repo.EXPECT().GetBroadcast(ctx, workspaceID, broadcastID).Return(withVariations(), nil)
+
+		b, err := d.svc.GetBroadcast(ctx, workspaceID, broadcastID, domain.GetBroadcastOptions{})
+
+		require.NoError(t, err)
+		assert.Nil(t, b.TestSettings.Variations[0].Template)
+	})
 }
 
 func TestBroadcastService_UpdateBroadcast_Success(t *testing.T) {
@@ -620,8 +883,10 @@ func TestBroadcastService_UpdateBroadcast_Success(t *testing.T) {
 	existing := testBroadcast(req.WorkspaceID, req.ID)
 	existing.Status = domain.BroadcastStatusDraft
 
-	d.repo.EXPECT().GetBroadcast(ctx, req.WorkspaceID, req.ID).Return(existing, nil)
-	d.repo.EXPECT().UpdateBroadcast(ctx, gomock.Any()).Return(nil)
+	runsInTx(d, req.WorkspaceID)
+
+	d.repo.EXPECT().GetBroadcastForUpdateTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(existing, nil)
+	d.repo.EXPECT().UpdateBroadcastTx(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
 	updated, err := d.svc.UpdateBroadcast(ctx, req)
 	require.NoError(t, err)
@@ -635,7 +900,7 @@ func TestBroadcastService_ListBroadcasts_WithTemplates(t *testing.T) {
 
 	ctx := context.Background()
 	params := domain.ListBroadcastsParams{WorkspaceID: "w1", WithTemplates: true}
-	authOK(d.authService, ctx, params.WorkspaceID)
+	authAs(d.authService, ctx, params.WorkspaceID, "member", broadcastsAndTemplatesRead)
 
 	b := testBroadcast(params.WorkspaceID, "b1")
 	// Ensure there is a variation to load template for
@@ -782,7 +1047,7 @@ func TestBroadcastService_GetBroadcast_AuthFailure(t *testing.T) {
 
 	d.authService.EXPECT().AuthenticateUserForWorkspace(ctx, workspaceID).Return(ctx, nil, nil, errors.New("auth failed"))
 
-	_, err := d.svc.GetBroadcast(ctx, workspaceID, broadcastID)
+	_, err := d.svc.GetBroadcast(ctx, workspaceID, broadcastID, domain.GetBroadcastOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to authenticate user")
 }
@@ -805,7 +1070,7 @@ func TestBroadcastService_GetBroadcast_PermissionDenied(t *testing.T) {
 	}
 	d.authService.EXPECT().AuthenticateUserForWorkspace(ctx, workspaceID).Return(ctx, &domain.User{ID: "user1"}, userWorkspace, nil)
 
-	_, err := d.svc.GetBroadcast(ctx, workspaceID, broadcastID)
+	_, err := d.svc.GetBroadcast(ctx, workspaceID, broadcastID, domain.GetBroadcastOptions{})
 	require.Error(t, err)
 	assert.IsType(t, &domain.PermissionError{}, err)
 }
@@ -832,7 +1097,9 @@ func TestBroadcastService_UpdateBroadcast_GetBroadcastFailure(t *testing.T) {
 	req := &domain.UpdateBroadcastRequest{WorkspaceID: "w1", ID: "b1"}
 	authOK(d.authService, ctx, req.WorkspaceID)
 
-	d.repo.EXPECT().GetBroadcast(ctx, req.WorkspaceID, req.ID).Return(nil, errors.New("not found"))
+	runsInTx(d, req.WorkspaceID)
+
+	d.repo.EXPECT().GetBroadcastForUpdateTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(nil, errors.New("not found"))
 
 	_, err := d.svc.UpdateBroadcast(ctx, req)
 	require.Error(t, err)
@@ -852,7 +1119,8 @@ func TestBroadcastService_UpdateBroadcast_ValidationFailure(t *testing.T) {
 	authOK(d.authService, ctx, req.WorkspaceID)
 
 	existing := testBroadcast(req.WorkspaceID, req.ID)
-	d.repo.EXPECT().GetBroadcast(ctx, req.WorkspaceID, req.ID).Return(existing, nil)
+	runsInTx(d, req.WorkspaceID)
+	d.repo.EXPECT().GetBroadcastForUpdateTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(existing, nil)
 
 	_, err := d.svc.UpdateBroadcast(ctx, req)
 	require.Error(t, err)
@@ -877,8 +1145,9 @@ func TestBroadcastService_UpdateBroadcast_RepositoryFailure(t *testing.T) {
 	authOK(d.authService, ctx, req.WorkspaceID)
 
 	existing := testBroadcast(req.WorkspaceID, req.ID)
-	d.repo.EXPECT().GetBroadcast(ctx, req.WorkspaceID, req.ID).Return(existing, nil)
-	d.repo.EXPECT().UpdateBroadcast(ctx, gomock.Any()).Return(errors.New("db error"))
+	runsInTx(d, req.WorkspaceID)
+	d.repo.EXPECT().GetBroadcastForUpdateTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(existing, nil)
+	d.repo.EXPECT().UpdateBroadcastTx(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("db error"))
 
 	_, err := d.svc.UpdateBroadcast(ctx, req)
 	require.Error(t, err)
@@ -959,7 +1228,7 @@ func TestBroadcastService_ListBroadcasts_WithTemplates_TemplateError(t *testing.
 
 	ctx := context.Background()
 	params := domain.ListBroadcastsParams{WorkspaceID: "w1", WithTemplates: true}
-	authOK(d.authService, ctx, params.WorkspaceID)
+	authAs(d.authService, ctx, params.WorkspaceID, "member", broadcastsAndTemplatesRead)
 
 	b := testBroadcast(params.WorkspaceID, "b1")
 	b.TestSettings.Variations = []domain.BroadcastVariation{{VariationName: "A", TemplateID: "tplA"}}
@@ -1088,7 +1357,7 @@ func TestBroadcastService_ScheduleBroadcast_InvalidStatus(t *testing.T) {
 			// broadcast with invalid status for scheduling
 			broadcast := testBroadcast(req.WorkspaceID, req.ID)
 			broadcast.Status = domain.BroadcastStatusProcessing // not draft
-			d.repo.EXPECT().GetBroadcastTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(broadcast, nil)
+			d.repo.EXPECT().GetBroadcastForUpdateTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(broadcast, nil)
 			return fn(nil)
 		},
 	)
@@ -1098,13 +1367,14 @@ func TestBroadcastService_ScheduleBroadcast_InvalidStatus(t *testing.T) {
 	assert.Contains(t, err.Error(), "only broadcasts with draft status can be scheduled")
 }
 
-func TestBroadcastService_ScheduleBroadcast_EventProcessingFailure(t *testing.T) {
+func TestBroadcastService_ScheduleBroadcast_TaskSchedulingFailure(t *testing.T) {
 	d := setupBroadcastSvc(t)
 	defer d.ctrl.Finish()
 
 	ctx := context.Background()
 	req := &domain.ScheduleBroadcastRequest{WorkspaceID: "w1", ID: "b1", SendNow: true}
 	authOK(d.authService, ctx, req.WorkspaceID)
+	taskWriteErr := errors.New("system database unavailable")
 
 	workspace := &domain.Workspace{
 		ID:       "w1",
@@ -1118,22 +1388,22 @@ func TestBroadcastService_ScheduleBroadcast_EventProcessingFailure(t *testing.T)
 	d.repo.EXPECT().WithTransaction(ctx, req.WorkspaceID, gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, fn func(*sql.Tx) error) error {
 			draft := testBroadcast(req.WorkspaceID, req.ID)
-			d.repo.EXPECT().GetBroadcastTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(draft, nil)
+			d.repo.EXPECT().GetBroadcastForUpdateTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(draft, nil)
 			d.repo.EXPECT().UpdateBroadcastTx(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
-			// Event processing fails
-			d.eventBus.EXPECT().PublishWithAck(gomock.Any(), gomock.Any(), gomock.Any()).Do(
-				func(_ context.Context, _ domain.EventPayload, ack domain.EventAckCallback) {
-					ack(errors.New("event processing failed"))
-				},
-			)
-			return fn(nil)
+			// The task cannot be written: the transaction returns the error, so the
+			// broadcast rolls back, and nothing runs.
+			d.taskService.EXPECT().ScheduleBroadcastTask(gomock.Any(), "w1", "b1", true, gomock.Any()).
+				Return("", taskWriteErr)
+			err := fn(nil)
+			assert.ErrorIs(t, err, taskWriteErr, "the transaction rolls back on the task's error")
+			return err
 		},
 	)
+	d.taskService.EXPECT().RunTaskNow(gomock.Any(), gomock.Any()).Times(0)
 
 	err := d.svc.ScheduleBroadcast(ctx, req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to process schedule event")
+	assert.ErrorIs(t, err, taskWriteErr)
 }
 
 // Global Feed Integration Tests
@@ -1172,7 +1442,7 @@ func TestBroadcastService_ScheduleWithGlobalFeed_Success(t *testing.T) {
 			URL:     "https://api.example.com/feed",
 		},
 	}
-	d.repo.EXPECT().GetBroadcastTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(draft, nil)
+	d.repo.EXPECT().GetBroadcastForUpdateTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(draft, nil)
 
 	// List service returns list details
 	list := &domain.List{ID: "list1", Name: "Test List"}
@@ -1211,11 +1481,8 @@ func TestBroadcastService_ScheduleWithGlobalFeed_Success(t *testing.T) {
 		},
 	)
 
-	d.eventBus.EXPECT().PublishWithAck(gomock.Any(), gomock.Any(), gomock.Any()).Do(
-		func(_ context.Context, _ domain.EventPayload, ack domain.EventAckCallback) {
-			ack(nil)
-		},
-	)
+	d.taskService.EXPECT().ScheduleBroadcastTask(gomock.Any(), req.WorkspaceID, req.ID, req.SendNow, gomock.Any()).Return("task-1", nil)
+	d.taskService.EXPECT().RunTaskNow(req.WorkspaceID, "task-1").AnyTimes()
 
 	err := d.svc.ScheduleBroadcast(ctx, req)
 	require.NoError(t, err)
@@ -1250,7 +1517,7 @@ func TestBroadcastService_ScheduleWithGlobalFeed_FetchError(t *testing.T) {
 					URL:     "https://api.example.com/feed",
 				},
 			}
-			d.repo.EXPECT().GetBroadcastTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(draft, nil)
+			d.repo.EXPECT().GetBroadcastForUpdateTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(draft, nil)
 
 			// List service returns list details
 			d.listService.EXPECT().GetListByID(ctx, req.WorkspaceID, "list1").Return(&domain.List{ID: "list1", Name: "Test List"}, nil)
@@ -1297,18 +1564,15 @@ func TestBroadcastService_ScheduleWithoutGlobalFeed(t *testing.T) {
 	// Inside tx: get broadcast WITHOUT GlobalFeed
 	draft := testBroadcast(req.WorkspaceID, req.ID)
 	// DataFeed is already nil from testBroadcast(), meaning no global feed configured
-	d.repo.EXPECT().GetBroadcastTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(draft, nil)
+	d.repo.EXPECT().GetBroadcastForUpdateTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(draft, nil)
 
 	// FetchGlobal should NOT be called
 	// (no expectation set means it will fail if called)
 
 	d.repo.EXPECT().UpdateBroadcastTx(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
-	d.eventBus.EXPECT().PublishWithAck(gomock.Any(), gomock.Any(), gomock.Any()).Do(
-		func(_ context.Context, _ domain.EventPayload, ack domain.EventAckCallback) {
-			ack(nil)
-		},
-	)
+	d.taskService.EXPECT().ScheduleBroadcastTask(gomock.Any(), req.WorkspaceID, req.ID, req.SendNow, gomock.Any()).Return("task-1", nil)
+	d.taskService.EXPECT().RunTaskNow(req.WorkspaceID, "task-1").AnyTimes()
 
 	err := d.svc.ScheduleBroadcast(ctx, req)
 	require.NoError(t, err)
@@ -1348,18 +1612,15 @@ func TestBroadcastService_ScheduleWithGlobalFeed_Disabled(t *testing.T) {
 			URL:     "https://api.example.com/feed",
 		},
 	}
-	d.repo.EXPECT().GetBroadcastTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(draft, nil)
+	d.repo.EXPECT().GetBroadcastForUpdateTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(draft, nil)
 
 	// FetchGlobal should NOT be called when disabled
 	// (no expectation set means it will fail if called)
 
 	d.repo.EXPECT().UpdateBroadcastTx(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
-	d.eventBus.EXPECT().PublishWithAck(gomock.Any(), gomock.Any(), gomock.Any()).Do(
-		func(_ context.Context, _ domain.EventPayload, ack domain.EventAckCallback) {
-			ack(nil)
-		},
-	)
+	d.taskService.EXPECT().ScheduleBroadcastTask(gomock.Any(), req.WorkspaceID, req.ID, req.SendNow, gomock.Any()).Return("task-1", nil)
+	d.taskService.EXPECT().RunTaskNow(req.WorkspaceID, "task-1").AnyTimes()
 
 	err := d.svc.ScheduleBroadcast(ctx, req)
 	require.NoError(t, err)
@@ -1399,7 +1660,7 @@ func TestBroadcastService_ScheduleWithGlobalFeed_ListNotFound(t *testing.T) {
 			URL:     "https://api.example.com/feed",
 		},
 	}
-	d.repo.EXPECT().GetBroadcastTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(draft, nil)
+	d.repo.EXPECT().GetBroadcastForUpdateTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(draft, nil)
 
 	// List service returns error (list not found) - should continue with empty list name
 	d.listService.EXPECT().GetListByID(ctx, req.WorkspaceID, "list1").Return(nil, errors.New("list not found"))
@@ -1416,11 +1677,8 @@ func TestBroadcastService_ScheduleWithGlobalFeed_ListNotFound(t *testing.T) {
 
 	d.repo.EXPECT().UpdateBroadcastTx(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
-	d.eventBus.EXPECT().PublishWithAck(gomock.Any(), gomock.Any(), gomock.Any()).Do(
-		func(_ context.Context, _ domain.EventPayload, ack domain.EventAckCallback) {
-			ack(nil)
-		},
-	)
+	d.taskService.EXPECT().ScheduleBroadcastTask(gomock.Any(), req.WorkspaceID, req.ID, req.SendNow, gomock.Any()).Return("task-1", nil)
+	d.taskService.EXPECT().RunTaskNow(req.WorkspaceID, "task-1").AnyTimes()
 
 	err := d.svc.ScheduleBroadcast(ctx, req)
 	require.NoError(t, err)
@@ -1460,7 +1718,7 @@ func TestBroadcastService_PauseBroadcast_InvalidStatus(t *testing.T) {
 
 	err := d.svc.PauseBroadcast(ctx, req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "only broadcasts with sending or processed status can be paused")
+	assert.Contains(t, err.Error(), "only broadcasts that are sending can be paused")
 }
 
 func TestBroadcastService_ResumeBroadcast_AuthFailure(t *testing.T) {
@@ -1507,6 +1765,7 @@ func TestBroadcastService_ResumeBroadcast_ToSending_Success(t *testing.T) {
 	ctx := context.Background()
 	req := &domain.ResumeBroadcastRequest{WorkspaceID: "w1", ID: "b1"}
 	authOK(d.authService, ctx, req.WorkspaceID)
+	noTaskStateYet(d)
 
 	d.repo.EXPECT().WithTransaction(ctx, req.WorkspaceID, gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, fn func(*sql.Tx) error) error { return fn(nil) },
@@ -1561,7 +1820,7 @@ func TestBroadcastService_CancelBroadcast_InvalidStatus(t *testing.T) {
 
 	err := d.svc.CancelBroadcast(ctx, req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "only broadcasts with scheduled, paused, processing, or processed status can be cancelled")
+	assert.Contains(t, err.Error(), "only broadcasts that are scheduled, paused or sending can be cancelled")
 }
 
 // Phase-2 scenarios: pause/resume/cancel work once orchestrator has enqueued
@@ -2072,6 +2331,8 @@ func TestBroadcastService_SendToIndividual_TemplateCompilationNotSuccessful(t *t
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "template compilation failed")
 	assert.Contains(t, err.Error(), errMsg)
+	var renderErr *domain.TemplateRenderError
+	assert.True(t, errors.As(err, &renderErr), "a compilation failure is a TemplateRenderError: %v", err)
 }
 
 func TestBroadcastService_SendToIndividual_EmailSendFailure(t *testing.T) {
@@ -2289,7 +2550,7 @@ func TestBroadcastService_SelectWinner_InvalidStatus(t *testing.T) {
 		func(_ context.Context, _ string, fn func(*sql.Tx) error) error {
 			b := testBroadcast(workspaceID, broadcastID)
 			b.Status = domain.BroadcastStatusDraft // invalid status
-			d.repo.EXPECT().GetBroadcastTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
+			d.repo.EXPECT().GetBroadcastForUpdateTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
 			return fn(nil)
 		},
 	)
@@ -2314,7 +2575,7 @@ func TestBroadcastService_SelectWinner_InvalidTemplate(t *testing.T) {
 			b := testBroadcast(workspaceID, broadcastID)
 			b.Status = domain.BroadcastStatusTestCompleted
 			b.TestSettings.Variations = []domain.BroadcastVariation{{VariationName: "A", TemplateID: "tplA"}}
-			d.repo.EXPECT().GetBroadcastTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
+			d.repo.EXPECT().GetBroadcastForUpdateTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
 			return fn(nil)
 		},
 	)
@@ -2339,7 +2600,7 @@ func TestBroadcastService_SelectWinner_UpdateFailure(t *testing.T) {
 			b := testBroadcast(workspaceID, broadcastID)
 			b.Status = domain.BroadcastStatusTestCompleted
 			b.TestSettings.Variations = []domain.BroadcastVariation{{VariationName: "A", TemplateID: templateID}}
-			d.repo.EXPECT().GetBroadcastTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
+			d.repo.EXPECT().GetBroadcastForUpdateTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
 			d.repo.EXPECT().UpdateBroadcastTx(ctx, gomock.Any(), gomock.Any()).Return(errors.New("update failed"))
 			return fn(nil)
 		},
@@ -2365,7 +2626,7 @@ func TestBroadcastService_SelectWinner_TaskUpdateFailure(t *testing.T) {
 			b := testBroadcast(workspaceID, broadcastID)
 			b.Status = domain.BroadcastStatusTestCompleted
 			b.TestSettings.Variations = []domain.BroadcastVariation{{VariationName: "A", TemplateID: templateID}}
-			d.repo.EXPECT().GetBroadcastTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
+			d.repo.EXPECT().GetBroadcastForUpdateTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
 			d.repo.EXPECT().UpdateBroadcastTx(ctx, gomock.Any(), gomock.Any()).Return(nil)
 
 			task := &domain.Task{ID: "task1", WorkspaceID: workspaceID, Status: domain.TaskStatusPaused}
@@ -2395,7 +2656,7 @@ func TestBroadcastService_SelectWinner_NoTask(t *testing.T) {
 			b := testBroadcast(workspaceID, broadcastID)
 			b.Status = domain.BroadcastStatusTestCompleted
 			b.TestSettings.Variations = []domain.BroadcastVariation{{VariationName: "A", TemplateID: templateID}}
-			d.repo.EXPECT().GetBroadcastTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
+			d.repo.EXPECT().GetBroadcastForUpdateTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
 			d.repo.EXPECT().UpdateBroadcastTx(ctx, gomock.Any(), gomock.Any()).Return(nil)
 
 			// No task found - should not be an error
@@ -2409,46 +2670,6 @@ func TestBroadcastService_SelectWinner_NoTask(t *testing.T) {
 }
 
 // Context cancellation tests
-
-func TestBroadcastService_ScheduleBroadcast_ContextCancellation(t *testing.T) {
-	d := setupBroadcastSvc(t)
-	defer d.ctrl.Finish()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	req := &domain.ScheduleBroadcastRequest{WorkspaceID: "w1", ID: "b1", SendNow: true}
-	authOK(d.authService, ctx, req.WorkspaceID)
-
-	workspace := &domain.Workspace{
-		ID:       "w1",
-		Settings: domain.WorkspaceSettings{MarketingEmailProviderID: "mkt"},
-		Integrations: domain.Integrations{
-			{ID: "mkt", Type: domain.IntegrationTypeEmail, EmailProvider: domain.EmailProvider{Kind: domain.EmailProviderKindSMTP}},
-		},
-	}
-	d.workspaceRepo.EXPECT().GetByID(ctx, req.WorkspaceID).Return(workspace, nil)
-
-	d.repo.EXPECT().WithTransaction(ctx, req.WorkspaceID, gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ string, fn func(*sql.Tx) error) error {
-			draft := testBroadcast(req.WorkspaceID, req.ID)
-			d.repo.EXPECT().GetBroadcastTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(draft, nil)
-			d.repo.EXPECT().UpdateBroadcastTx(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
-
-			d.eventBus.EXPECT().PublishWithAck(gomock.Any(), gomock.Any(), gomock.Any()).Do(
-				func(_ context.Context, _ domain.EventPayload, ack domain.EventAckCallback) {
-					// Cancel context before callback
-					cancel()
-					// Simulate delay to allow context cancellation to take effect
-					time.Sleep(10 * time.Millisecond)
-				},
-			)
-			return fn(nil)
-		},
-	)
-
-	err := d.svc.ScheduleBroadcast(ctx, req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "context canceled")
-}
 
 // Additional edge case tests
 
@@ -2649,8 +2870,8 @@ func TestBroadcastService_GetTestResults_WithAutoSendWinner(t *testing.T) {
 	d.repo.EXPECT().GetBroadcast(ctx, workspaceID, broadcastID).Return(b, nil)
 
 	// stats for A and B
-	d.messageHistoryRepo.EXPECT().GetBroadcastVariationStats(ctx, workspaceID, broadcastID, "tplA").Return(&domain.MessageHistoryStatusSum{TotalSent: 100, TotalDelivered: 100, TotalOpened: 30, TotalClicked: 5}, nil)
-	d.messageHistoryRepo.EXPECT().GetBroadcastVariationStats(ctx, workspaceID, broadcastID, "tplB").Return(&domain.MessageHistoryStatusSum{TotalSent: 100, TotalDelivered: 100, TotalOpened: 25, TotalClicked: 10}, nil)
+	d.messageHistoryRepo.EXPECT().GetBroadcastVariationStats(ctx, workspaceID, broadcastID, "tplA").Return(&domain.MessageHistoryStatusSum{TotalSent: 100, TotalDelivered: 100, TotalOpensTracked: 100, TotalClicksTracked: 100, TotalOpened: 30, TotalClicked: 5}, nil)
+	d.messageHistoryRepo.EXPECT().GetBroadcastVariationStats(ctx, workspaceID, broadcastID, "tplB").Return(&domain.MessageHistoryStatusSum{TotalSent: 100, TotalDelivered: 100, TotalOpensTracked: 100, TotalClicksTracked: 100, TotalOpened: 25, TotalClicked: 10}, nil)
 
 	res, err := d.svc.GetTestResults(ctx, workspaceID, broadcastID)
 	require.NoError(t, err)
@@ -2682,8 +2903,8 @@ func TestBroadcastService_GetTestResults_WithWinnerAlreadySelected(t *testing.T)
 	d.repo.EXPECT().GetBroadcast(ctx, workspaceID, broadcastID).Return(b, nil)
 
 	// stats for A and B
-	d.messageHistoryRepo.EXPECT().GetBroadcastVariationStats(ctx, workspaceID, broadcastID, "tplA").Return(&domain.MessageHistoryStatusSum{TotalSent: 100, TotalDelivered: 100, TotalOpened: 30, TotalClicked: 5}, nil)
-	d.messageHistoryRepo.EXPECT().GetBroadcastVariationStats(ctx, workspaceID, broadcastID, "tplB").Return(&domain.MessageHistoryStatusSum{TotalSent: 100, TotalDelivered: 100, TotalOpened: 25, TotalClicked: 10}, nil)
+	d.messageHistoryRepo.EXPECT().GetBroadcastVariationStats(ctx, workspaceID, broadcastID, "tplA").Return(&domain.MessageHistoryStatusSum{TotalSent: 100, TotalDelivered: 100, TotalOpensTracked: 100, TotalClicksTracked: 100, TotalOpened: 30, TotalClicked: 5}, nil)
+	d.messageHistoryRepo.EXPECT().GetBroadcastVariationStats(ctx, workspaceID, broadcastID, "tplB").Return(&domain.MessageHistoryStatusSum{TotalSent: 100, TotalDelivered: 100, TotalOpensTracked: 100, TotalClicksTracked: 100, TotalOpened: 25, TotalClicked: 10}, nil)
 
 	res, err := d.svc.GetTestResults(ctx, workspaceID, broadcastID)
 	require.NoError(t, err)
@@ -2741,7 +2962,7 @@ func TestBroadcastService_SelectWinner_DuringTestingPhase(t *testing.T) {
 			b.TestSettings.Enabled = true
 			b.TestSettings.AutoSendWinner = false // manual selection allowed
 			b.TestSettings.Variations = []domain.BroadcastVariation{{VariationName: "A", TemplateID: templateID}}
-			d.repo.EXPECT().GetBroadcastTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
+			d.repo.EXPECT().GetBroadcastForUpdateTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
 			d.repo.EXPECT().UpdateBroadcastTx(ctx, gomock.Any(), gomock.Any()).Return(nil)
 
 			// No task found - should not be an error
@@ -2771,7 +2992,7 @@ func TestBroadcastService_SelectWinner_DuringSendingPhase(t *testing.T) {
 			b.TestSettings.Enabled = true
 			b.TestSettings.AutoSendWinner = false // manual selection allowed
 			b.TestSettings.Variations = []domain.BroadcastVariation{{VariationName: "A", TemplateID: templateID}}
-			d.repo.EXPECT().GetBroadcastTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
+			d.repo.EXPECT().GetBroadcastForUpdateTx(ctx, gomock.Any(), workspaceID, broadcastID).Return(b, nil)
 			d.repo.EXPECT().UpdateBroadcastTx(ctx, gomock.Any(), gomock.Any()).Return(nil)
 
 			// No task found - should not be an error
@@ -2841,22 +3062,21 @@ func TestBroadcastService_ScheduleBroadcast_ScheduledTimeInPayload(t *testing.T)
 	d.repo.EXPECT().WithTransaction(ctx, req.WorkspaceID, gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, fn func(*sql.Tx) error) error {
 			draft := testBroadcast(req.WorkspaceID, req.ID)
-			d.repo.EXPECT().GetBroadcastTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(draft, nil)
+			d.repo.EXPECT().GetBroadcastForUpdateTx(gomock.Any(), gomock.Any(), req.WorkspaceID, req.ID).Return(draft, nil)
 			d.repo.EXPECT().UpdateBroadcastTx(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
-			// Verify event payload includes scheduled_time
-			d.eventBus.EXPECT().PublishWithAck(gomock.Any(), gomock.Any(), gomock.Any()).Do(
-				func(_ context.Context, payload domain.EventPayload, ack domain.EventAckCallback) {
-					// Check that scheduled_time is included in the payload
-					scheduledTime, exists := payload.Data["scheduled_time"]
-					assert.True(t, exists)
-					assert.NotNil(t, scheduledTime)
-					ack(nil)
-				},
-			)
+			// The task is due at the broadcast's scheduled time
+			d.taskService.EXPECT().ScheduleBroadcastTask(gomock.Any(), "w1", "b1", false, gomock.Any()).DoAndReturn(
+				func(_ context.Context, _, _ string, _ bool, scheduledAt *time.Time) (string, error) {
+					require.NotNil(t, scheduledAt)
+					assert.True(t, scheduledAt.Equal(time.Date(2024, 12, 25, 10, 0, 0, 0, time.UTC)), "got %v", scheduledAt)
+					return "task-1", nil
+				})
 			return fn(nil)
 		},
 	)
+	// A later schedule runs nothing now.
+	d.taskService.EXPECT().RunTaskNow(gomock.Any(), gomock.Any()).Times(0)
 
 	err := d.svc.ScheduleBroadcast(ctx, req)
 	require.NoError(t, err)
@@ -2869,6 +3089,7 @@ func TestBroadcastService_ResumeBroadcast_ScheduleParseError(t *testing.T) {
 	ctx := context.Background()
 	req := &domain.ResumeBroadcastRequest{WorkspaceID: "w1", ID: "b1"}
 	authOK(d.authService, ctx, req.WorkspaceID)
+	noTaskStateYet(d)
 
 	d.repo.EXPECT().WithTransaction(ctx, req.WorkspaceID, gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, fn func(*sql.Tx) error) error {
@@ -3791,4 +4012,123 @@ func TestBroadcastService_PauseForCircuitBreaker(t *testing.T) {
 		err := d.svc.PauseForCircuitBreaker(context.Background(), "w1", "intg-1", "down")
 		require.NoError(t, err)
 	})
+}
+
+// A test send shows what recipients get (issue #484): a broadcast that keeps the list's
+// unsubscribed contacts hands the provider no List-Unsubscribe URL, one that excludes them
+// does.
+func TestBroadcastService_SendToIndividual_ListUnsubscribeHeader(t *testing.T) {
+	for _, tc := range []struct {
+		name                string
+		excludeUnsubscribed bool
+		wantURL             bool
+	}{
+		{"excludes unsubscribed contacts: URL sent", true, true},
+		{"includes unsubscribed contacts: no URL", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := setupBroadcastSvc(t)
+			defer d.ctrl.Finish()
+
+			ctx := context.Background()
+			req := &domain.SendToIndividualRequest{WorkspaceID: "w1", BroadcastID: "b1", RecipientEmail: "to@example.com"}
+			authOK(d.authService, ctx, req.WorkspaceID)
+
+			sender := domain.NewEmailSender("from@example.com", "From")
+			workspace := &domain.Workspace{
+				ID:       "w1",
+				Settings: domain.WorkspaceSettings{MarketingEmailProviderID: "mkt", SecretKey: "sk_test"},
+				Integrations: domain.Integrations{
+					{ID: "mkt", Type: domain.IntegrationTypeEmail, EmailProvider: domain.EmailProvider{Kind: domain.EmailProviderKindSMTP, Senders: []domain.EmailSender{sender}}},
+				},
+			}
+			d.workspaceRepo.EXPECT().GetByID(ctx, req.WorkspaceID).Return(workspace, nil)
+
+			b := testBroadcast(req.WorkspaceID, req.BroadcastID)
+			b.Audience.ExcludeUnsubscribed = tc.excludeUnsubscribed
+			d.repo.EXPECT().GetBroadcast(ctx, req.WorkspaceID, req.BroadcastID).Return(b, nil)
+
+			// The one-click URL is only built for a known contact.
+			d.contactRepo.EXPECT().GetContactByEmail(ctx, req.WorkspaceID, req.RecipientEmail).
+				Return(&domain.Contact{Email: req.RecipientEmail}, nil)
+
+			template := &domain.Template{
+				ID:      "tplA",
+				Name:    "Template A",
+				Channel: "email",
+				Email: &domain.EmailTemplate{
+					SenderID:         sender.ID,
+					Subject:          "Hello",
+					VisualEditorTree: createMJMLRootBlock(),
+				},
+				Category: string(domain.TemplateCategoryMarketing),
+			}
+			d.templateSvc.EXPECT().GetTemplateByID(ctx, req.WorkspaceID, "tplA", int64(0)).Return(template, nil)
+
+			compiledHTML := "<html>ok</html>"
+			d.templateSvc.EXPECT().CompileTemplate(ctx, gomock.Any()).
+				Return(&domain.CompileTemplateResponse{Success: true, HTML: &compiledHTML}, nil)
+
+			var sent domain.SendEmailProviderRequest
+			d.emailSvc.EXPECT().SendEmail(gomock.Any(), gomock.Any(), true).
+				DoAndReturn(func(_ context.Context, request domain.SendEmailProviderRequest, _ bool) error {
+					sent = request
+					return nil
+				})
+			d.messageHistoryRepo.EXPECT().Create(gomock.Any(), req.WorkspaceID, gomock.Any(), gomock.Any()).Return(nil)
+
+			require.NoError(t, d.svc.SendToIndividual(ctx, req))
+			if tc.wantURL {
+				assert.Contains(t, sent.EmailOptions.ListUnsubscribeURL, "/unsubscribe-oneclick?")
+			} else {
+				assert.Empty(t, sent.EmailOptions.ListUnsubscribeURL)
+			}
+		})
+	}
+}
+
+// Without Templates read every template lookup is refused: the broadcasts come back without
+// their templates, without the refused calls and their error logs. The strict mock fails the
+// test on any GetTemplateByID call.
+func TestBroadcastService_ListBroadcasts_WithTemplates_WithoutTemplatesRead(t *testing.T) {
+	d := setupBroadcastSvc(t)
+	defer d.ctrl.Finish()
+
+	ctx := context.Background()
+	params := domain.ListBroadcastsParams{WorkspaceID: "w1", WithTemplates: true}
+	authAs(d.authService, ctx, params.WorkspaceID, "member", domain.UserPermissions{
+		domain.PermissionResourceBroadcasts: {Read: true, Write: true},
+	})
+
+	b := testBroadcast(params.WorkspaceID, "b1")
+	b.TestSettings.Variations = []domain.BroadcastVariation{{VariationName: "A", TemplateID: "tplA"}}
+	d.repo.EXPECT().ListBroadcasts(ctx, gomock.Any()).Return(
+		&domain.BroadcastListResponse{Broadcasts: []*domain.Broadcast{b}, TotalCount: 1}, nil)
+
+	out, err := d.svc.ListBroadcasts(ctx, params)
+	require.NoError(t, err)
+	require.Len(t, out.Broadcasts, 1)
+	v := out.Broadcasts[0].TestSettings.Variations[0]
+	assert.Equal(t, "tplA", v.TemplateID)
+	assert.Nil(t, v.Template)
+}
+
+// An owner holds every permission without listing them.
+func TestBroadcastService_ListBroadcasts_WithTemplates_Owner(t *testing.T) {
+	d := setupBroadcastSvc(t)
+	defer d.ctrl.Finish()
+
+	ctx := context.Background()
+	params := domain.ListBroadcastsParams{WorkspaceID: "w1", WithTemplates: true}
+	authAs(d.authService, ctx, params.WorkspaceID, "owner", nil)
+
+	b := testBroadcast(params.WorkspaceID, "b1")
+	b.TestSettings.Variations = []domain.BroadcastVariation{{VariationName: "A", TemplateID: "tplA"}}
+	d.repo.EXPECT().ListBroadcasts(ctx, gomock.Any()).Return(
+		&domain.BroadcastListResponse{Broadcasts: []*domain.Broadcast{b}, TotalCount: 1}, nil)
+	d.templateSvc.EXPECT().GetTemplateByID(ctx, params.WorkspaceID, "tplA", int64(0)).Return(&domain.Template{ID: "tplA"}, nil)
+
+	out, err := d.svc.ListBroadcasts(ctx, params)
+	require.NoError(t, err)
+	require.NotNil(t, out.Broadcasts[0].TestSettings.Variations[0].Template)
 }

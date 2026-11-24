@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"net/url"
 	"strconv"
 	"strings"
@@ -118,6 +119,10 @@ type SendBroadcastState struct {
 	TestPhaseCompleted        bool   `json:"test_phase_completed"`
 	TestPhaseRecipientCount   int    `json:"test_phase_recipient_count"`
 	WinnerPhaseRecipientCount int    `json:"winner_phase_recipient_count"`
+	// WinnerPhaseStartOffset is the recipient offset at which the winner phase began:
+	// the recipients the test phase actually reached, 0 when a winner was picked before
+	// any test email went out. Unset in a state saved before it was recorded.
+	WinnerPhaseStartOffset *int64 `json:"winner_phase_start_offset,omitempty"`
 }
 
 // BuildSegmentState contains state specific to segment building tasks
@@ -127,9 +132,13 @@ type BuildSegmentState struct {
 	TotalContacts  int    `json:"total_contacts"`
 	ProcessedCount int    `json:"processed_count"`
 	MatchedCount   int    `json:"matched_count"`
-	ContactOffset  int64  `json:"contact_offset"` // For resumable processing
-	BatchSize      int    `json:"batch_size"`     // Process 1000 at a time
-	StartedAt      string `json:"started_at"`
+	ContactOffset  int64  `json:"contact_offset"` // Contacts scanned so far
+	// LastEmail is the last email of the last fully processed batch: the build resumes after it.
+	// Empty before the first batch, and in a state saved before it was recorded, where the build
+	// resumes once by ContactOffset.
+	LastEmail string `json:"last_email,omitempty"`
+	BatchSize int    `json:"batch_size"` // Contacts per batch
+	StartedAt string `json:"started_at"`
 }
 
 // IntegrationSyncState contains state for integration sync tasks (recurring polling tasks)
@@ -197,6 +206,16 @@ type TaskService interface {
 	SubscribeToBroadcastEvents(eventBus EventBus)
 	IsAutoExecuteEnabled() bool
 
+	// ScheduleBroadcastTask creates the task of a broadcast being scheduled, or starts its
+	// existing task over, and returns the task's ID. A send-now task is due shortly after
+	// the call (RunTaskNow starts it at once); a scheduled one at scheduledAt. It fails, and
+	// writes nothing, when an execution holds the broadcast's task.
+	ScheduleBroadcastTask(ctx context.Context, workspaceID, broadcastID string, sendNow bool, scheduledAt *time.Time) (string, error)
+	// RunTaskNow starts an execution of the given task in the background, whatever its next
+	// run, when this instance executes its tasks itself; otherwise the scheduler or the
+	// cron dispatches it.
+	RunTaskNow(workspaceID, taskID string)
+
 	// Recurring task operations
 	ResetTask(ctx context.Context, workspace, taskID string) error
 	TriggerTask(ctx context.Context, workspace, taskID string) error
@@ -225,6 +244,9 @@ type TaskRepository interface {
 
 	// Delete removes a task
 	Delete(ctx context.Context, workspace, id string) error
+	// DeleteBroadcastTasksTx removes every send_broadcast task of a broadcast, within a
+	// transaction, and reports how many it removed.
+	DeleteBroadcastTasksTx(ctx context.Context, tx *sql.Tx, workspace, broadcastID string) (int64, error)
 	DeleteAll(ctx context.Context, workspace string) error
 
 	// List retrieves tasks with optional filtering
@@ -237,7 +259,10 @@ type TaskRepository interface {
 	MarkAsRunning(ctx context.Context, workspace, id string, timeoutAfter time.Time) error
 	MarkAsRunningTx(ctx context.Context, tx *sql.Tx, workspace, id string, timeoutAfter time.Time) error
 
-	// SaveState saves the current state of a running task
+	// SaveState saves the current state of a running task. When ctx carries the run's lease
+	// (WithTaskLease), only the execution that holds that lease writes: once the task was
+	// handed to another execution, nothing is written. It returns ErrTaskNotRunning when no
+	// row was written.
 	SaveState(ctx context.Context, workspace, id string, progress float64, state *TaskState) error
 	SaveStateTx(ctx context.Context, tx *sql.Tx, workspace, id string, progress float64, state *TaskState) error
 
@@ -267,6 +292,21 @@ type TaskRepository interface {
 	// its retry budget or touching its saved progress.
 	ReleaseTask(ctx context.Context, workspace, id string, reason string, nextRunAfter time.Time) error
 	ReleaseTaskTx(ctx context.Context, tx *sql.Tx, workspace, id string, reason string, nextRunAfter time.Time) error
+
+	// RequeueTask hands a running task back for a later run without counting a failed
+	// attempt: status (pending, or paused to park it), progress, state and next run are
+	// written, the lease is cleared, and the retry count is kept, so a run that was the
+	// last attempt leaves its successor the last attempt too. It returns ErrTaskNotRunning,
+	// and changes nothing, when the task is no longer running: a cancel marked it failed
+	// meanwhile, and that decision stands.
+	RequeueTask(ctx context.Context, workspace, id string, status TaskStatus, nextRunAfter time.Time, progress float64, state *TaskState) error
+
+	// ResetBroadcastTaskTx starts a broadcast's task over for a new schedule: pending, due at
+	// nextRunAfter, with the given state, no progress, a fresh retry budget, no error and
+	// a creation date of now (the age the orchestrator reads to tell a task waiting for its
+	// schedule's commit from an orphan). It returns ErrTaskAlreadyRunning, and changes
+	// nothing, for a task an execution holds.
+	ResetBroadcastTaskTx(ctx context.Context, tx *sql.Tx, workspace, id string, state *TaskState, nextRunAfter time.Time) error
 
 	// WakeTask puts a waiting task back in the queue: pending, due at nextRunAfter,
 	// with a fresh retry budget and no error message. It returns false, and changes
@@ -418,7 +458,7 @@ func (r *GetTaskRequest) FromURLParams(values url.Values) error {
 		return fmt.Errorf("id is required")
 	}
 
-	return nil
+	return validateTaskID(r.ID)
 }
 
 // DeleteTaskRequest defines the request to delete a task
@@ -439,7 +479,7 @@ func (r *DeleteTaskRequest) FromURLParams(values url.Values) error {
 		return fmt.Errorf("id is required")
 	}
 
-	return nil
+	return validateTaskID(r.ID)
 }
 
 // ListTasksRequest is used to extract query parameters for listing tasks
@@ -580,6 +620,19 @@ func (r *ExecuteTaskRequest) Validate() error {
 		return fmt.Errorf("task id is required")
 	}
 
+	return validateTaskID(r.ID)
+}
+
+// validateTaskID refuses a task ID that is not a UUID in its 36-character form: tasks.id is a
+// UUID column, so another ID would reach the database only to fail there. uuid.Parse also
+// reads forms PostgreSQL refuses, such as urn:uuid:<uuid>.
+func validateTaskID(id string) error {
+	if len(id) != 36 {
+		return fmt.Errorf("task id must be a UUID")
+	}
+	if _, err := uuid.Parse(id); err != nil {
+		return fmt.Errorf("task id must be a UUID")
+	}
 	return nil
 }
 
@@ -599,7 +652,7 @@ func (r *ResetTaskRequest) Validate() error {
 		return fmt.Errorf("id is required")
 	}
 
-	return nil
+	return validateTaskID(r.ID)
 }
 
 // TriggerTaskRequest defines the request to trigger immediate execution of a recurring task
@@ -618,5 +671,20 @@ func (r *TriggerTaskRequest) Validate() error {
 		return fmt.Errorf("id is required")
 	}
 
-	return nil
+	return validateTaskID(r.ID)
+}
+
+type taskLeaseKey struct{}
+
+// WithTaskLease returns ctx carrying the lease (timeout_after) that the execution running a
+// task stored when it claimed it. A write that must come from that execution only, such as
+// TaskRepository.SaveState, matches it.
+func WithTaskLease(ctx context.Context, lease time.Time) context.Context {
+	return context.WithValue(ctx, taskLeaseKey{}, lease)
+}
+
+// TaskLeaseFrom returns the lease WithTaskLease put in ctx.
+func TaskLeaseFrom(ctx context.Context) (time.Time, bool) {
+	lease, ok := ctx.Value(taskLeaseKey{}).(time.Time)
+	return lease, ok
 }

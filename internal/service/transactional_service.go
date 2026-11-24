@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ type TransactionalNotificationService struct {
 	authService        domain.AuthService
 	logger             logger.Logger
 	workspaceRepo      domain.WorkspaceRepository
+	listRepo           domain.ListRepository
 	apiEndpoint        string
 }
 
@@ -39,6 +41,7 @@ func NewTransactionalNotificationService(
 	authService domain.AuthService,
 	logger logger.Logger,
 	workspaceRepo domain.WorkspaceRepository,
+	listRepo domain.ListRepository,
 	apiEndpoint string,
 ) *TransactionalNotificationService {
 	return &TransactionalNotificationService{
@@ -50,15 +53,24 @@ func NewTransactionalNotificationService(
 		authService:        authService,
 		logger:             logger,
 		workspaceRepo:      workspaceRepo,
+		listRepo:           listRepo,
 		apiEndpoint:        apiEndpoint,
 	}
 }
 
-// effectiveTracking resolves the per-notification tracking mode against the
-// workspace kill-switch: only an explicit opt-out suppresses tracking, and no
-// mode can force tracking on when the workspace flag is off.
-func effectiveTracking(workspaceEnabled bool, mode string) bool {
-	return workspaceEnabled && mode != notifuse_mjml.TrackingModeDisabled
+// recipientTrackingSettings returns a copy of a notification's stored tracking
+// settings with the tracking decision for one recipient applied: the
+// workspace's opens and clicks switches, the recipient's consent, and the
+// notification's tracking mode (disabled rewrites nothing, no_tracking keeps the
+// UTM parameters only). No mode can turn on what the workspace turned off.
+//
+// The stored settings are never modified: they describe the notification, and
+// the decision belongs to one recipient.
+func recipientTrackingSettings(workspace *domain.Workspace, contact *domain.Contact, stored notifuse_mjml.TrackingSettings) notifuse_mjml.TrackingSettings {
+	settings := stored
+	decision := domain.ResolveEmailTracking(workspace.Settings.TrackingPolicy(), contact, stored.TrackingMode)
+	decision.Apply(&settings)
+	return settings
 }
 
 // canonicalTrackingMode normalizes the tri-state for storage: an explicit
@@ -210,27 +222,28 @@ func (s *TransactionalNotificationService) UpdateNotification(
 	if isIntegrationManaged {
 		// Prevent updating name and channels for integration-managed notifications
 		if params.Name != "" && params.Name != notification.Name {
-			err := fmt.Errorf("cannot update name of integration-managed notification: notification is managed by integration %s", *notification.IntegrationID)
+			err := domain.NewValidationError(fmt.Sprintf("cannot update name of integration-managed notification: notification is managed by integration %s", *notification.IntegrationID))
 			tracing.MarkSpanError(ctx, err)
 			return nil, err
 		}
 		if params.Channels != nil {
-			err := fmt.Errorf("cannot update channels of integration-managed notification: notification is managed by integration %s", *notification.IntegrationID)
+			err := domain.NewValidationError(fmt.Sprintf("cannot update channels of integration-managed notification: notification is managed by integration %s", *notification.IntegrationID))
 			tracing.MarkSpanError(ctx, err)
 			return nil, err
 		}
 
 		// Allow updates to description and tracking_settings
-		if params.Description != "" {
-			notification.Description = params.Description
+		if params.Description != nil {
+			notification.Description = *params.Description
 		}
 	} else {
 		// For non-integration-managed notifications, allow all updates
 		if params.Name != "" {
 			notification.Name = params.Name
 		}
-		if params.Description != "" {
-			notification.Description = params.Description
+		// An explicit "" clears the description; an absent one leaves it.
+		if params.Description != nil {
+			notification.Description = *params.Description
 		}
 		// Validate the updated templates exist
 		if params.Channels != nil {
@@ -477,7 +490,7 @@ func (s *TransactionalNotificationService) DeleteNotification(
 
 	// Prevent deletion of integration-managed notifications
 	if notification.IntegrationID != nil && *notification.IntegrationID != "" {
-		err := fmt.Errorf("cannot delete integration-managed notification: notification is managed by integration %s", *notification.IntegrationID)
+		err := domain.NewValidationError(fmt.Sprintf("cannot delete integration-managed notification: notification is managed by integration %s", *notification.IntegrationID))
 		tracing.MarkSpanError(ctx, err)
 		return err
 	}
@@ -590,6 +603,13 @@ func (s *TransactionalNotificationService) SendNotification(
 		trace.StringAttribute("notification.name", notification.Name),
 	)
 
+	// A sender chosen for this message is checked before anything is written: an unknown one
+	// must not create or update the contact, nor be swallowed by the channel loop below.
+	if err := checkChosenSender(workspace, notification, params); err != nil {
+		tracing.MarkSpanError(ctx, err)
+		return "", err
+	}
+
 	// Upsert the contact first
 	if params.Contact == nil {
 		err := fmt.Errorf("contact is required")
@@ -605,9 +625,17 @@ func (s *TransactionalNotificationService) SendNotification(
 	// Without contacts:write the send may still create the recipient, but it must not carry
 	// the caller's fields into an existing record: the repository merges every non-nil
 	// pointer, so the full request body would overwrite an unrelated stored contact.
+	//
+	// With contacts:write, a tracking consent in the body is recorded like any other
+	// field. The upsert runs as a system call, which ContactService does not attribute,
+	// so the source defaults to "api" here when the caller gave none.
 	upsertTarget := params.Contact
 	if !hasContactsWrite {
 		upsertTarget = &domain.Contact{Email: params.Contact.Email}
+	} else if params.Contact.ProvidesTrackingConsent() && domain.TrackingConsentValue(params.Contact.TrackingConsentSource) == "" {
+		withSource := *params.Contact
+		withSource.TrackingConsentSource = &domain.NullableString{String: domain.TrackingConsentSourceAPI}
+		upsertTarget = &withSource
 	}
 
 	contactOperation := s.contactService.UpsertContact(contactCtx, workspaceID, upsertTarget)
@@ -677,6 +705,8 @@ func (s *TransactionalNotificationService) SendNotification(
 	}
 
 	successfulChannels := 0
+	// renderErr is the email channel's error when its template did not render.
+	var renderErr *domain.TemplateRenderError
 
 	span.AddAttributes(
 		trace.StringAttribute("message_id", messageID),
@@ -693,14 +723,16 @@ func (s *TransactionalNotificationService) SendNotification(
 			trace.StringAttribute("template_id", templateConfig.TemplateID),
 		)
 
-		// Prepare message data with contact and custom data
-		notification.TrackingSettings.EnableTracking = effectiveTracking(workspace.Settings.EmailTrackingEnabled, notification.TrackingSettings.TrackingMode)
+		// Prepare message data with contact and custom data. The tracking decision
+		// is applied to a copy, before BuildTemplateData, which leaves
+		// tracking_opens_url empty when opens are not tracked.
+		trackingSettings := recipientTrackingSettings(workspace, contact, notification.TrackingSettings)
 
 		// Resolve the tracking/base endpoint: custom endpoint if set, else the API endpoint.
-		notification.TrackingSettings.Endpoint = workspace.Settings.ResolveEndpoint(s.apiEndpoint)
+		trackingSettings.Endpoint = workspace.Settings.ResolveEndpoint(s.apiEndpoint)
 
-		notification.TrackingSettings.WorkspaceID = workspaceID
-		notification.TrackingSettings.MessageID = messageID
+		trackingSettings.WorkspaceID = workspaceID
+		trackingSettings.MessageID = messageID
 
 		contactWithList := domain.ContactWithList{
 			Contact: contact,
@@ -713,7 +745,7 @@ func (s *TransactionalNotificationService) SendNotification(
 			ContactWithList:     contactWithList,
 			MessageID:           messageID,
 			ProvidedData:        params.Data,
-			TrackingSettings:    notification.TrackingSettings,
+			TrackingSettings:    trackingSettings,
 			Broadcast:           nil,
 		}
 		templateData, err := domain.BuildTemplateData(req)
@@ -756,8 +788,6 @@ func (s *TransactionalNotificationService) SendNotification(
 				trace.StringAttribute("integration_id", integrationID),
 			)
 
-			notification.TrackingSettings.EnableTracking = effectiveTracking(workspace.Settings.EmailTrackingEnabled, notification.TrackingSettings.TrackingMode)
-
 			notificationID := params.ID
 			request := domain.SendEmailRequest{
 				WorkspaceID:                 workspaceID,
@@ -768,7 +798,7 @@ func (s *TransactionalNotificationService) SendNotification(
 				Contact:                     contact,
 				TemplateConfig:              templateConfig,
 				MessageData:                 messageData,
-				TrackingSettings:            notification.TrackingSettings,
+				TrackingSettings:            trackingSettings,
 				EmailProvider:               emailProvider,
 				EmailOptions:                params.EmailOptions,
 			}
@@ -777,6 +807,10 @@ func (s *TransactionalNotificationService) SendNotification(
 				successfulChannels++
 				childSpan.End()
 			} else {
+				var templateErr *domain.TemplateRenderError
+				if errors.As(err, &templateErr) {
+					renderErr = templateErr
+				}
 				// Log the error but continue with other channels
 				s.logger.WithFields(map[string]interface{}{
 					"error":        err.Error(),
@@ -795,6 +829,12 @@ func (s *TransactionalNotificationService) SendNotification(
 
 	if successfulChannels == 0 {
 		err := fmt.Errorf("failed to send notification through any channel")
+		// A template that does not render with this data names what the caller has to
+		// change, and is the same at every retry: it comes back to the caller. Any other
+		// failure, such as a provider outage, keeps the generic error.
+		if renderErr != nil {
+			err = fmt.Errorf("failed to send notification through any channel: %w", renderErr)
+		}
 		tracing.MarkSpanError(ctx, err)
 		return "", err
 	}
@@ -806,8 +846,11 @@ func (s *TransactionalNotificationService) SendNotification(
 	return messageID, nil
 }
 
-// TestTemplate sends a test email with a template to verify it works
-func (s *TransactionalNotificationService) TestTemplate(ctx context.Context, workspaceID string, templateID string, integrationID string, senderID string, recipientEmail string, language string, emailOptions domain.EmailOptions) error {
+// TestTemplate sends a test email with a template to verify it works. With listID the test is
+// sent for that mailing list, as a real send to the list is: it carries the list's links and,
+// unless omitListUnsubscribeHeader is set, its List-Unsubscribe header, and those act on the
+// list for the recipient.
+func (s *TransactionalNotificationService) TestTemplate(ctx context.Context, workspaceID string, templateID string, integrationID string, senderID string, recipientEmail string, language string, listID string, omitListUnsubscribeHeader bool, emailOptions domain.EmailOptions) error {
 	// Authenticate user
 	var err error
 	var userWorkspace *domain.UserWorkspace
@@ -835,6 +878,16 @@ func (s *TransactionalNotificationService) TestTemplate(ctx context.Context, wor
 			domain.PermissionResourceContacts,
 			domain.PermissionTypeRead,
 			"Insufficient permissions: read access to contacts required to set cc or bcc",
+		)
+	}
+
+	// The list's name goes into the email and its preferences page, so choosing one is a
+	// list read.
+	if listID != "" && !userWorkspace.HasPermission(domain.PermissionResourceLists, domain.PermissionTypeRead) {
+		return domain.NewPermissionError(
+			domain.PermissionResourceLists,
+			domain.PermissionTypeRead,
+			"Insufficient permissions: read access to lists required to send a test for a list",
 		)
 	}
 
@@ -878,6 +931,16 @@ func (s *TransactionalNotificationService) TestTemplate(ctx context.Context, wor
 		return fmt.Errorf("sender not found: %s", senderID)
 	}
 
+	// Look the list up before the contact is upserted, so an unknown or deleted list leaves
+	// nothing behind.
+	var list *domain.List
+	if listID != "" {
+		list, err = s.listRepo.GetListByID(ctx, workspaceID, listID)
+		if err != nil {
+			return fmt.Errorf("failed to get list: %w", err)
+		}
+	}
+
 	// upsert the contact — system-scoped for the same reason as SendNotification, so
 	// transactional:write alone is enough to send a test
 	contactCtx := context.WithValue(ctx, domain.SystemCallKey, true)
@@ -893,16 +956,22 @@ func (s *TransactionalNotificationService) TestTemplate(ctx context.Context, wor
 	// Get the full contact record (same pattern as SendNotification)
 	contact, err := s.contactService.GetContactByEmail(contactCtx, workspaceID, recipientEmail)
 	if err != nil {
-		// Fallback to minimal contact - test emails should still work
+		// Fallback to minimal contact - test emails should still work. Its address is
+		// stored the way the contact's is, so the history and the links agree.
 		contact = &domain.Contact{
-			Email: recipientEmail,
+			Email: domain.NormalizeEmail(recipientEmail),
 		}
 	}
 
+	// Without a list the links point at a placeholder list.
 	contactWithList := domain.ContactWithList{
 		Contact:  contact,
 		ListID:   "foo",
 		ListName: "bar",
+	}
+	if list != nil {
+		contactWithList.ListID = list.ID
+		contactWithList.ListName = list.Name
 	}
 
 	// Use fixed messageID for testing
@@ -911,12 +980,14 @@ func (s *TransactionalNotificationService) TestTemplate(ctx context.Context, wor
 	// Resolve the tracking/base endpoint: custom endpoint if set, else the API endpoint.
 	endpoint := workspace.Settings.ResolveEndpoint(s.apiEndpoint)
 
-	trackingSettings := notifuse_mjml.TrackingSettings{
-		EnableTracking: workspace.Settings.EmailTrackingEnabled,
-		Endpoint:       endpoint,
-		WorkspaceID:    workspaceID,
-		MessageID:      messageID,
-	}
+	// The test recipient's consent applies as for a real send.
+	trackingSettings := recipientTrackingSettings(workspace, contact, notifuse_mjml.TrackingSettings{
+		Endpoint:    endpoint,
+		WorkspaceID: workspaceID,
+		MessageID:   messageID,
+		SigningKey:  domain.TrackingSigningKey(workspace.Settings.SecretKey),
+	})
+	opensTracked, clicksTracked := domain.TrackedFlagsFromSettings(trackingSettings)
 
 	req := domain.TemplateDataRequest{
 		WorkspaceID:         workspace.ID,
@@ -958,6 +1029,15 @@ func (s *TransactionalNotificationService) TestTemplate(ctx context.Context, wor
 		return fmt.Errorf("template compilation failed: %s", errMsg)
 	}
 
+	if compiledResult.TextError != "" {
+		s.logger.WithFields(map[string]interface{}{
+			"workspace_id":     workspaceID,
+			"template_id":      template.ID,
+			"template_version": template.Version,
+			"error":            compiledResult.TextError,
+		}).Warn("Custom text version could not be used, sending the automatic one")
+	}
+
 	// Process subject line through Liquid templating if it contains Liquid tags
 	processedSubject, err := notifuse_mjml.ProcessLiquidTemplate(
 		emailContent.Subject,
@@ -981,6 +1061,17 @@ func (s *TransactionalNotificationService) TestTemplate(ctx context.Context, wor
 		processedSubject = overrideSubject
 	}
 
+	// A test for a list carries the list's one-click header, as a real send to the list does,
+	// in place of any URL the caller passed; a test that leaves the header out carries none.
+	if list != nil {
+		emailOptions.ListUnsubscribeURL = ""
+		if !omitListUnsubscribeHeader {
+			if unsubscribeURL, ok := messageData["oneclick_unsubscribe_url"].(string); ok {
+				emailOptions.ListUnsubscribeURL = unsubscribeURL
+			}
+		}
+	}
+
 	// Fall back to the template's reply-to; an explicit one still wins
 	if emailOptions.ReplyTo == "" && emailContent.ReplyTo != "" {
 		emailOptions.ReplyTo = emailContent.ReplyTo
@@ -996,6 +1087,7 @@ func (s *TransactionalNotificationService) TestTemplate(ctx context.Context, wor
 		To:            recipientEmail,
 		Subject:       processedSubject,
 		Content:       *compiledResult.HTML,
+		TextContent:   compiledResult.CustomText(),
 		Provider:      emailProvider,
 		EmailOptions:  emailOptions,
 	}
@@ -1012,11 +1104,18 @@ func (s *TransactionalNotificationService) TestTemplate(ctx context.Context, wor
 		return fmt.Errorf("failed to send test email: %w", err)
 	}
 
-	// record the message history
+	// Record the message history under the contact's address, the one its links carry: the
+	// one-click unsubscribe and bounces look the email up by it. The list makes the
+	// unsubscribe valid for a recipient who is not on it yet.
+	var historyListID *string
+	if list != nil {
+		historyListID = &list.ID
+	}
 	return s.messageHistoryRepo.Create(ctx, workspaceID, workspace.Settings.SecretKey, &domain.MessageHistory{
 		ID:              messageID,
 		ExternalID:      nil, // No external ID for test messages
-		ContactEmail:    recipientEmail,
+		ContactEmail:    contact.Email,
+		ListID:          historyListID,
 		TemplateID:      templateID,
 		TemplateVersion: template.Version,
 		Channel:         "email",
@@ -1024,8 +1123,34 @@ func (s *TransactionalNotificationService) TestTemplate(ctx context.Context, wor
 			Data: messageData,
 		},
 		ChannelOptions: emailOptions.ToChannelOptions(),
+		OpensTracked:   opensTracked,
+		ClicksTracked:  clicksTracked,
 		SentAt:         time.Now().UTC(),
 		CreatedAt:      time.Now().UTC(),
 		UpdatedAt:      time.Now().UTC(),
 	})
+}
+
+// checkChosenSender returns an error wrapping domain.ErrSenderNotFound when the send chooses a
+// sender (email_options.sender_id) that the transactional email integration does not have.
+// A send that does not go out by email, or a workspace without that integration, is left to
+// the checks that already handle it.
+func checkChosenSender(workspace *domain.Workspace, notification *domain.TransactionalNotification, params domain.TransactionalNotificationSendParams) error {
+	if params.EmailOptions.SenderID == "" {
+		return nil
+	}
+	if _, ok := notification.Channels[domain.TransactionalChannelEmail]; !ok {
+		return nil
+	}
+	if len(params.Channels) > 0 && !slices.Contains(params.Channels, domain.TransactionalChannelEmail) {
+		return nil
+	}
+	provider, err := workspace.GetEmailProvider(false)
+	if err != nil || provider == nil {
+		return nil
+	}
+	if !provider.HasSender(params.EmailOptions.SenderID) {
+		return fmt.Errorf("%w: %s", domain.ErrSenderNotFound, params.EmailOptions.SenderID)
+	}
+	return nil
 }

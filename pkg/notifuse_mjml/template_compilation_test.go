@@ -9,10 +9,11 @@ import (
 	"time"
 
 	"github.com/Notifuse/notifuse/pkg/crypto"
-	"github.com/preslavrachev/gomjml/mjml"
+	"github.com/Notifuse/safe-mjml/mjml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
 )
 
 func TestTrackLinks(t *testing.T) {
@@ -929,64 +930,6 @@ func TestTrackLinks_EncryptsTheDecodedURL(t *testing.T) {
 	}
 }
 
-func TestGetTrackingURL(t *testing.T) {
-	trackingSettings := TrackingSettings{
-		EnableTracking: true,
-		Endpoint:       "https://track.example.com/redirect",
-		UTMSource:      "email",
-		UTMMedium:      "newsletter",
-		UTMCampaign:    "test-campaign",
-		WorkspaceID:    "test-workspace",
-		MessageID:      "test-message",
-	}
-
-	tests := []struct {
-		name     string
-		inputURL string
-		expected string
-	}{
-		{
-			name:     "Basic URL with UTM parameters",
-			inputURL: "https://example.com",
-			expected: "https://track.example.com/redirect?url=https%3A%2F%2Fexample.com%3Futm_campaign%3Dtest-campaign%26utm_medium%3Dnewsletter%26utm_source%3Demail",
-		},
-		{
-			name:     "URL with existing UTM parameters",
-			inputURL: "https://example.com?utm_source=existing",
-			expected: "https://track.example.com/redirect?url=https%3A%2F%2Fexample.com%3Futm_source%3Dexisting",
-		},
-		{
-			name:     "Mailto URL should not be modified",
-			inputURL: "mailto:test@example.com",
-			expected: "mailto:test@example.com",
-		},
-		{
-			name:     "Tel URL should not be modified",
-			inputURL: "tel:+1234567890",
-			expected: "tel:+1234567890",
-		},
-		{
-			name:     "Liquid template URL should not be modified",
-			inputURL: "https://example.com/{{ user.id }}",
-			expected: "https://example.com/{{ user.id }}",
-		},
-		{
-			name:     "Empty URL should not be modified",
-			inputURL: "",
-			expected: "",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			result := trackingSettings.GetTrackingURL(test.inputURL)
-			if result != test.expected {
-				t.Errorf("Expected %q, got %q", test.expected, result)
-			}
-		})
-	}
-}
-
 func TestCompileTemplateWithTracking(t *testing.T) {
 	// Create a simple email with button
 	textBase := NewBaseBlock("text-1", MJMLComponentMjText)
@@ -1218,7 +1161,7 @@ func TestTrackingPixelWithoutBodyTag(t *testing.T) {
 // mso-line-height-rule makes the Word engine behind Outlook treat the zero
 // line-height as exact rather than as a minimum.
 func TestTrackingPixelCollapsesLineBox(t *testing.T) {
-	pixel := GenerateHTMLOpenTrackingPixel("ws", "msg", "https://api.example.com", 1700000000)
+	pixel := GenerateHTMLOpenTrackingPixel(nil, "ws", "msg", "https://api.example.com", 1700000000)
 
 	assert.Contains(t, pixel, `<td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;">`,
 		"the pixel cell must zero its line box, or it reserves a full line of text below the email")
@@ -1237,7 +1180,7 @@ func TestTrackingPixelCollapsesLineBox(t *testing.T) {
 func TestTrackingPixelCellStyleMatchesMJMLSpacerRow(t *testing.T) {
 	const cellStyle = `line-height:0px;font-size:0px;mso-line-height-rule:exactly;`
 
-	pixel := GenerateHTMLOpenTrackingPixel("ws", "msg", "https://api.example.com", 1700000000)
+	pixel := GenerateHTMLOpenTrackingPixel(nil, "ws", "msg", "https://api.example.com", 1700000000)
 	require.Contains(t, pixel, cellStyle)
 
 	rendered, err := mjml.Render(`<mjml><mj-body><mj-section><mj-column><mj-text>x</mj-text></mj-column></mj-section></mj-body></mjml>`)
@@ -1254,7 +1197,7 @@ func TestTrackingPixelCellStyleMatchesMJMLSpacerRow(t *testing.T) {
 // image area only when both attributes are present, and coerces a zero to 200,
 // so width="0" height="0" would bill the pixel as 40000px of image.
 func TestTrackingPixelCarriesNoDimensionAttributes(t *testing.T) {
-	pixel := GenerateHTMLOpenTrackingPixel("ws", "msg", "https://api.example.com", 1700000000)
+	pixel := GenerateHTMLOpenTrackingPixel(nil, "ws", "msg", "https://api.example.com", 1700000000)
 
 	imgTag := regexp.MustCompile(`<img [^>]*>`).FindString(pixel)
 	require.NotEmpty(t, imgTag, "expected an img tag in the pixel markup")
@@ -1461,121 +1404,121 @@ func TestCompileTemplateWithButtonQueryParameters(t *testing.T) {
 	t.Logf("Generated HTML (excerpt):\n%s", *resp.HTML)
 }
 
-func TestPreprocessMjmlForXML(t *testing.T) {
+// TestCompileTemplate_HTMLFormsInMJML compiles HTML forms that gomjml's XML
+// parser refused and preprocessMjmlForXML used to rewrite (void tags, HTML
+// entities, quotes and upper-case hexadecimal references in URLs). safe-mjml
+// reads them as MJML does, so they are compiled as written; each case checks
+// what a browser reads in the HTML: the markup (want, compared once both sides
+// are parsed as a browser parses them) or the URL of the first link (wantHref).
+func TestCompileTemplate_HTMLFormsInMJML(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    string
-		expected string
+		input    string // the content of an mj-column
+		want     string
+		wantHref string
 	}{
+		{name: "br tag", input: "<mj-text><p>Line 1<br>Line 2</p></mj-text>", want: "<p>Line 1<br>Line 2</p>"},
+		{name: "br tag with space", input: "<mj-text><p>Line 1<br >Line 2</p></mj-text>", want: "<p>Line 1<br>Line 2</p>"},
+		{name: "self-closing br", input: "<mj-text><p>Line 1<br/>Line 2</p></mj-text>", want: "<p>Line 1<br>Line 2</p>"},
+		{name: "self-closing br with space", input: "<mj-text><p>Line 1<br />Line 2</p></mj-text>", want: "<p>Line 1<br>Line 2</p>"},
 		{
-			name:     "convert br tag to self-closing",
-			input:    "<mj-text><p>Line 1<br>Line 2</p></mj-text>",
-			expected: "<mj-text><p>Line 1<br/>Line 2</p></mj-text>",
-		},
-		{
-			name:     "convert br tag with space to self-closing",
-			input:    "<mj-text><p>Line 1<br >Line 2</p></mj-text>",
-			expected: "<mj-text><p>Line 1<br/>Line 2</p></mj-text>",
-		},
-		{
-			name:     "preserve already self-closing br",
-			input:    "<mj-text><p>Line 1<br/>Line 2</p></mj-text>",
-			expected: "<mj-text><p>Line 1<br/>Line 2</p></mj-text>",
-		},
-		{
-			name:     "preserve already self-closing br with space",
-			input:    "<mj-text><p>Line 1<br />Line 2</p></mj-text>",
-			expected: "<mj-text><p>Line 1<br />Line 2</p></mj-text>",
-		},
-		{
-			name:     "&quot; in a double-quoted href is shielded from gomjml's entity pre-pass",
+			name:     "&quot; in a double-quoted href and title",
 			input:    `<mj-text><a href="https://example.com/s?q=&quot;x&quot;" title="&quot;t&quot;">l</a></mj-text>`,
-			expected: `<mj-text><a href="https://example.com/s?q=&amp;quot;x&amp;quot;" title="&quot;t&quot;">l</a></mj-text>`,
+			want:     `<a href='https://example.com/s?q="x"' title='"t"'>l</a>`,
+			wantHref: `https://example.com/s?q="x"`,
 		},
 		{
-			name:     "quotes in a single-quoted href are shielded from gomjml's entity pre-pass",
+			name:     "quotes in a single-quoted href",
 			input:    `<mj-button href='https://example.com/s?q="x"&amp;y=&quot;z&quot;&amp;n=O&apos;B'>b</mj-button>`,
-			expected: `<mj-button href='https://example.com/s?q=&amp;quot;x&amp;quot;&amp;y=&amp;quot;z&amp;quot;&amp;n=O&#39;B'>b</mj-button>`,
+			wantHref: `https://example.com/s?q="x"&y="z"&n=O'B`,
 		},
 		{
-			name:     "an upper-case hexadecimal reference in an href is lower-cased for the XML parser",
+			name:     "upper-case hexadecimal references in an href",
 			input:    `<mj-button href="https://example.com/what&#X27;s-new?a&#X3D;1&amp;b&#X3d;2">b</mj-button>`,
-			expected: `<mj-button href="https://example.com/what&#x27;s-new?a&#x3D;1&amp;b&#x3d;2">b</mj-button>`,
+			wantHref: `https://example.com/what's-new?a=1&b=2`,
 		},
 		{
-			name:     "' in a double-quoted href is left as is",
+			name:     "' in a double-quoted href",
 			input:    `<mj-button href="https://example.com/what's-new">b</mj-button>`,
-			expected: `<mj-button href="https://example.com/what's-new">b</mj-button>`,
+			wantHref: `https://example.com/what's-new`,
 		},
+		{name: "hr tag", input: "<mj-raw><hr></mj-raw>", want: "<hr>"},
+		{name: "several void tags", input: "<mj-text><p>A<br>B<br>C<hr>D</p></mj-text>", want: "<p>A<br>B<br>C<hr>D</p>"},
+		{name: "img tag with attributes", input: `<mj-raw><img src="test.jpg" alt="test"></mj-raw>`, want: `<img src="test.jpg" alt="test">`},
+		{name: "nbsp entity", input: "<mj-text>Hello&nbsp;World</mj-text>", want: "Hello&nbsp;World"},
+		{name: "several nbsp entities", input: "<mj-text>A&nbsp;&nbsp;&nbsp;B</mj-text>", want: "A&nbsp;&nbsp;&nbsp;B"},
+		{name: "copy entity", input: "<mj-text>&copy; 2024</mj-text>", want: "&copy; 2024"},
+		{name: "XML predefined entities", input: "<mj-text>&amp; &lt; &gt; &quot; &apos;</mj-text>", want: "&amp; &lt; &gt; &quot; &apos;"},
+		{name: "numeric entities", input: "<mj-text>&#160;&#169;</mj-text>", want: "&nbsp;&copy;"},
+		{name: "void tags and entities", input: "<mj-text><p>Hello<br>World&nbsp;&copy;</p></mj-text>", want: "<p>Hello<br>World&nbsp;&copy;</p>"},
+		{name: "Liquid output and nbsp", input: "<mj-text>Hello {{ user.name }}&nbsp;welcome!</mj-text>", want: "Hello {{ user.name }}&nbsp;welcome!"},
+		{name: "Liquid tags and br", input: "<mj-text>{% if show %}<br>Show this{% endif %}</mj-text>", want: "{% if show %}<br>Show this{% endif %}"},
 		{
-			name:     "convert hr tag to self-closing",
-			input:    "<mj-raw><hr></mj-raw>",
-			expected: "<mj-raw><hr/></mj-raw>",
-		},
-		{
-			name:     "convert multiple void tags",
-			input:    "<mj-text><p>A<br>B<br>C<hr>D</p></mj-text>",
-			expected: "<mj-text><p>A<br/>B<br/>C<hr/>D</p></mj-text>",
-		},
-		{
-			name:     "convert img tag with attributes to self-closing",
-			input:    `<mj-raw><img src="test.jpg" alt="test"></mj-raw>`,
-			expected: `<mj-raw><img src="test.jpg" alt="test"/></mj-raw>`,
-		},
-		{
-			name:     "convert nbsp entity to numeric",
-			input:    "<mj-text>Hello&nbsp;World</mj-text>",
-			expected: "<mj-text>Hello&#160;World</mj-text>",
-		},
-		{
-			name:     "convert multiple nbsp entities",
-			input:    "<mj-text>A&nbsp;&nbsp;&nbsp;B</mj-text>",
-			expected: "<mj-text>A&#160;&#160;&#160;B</mj-text>",
-		},
-		{
-			name:     "convert copy entity to numeric",
-			input:    "<mj-text>&copy; 2024</mj-text>",
-			expected: "<mj-text>&#169; 2024</mj-text>",
-		},
-		{
-			name:     "preserve xml predefined entities",
-			input:    "<mj-text>&amp; &lt; &gt; &quot; &apos;</mj-text>",
-			expected: "<mj-text>&amp; &lt; &gt; &quot; &apos;</mj-text>",
-		},
-		{
-			name:     "preserve numeric entities",
-			input:    "<mj-text>&#160;&#169;</mj-text>",
-			expected: "<mj-text>&#160;&#169;</mj-text>",
-		},
-		{
-			name:     "combined void tags and entities",
-			input:    "<mj-text><p>Hello<br>World&nbsp;&copy;</p></mj-text>",
-			expected: "<mj-text><p>Hello<br/>World&#160;&#169;</p></mj-text>",
-		},
-		{
-			name:     "preserve liquid double braces",
-			input:    "<mj-text>Hello {{ user.name }}&nbsp;welcome!</mj-text>",
-			expected: "<mj-text>Hello {{ user.name }}&#160;welcome!</mj-text>",
-		},
-		{
-			name:     "preserve liquid tags",
-			input:    "<mj-text>{% if show %}<br>Show this{% endif %}</mj-text>",
-			expected: "<mj-text>{% if show %}<br/>Show this{% endif %}</mj-text>",
-		},
-		{
-			name:     "combined liquid, void tags and entities",
-			input:    "<mj-text><p>Dear {{ user.name }},<br>Your order #{{ order.id }}&nbsp;shipped!</p></mj-text>",
-			expected: "<mj-text><p>Dear {{ user.name }},<br/>Your order #{{ order.id }}&#160;shipped!</p></mj-text>",
+			name:  "Liquid, void tags and entities",
+			input: "<mj-text><p>Dear {{ user.name }},<br>Your order #{{ order.id }}&nbsp;shipped!</p></mj-text>",
+			want:  "<p>Dear {{ user.name }},<br>Your order #{{ order.id }}&nbsp;shipped!</p>",
 		},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := preprocessMjmlForXML(tt.input)
-			if result != tt.expected {
-				t.Errorf("preprocessMjmlForXML() =\n%s\nwant:\n%s", result, tt.expected)
+			source := "<mjml><mj-body><mj-section><mj-column>" + tt.input + "</mj-column></mj-section></mj-body></mjml>"
+			resp, err := CompileTemplate(CompileTemplateRequest{
+				WorkspaceID:    "ws",
+				MessageID:      "m",
+				MjmlSource:     &source,
+				Channel:        "web",
+				PreserveLiquid: true,
+			})
+			require.NoError(t, err)
+			require.True(t, resp.Success, "error: %v", resp.Error)
+			require.NotNil(t, resp.HTML)
+			if tt.want != "" {
+				assert.Contains(t, browserParsed(t, *resp.HTML), browserParsed(t, tt.want))
+			}
+			if tt.wantHref != "" {
+				href, ok := firstLinkHref(t, *resp.HTML)
+				require.True(t, ok, "no link in %s", *resp.HTML)
+				assert.Equal(t, tt.wantHref, href)
 			}
 		})
+	}
+}
+
+// browserParsed parses s as a browser parses the content of a body and writes
+// it back, so that two spellings of the same markup (<br> and <br/>, &nbsp; and
+// &#160;) compare equal.
+func browserParsed(t *testing.T, s string) string {
+	t.Helper()
+	body := &html.Node{Type: html.ElementNode, Data: "body", DataAtom: atom.Body}
+	nodes, err := html.ParseFragment(strings.NewReader(s), body)
+	require.NoError(t, err)
+	var b strings.Builder
+	for _, n := range nodes {
+		require.NoError(t, html.Render(&b, n))
+	}
+	return b.String()
+}
+
+// firstLinkHref returns the href of the first <a> of rendered, as a browser
+// reads it.
+func firstLinkHref(t *testing.T, rendered string) (string, bool) {
+	t.Helper()
+	z := html.NewTokenizer(strings.NewReader(rendered))
+	for {
+		switch z.Next() {
+		case html.ErrorToken:
+			return "", false
+		case html.StartTagToken:
+			tok := z.Token()
+			if tok.Data != "a" {
+				continue
+			}
+			for _, a := range tok.Attr {
+				if a.Key == "href" {
+					return a.Val, true
+				}
+			}
+		}
 	}
 }
 
@@ -2955,6 +2898,33 @@ func TestCompileTemplateWithMJLiquidForLoop(t *testing.T) {
 	assert.Contains(t, *resp.HTML, "Product B")
 }
 
+// An empty mjml_source compiles the tree, its mj-liquid blocks and preview override included.
+func TestCompileTemplate_EmptyMjmlSourceRendersTheTreesLiquid(t *testing.T) {
+	liqBase := NewBaseBlock("liq", MJMLComponentMjLiquid)
+	liqBase.Content = stringPtr(`<mj-section><mj-column><mj-text>Hello {{ first_name }}</mj-text></mj-column></mj-section>`)
+	body := &MJBodyBlock{BaseBlock: NewBaseBlock("body", MJMLComponentMjBody)}
+	body.Children = []EmailBlock{&MJLiquidBlock{BaseBlock: liqBase}}
+	root := &MJMLBlock{BaseBlock: NewBaseBlock("mjml", MJMLComponentMjml)}
+	root.Children = []EmailBlock{body}
+
+	empty := ""
+	override := "Preview for {{ first_name }}"
+	resp, err := CompileTemplate(CompileTemplateRequest{
+		WorkspaceID:            "ws",
+		MessageID:              "msg",
+		MjmlSource:             &empty,
+		VisualEditorTree:       root,
+		TemplateData:           MapOfAny{"first_name": "Ann"},
+		SubjectPreviewOverride: &override,
+		TrackingSettings:       TrackingSettings{EnableTracking: false},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.Success, "error: %v", resp.Error)
+	assert.Contains(t, *resp.HTML, "Hello Ann")
+	assert.NotContains(t, *resp.HTML, "{{ first_name }}")
+	assert.Contains(t, *resp.HTML, "Preview for Ann")
+}
+
 func TestCompileTemplateWithMJLiquidConditional(t *testing.T) {
 	liqBase := NewBaseBlock("liq", MJMLComponentMjLiquid)
 	liqBase.Content = stringPtr(
@@ -3595,7 +3565,10 @@ func TestCompileTemplateSubjectPreviewOverrideFallbackEscapesRenderedValue(t *te
 	require.NotNil(t, resp.MJML)
 	require.NotNil(t, resp.HTML)
 	assert.Contains(t, *resp.MJML, "Tom &amp; Jerry &#60;weekly&#62;")
-	assert.Contains(t, *resp.HTML, "Tom & Jerry")
+	// The preview text keeps its escaping, as MJML writes it: a client shows
+	// Tom & Jerry <weekly>. (gomjml v0.14.1 wrote the & and the brackets raw.)
+	assert.Contains(t, *resp.HTML, "Tom &amp; Jerry &#60;weekly&#62;")
+	assert.NotContains(t, *resp.HTML, "<weekly>")
 	assert.NotContains(t, *resp.HTML, "{{ global_feed.subject }}")
 }
 
@@ -3938,19 +3911,6 @@ func TestTrackLinks_InheritAndUnsetModesKeepRewriting(t *testing.T) {
 	}
 }
 
-func TestGetTrackingURL_DisabledModeReturnsURLUnmodified(t *testing.T) {
-	settings := &TrackingSettings{
-		TrackingMode:   TrackingModeDisabled,
-		EnableTracking: true,
-		UTMSource:      "auth",
-		Endpoint:       "https://api.example.com/visit",
-	}
-	src := "https://example.com/auth/confirm?token=abc"
-	if got := settings.GetTrackingURL(src); got != src {
-		t.Errorf("opted-out URL must be returned unmodified, got: %s", got)
-	}
-}
-
 func TestValidateTrackingMode(t *testing.T) {
 	for _, valid := range []string{"", TrackingModeInherit, TrackingModeDisabled} {
 		if err := ValidateTrackingMode(valid); err != nil {
@@ -4165,6 +4125,21 @@ func TestApplyIdentityParam_PreservesURLBytes(t *testing.T) {
 			name:    "bare percent sign",
 			linkURL: "https://example.com/page?discount=50%off",
 			want:    "https://example.com/page?discount=50%off&nf_id=tok-abc123",
+		},
+		{
+			name:    "bare percent sign in the path",
+			linkURL: "https://example.com/50%off",
+			want:    "https://example.com/50%off?nf_id=tok-abc123",
+		},
+		{
+			name:    "a percent sign in the host is not a link",
+			linkURL: "https://example.com%/page",
+			want:    "https://example.com%/page",
+		},
+		{
+			name:    "an escaped percent sign in the host is not a link either",
+			linkURL: "https://example.com%25/page",
+			want:    "https://example.com%25/page",
 		},
 		{
 			name:    "order, slashes and commas kept",
@@ -4694,10 +4669,16 @@ func TestApplyUTMParameters_DefensiveCases(t *testing.T) {
 		"{{ unsubscribe_url }}",
 		"{% if x %}https://example.com{% endif %}",
 		"://example.com/broken",
-		"https://example.com/50%off/page", // invalid percent-escape in the path
+		"https://example.com%/page",   // the repair of invalid escapes never rescues a host
+		"https://example.com%25/page", // nor does a valid escape put a '%' in one
 	} {
 		assert.Equal(t, sourceURL, settings.applyUTMParameters(sourceURL))
 	}
+
+	// An invalid percent-escape in the path is a link browsers open: it is tagged,
+	// and its own bytes are kept as written.
+	assert.Equal(t, "https://example.com/50%off/page?utm_source=email",
+		settings.applyUTMParameters("https://example.com/50%off/page"))
 
 	// A relative link is still a link: it is what an mj-button pointing at the
 	// hosted page carries, and it must be tagged like any other.
@@ -4887,4 +4868,67 @@ func TestCompileTemplate_OutputHasNoSentinels(t *testing.T) {
 			assert.NotContains(t, *resp.MJML, sentinel, "sentinel leaked into MJML")
 		}
 	}
+}
+
+// TestCompileTemplateHeadingStyles compiles a visual editor tree as the console saves
+// it once a Text block holds a heading: the email's heading styles in an inline
+// mj-style the editor manages, whose first line is a comment holding their values.
+// Each heading gets the rules of its level inlined, its own style kept on top, and
+// the comment is not part of the email.
+func TestCompileTemplateHeadingStyles(t *testing.T) {
+	managed := "/* notifuse:headings {\"2\":{\"fontFamily\":\"Georgia, serif\",\"fontSize\":\"22px\"}} */\n" +
+		"h1 { font-family: Georgia, serif; font-size: 28px; font-weight: bold; line-height: 1.3; color: #222222; margin: 0px 0 8px }\n" +
+		"h2 { font-family: Georgia, serif; font-size: 22px; font-weight: bold; line-height: 1.3; color: #222222; margin: 0px 0 8px }"
+
+	compile := func(t *testing.T, headStyles []string, includeText bool) CompileTemplateResponse {
+		t.Helper()
+		styles := make([]string, 0, len(headStyles))
+		for i, css := range headStyles {
+			content, err := json.Marshal(css)
+			require.NoError(t, err)
+			styles = append(styles, `{"id":"style-`+string(rune('a'+i))+`","type":"mj-style","attributes":{"inline":"inline"},"content":`+string(content)+`}`)
+		}
+		raw := `{"id":"root","type":"mjml","children":[` +
+			`{"id":"head","type":"mj-head","children":[` + strings.Join(styles, ",") + `]},` +
+			`{"id":"body","type":"mj-body","children":[{"id":"s","type":"mj-section","children":[` +
+			`{"id":"c","type":"mj-column","children":[{"id":"t","type":"mj-text",` +
+			`"content":"<h2 style=\"text-align: center\">Title</h2><p>Body text</p>"}]}]}]}]}`
+		tree, err := UnmarshalEmailBlock([]byte(raw))
+		require.NoError(t, err)
+		resp, err := CompileTemplate(CompileTemplateRequest{
+			WorkspaceID:      "ws",
+			MessageID:        "msg",
+			VisualEditorTree: tree,
+			IncludeText:      includeText,
+		})
+		require.NoError(t, err)
+		require.True(t, resp.Success, "error: %v", resp.Error)
+		require.NotNil(t, resp.HTML)
+		return *resp
+	}
+
+	h2Style := func(t *testing.T, document string) string {
+		t.Helper()
+		match := regexp.MustCompile(`<h2 style="([^"]*)"`).FindStringSubmatch(document)
+		require.NotNil(t, match, "no styled h2 in %s", document)
+		return strings.ReplaceAll(match[1], " ", "")
+	}
+
+	t.Run("inlines the level's rules and keeps the heading's own style", func(t *testing.T) {
+		resp := compile(t, []string{managed}, true)
+		style := h2Style(t, *resp.HTML)
+		for _, declaration := range []string{"font-size:22px", "font-family:Georgia,serif", "color:#222222", "text-align:center"} {
+			assert.Contains(t, style, declaration)
+		}
+		assert.NotContains(t, *resp.HTML, "notifuse:headings")
+		require.NotNil(t, resp.Text)
+		assert.Contains(t, *resp.Text, "Title\n")
+	})
+
+	t.Run("lets a style of the template after the managed one win", func(t *testing.T) {
+		resp := compile(t, []string{managed, "h2 { font-size: 12px }"}, false)
+		style := h2Style(t, *resp.HTML)
+		assert.Contains(t, style, "font-size:12px")
+		assert.NotContains(t, style, "font-size:22px")
+	})
 }

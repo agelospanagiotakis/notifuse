@@ -24,10 +24,11 @@ import (
 //go:generate mockgen -destination=./mocks/mock_list_unsubscriber.go -package=mocks github.com/Notifuse/notifuse/internal/service ListUnsubscriber
 
 // ListUnsubscriber records an opt-out an email provider reported for an email on the list
-// found for it, by the rules of the email's own unsubscribe link. ListService implements
-// it.
+// found for it, by the rules of the email's own unsubscribe link. A non-zero
+// unchangedSince, when Notifuse first received an opt-out the provider posts again, keeps
+// a row changed after it. ListService implements it.
 type ListUnsubscriber interface {
-	UnsubscribeFromMessageList(ctx context.Context, workspaceID, email, listID, messageID string) error
+	UnsubscribeFromMessageList(ctx context.Context, workspaceID, email, listID, messageID string, unchangedSince time.Time) error
 }
 
 // InboundWebhookEventService implements the domain.InboundWebhookEventServiceInterface
@@ -127,9 +128,9 @@ func (s *InboundWebhookEventService) ProcessInboundReply(ctx context.Context, wo
 		return fmt.Errorf("failed to parse inbound reply: %w", err)
 	}
 
-	// Classify: drop bounces/unsubscribes; auto-replies are recorded but never exit.
+	// Classify: drop bounces; auto-replies are recorded but never exit.
 	class := domain.Classify(reply)
-	if class == domain.ReplyBounce || class == domain.ReplyUnsubscribe {
+	if class == domain.ReplyBounce {
 		return nil
 	}
 
@@ -278,7 +279,7 @@ func compactReplyPayload(reply *domain.InboundReply, source domain.WebhookSource
 }
 
 // ProcessWebhook processes a webhook event from an email provider
-func (s *InboundWebhookEventService) ProcessWebhook(ctx context.Context, workspaceID string, integrationID string, rawPayload []byte) error {
+func (s *InboundWebhookEventService) ProcessWebhook(ctx context.Context, workspaceID string, integrationID string, headers http.Header, rawPayload []byte) error {
 	// codecov:ignore:start
 	ctx, span := tracing.StartServiceSpan(ctx, "InboundWebhookEventService", "ProcessWebhook")
 	defer tracing.EndSpan(span, nil)
@@ -289,17 +290,41 @@ func (s *InboundWebhookEventService) ProcessWebhook(ctx context.Context, workspa
 	// get workspace and integration
 	workspace, err := s.workspaceRepo.GetByID(ctx, workspaceID)
 	if err != nil {
+		// A provider callback URL cannot always be re-pointed from here when the key that
+		// registered it can only send. The Resend callback on this deployment carries
+		// "kois-optics" — the workspace's name — where the id is "koisoptics", so the exact
+		// lookup fails and every event is dropped. Retry once against the id-shaped replica:
+		// it costs one extra lookup, and only on a request that was about to fail anyway.
+		replica := domain.NormalizeWorkspaceIDReplica(workspaceID)
+		if replica != "" && replica != workspaceID {
+			if aliased, aliasErr := s.workspaceRepo.GetByID(ctx, replica); aliasErr == nil {
+				s.logger.WithField("webhook_workspace_id", workspaceID).
+					WithField("resolved_workspace_id", aliased.ID).
+					Warn("Webhook addressed a workspace by its display name; resolved to the id")
+				workspace, workspaceID, err = aliased, aliased.ID, nil
+			}
+		}
+	}
+	if err != nil {
 		// codecov:ignore:start
 		tracing.MarkSpanError(ctx, err)
 		// codecov:ignore:end
 		return fmt.Errorf("failed to get workspace: %w", err)
 	}
 	var integration domain.Integration
+	found := false
 	for _, i := range workspace.Integrations {
 		if i.ID == integrationID {
 			integration = i
+			found = true
 			break
 		}
+	}
+	if !found {
+		// codecov:ignore:start
+		tracing.MarkSpanError(ctx, domain.ErrInboundIntegrationNotFound)
+		// codecov:ignore:end
+		return fmt.Errorf("integration %s: %w", integrationID, domain.ErrInboundIntegrationNotFound)
 	}
 	var events []*domain.InboundWebhookEvent
 
@@ -318,18 +343,29 @@ func (s *InboundWebhookEventService) ProcessWebhook(ctx context.Context, workspa
 		events, err = s.processSMTPWebhook(integration.ID, rawPayload)
 	case domain.EmailProviderKindSendGrid:
 		events, err = s.processSendGridWebhook(integration.ID, rawPayload)
+	case domain.EmailProviderKindResend:
+		// Resend signs in HEADERS (Svix), unlike every other provider here, whose
+		// auth travels inside the body — so this case needs the headers.
+		events, err = s.processResendWebhook(&integration, headers, rawPayload)
 	default:
+		err := fmt.Errorf("unsupported email provider kind %q: %w", integration.EmailProvider.Kind, domain.ErrWebhookProviderUnsupported)
 		// codecov:ignore:start
-		tracing.MarkSpanError(ctx, fmt.Errorf("unsupported email provider kind: %s", integration.EmailProvider.Kind))
+		tracing.MarkSpanError(ctx, err)
 		// codecov:ignore:end
-		return fmt.Errorf("unsupported email provider kind: %s", integration.EmailProvider.Kind)
+		return err
 	}
 
 	if err != nil {
 		// codecov:ignore:start
 		tracing.MarkSpanError(ctx, err)
 		// codecov:ignore:end
-		return fmt.Errorf("failed to process webhook: %w", err)
+		// A parser refuses the payload, unless the failure is ours (webhookServerError):
+		// the provider then retries.
+		var ours *webhookServerError
+		if errors.As(err, &ours) {
+			return fmt.Errorf("failed to process webhook: %w", err)
+		}
+		return fmt.Errorf("failed to process webhook: %w: %w", domain.ErrWebhookPayloadInvalid, err)
 	}
 
 	// Only the events of emails sent to their address go further, so everything below,
@@ -345,7 +381,31 @@ func (s *InboundWebhookEventService) ProcessWebhook(ctx context.Context, workspa
 		return nil
 	}
 
-	// Store the event
+	// An event the provider delivers again has the ID it had the first time, and the row
+	// stored then says when Notifuse first received it. It is read before the events are
+	// stored, as storing them would hide which ones are new.
+	eventIDs := make([]string, 0, len(events))
+	for _, event := range events {
+		eventIDs = append(eventIDs, event.ID)
+	}
+	firstStored, err := s.repo.FirstStoredAt(ctx, workspaceID, eventIDs)
+	if err != nil {
+		// codecov:ignore:start
+		tracing.MarkSpanError(ctx, err)
+		// codecov:ignore:end
+		return fmt.Errorf("failed to read which inbound webhook events were already received: %w", err)
+	}
+
+	// Store the events. The row stored the first time makes the insert skip an event
+	// delivered again, so the soft bounces counted below are counted once. The events are
+	// still applied, stored before or not: a delivery whose processing failed after the
+	// events were stored is repaired only by the provider's redelivery, and applying one
+	// again changes no message status. A bounce or an unsubscribe received before only
+	// changes, through the contact's lists, a list subscription that has not changed since
+	// Notifuse first received it, so a bounce cleared or a contact subscribed again in
+	// between is kept. One exception: when the first delivery failed before the message
+	// statuses below were set, setting them now fires the trigger that bounces the row
+	// of the list the email was sent for, with no such condition.
 	if err := s.repo.StoreEvents(ctx, workspaceID, events); err != nil {
 		// codecov:ignore:start
 		tracing.MarkSpanError(ctx, err)
@@ -355,7 +415,11 @@ func (s *InboundWebhookEventService) ProcessWebhook(ctx context.Context, workspa
 
 	updates := []domain.MessageEventUpdate{}
 	var hardEmails []string
+	// The events that bounce each address: its hard bounces, and its counted soft
+	// bounces once they reach the threshold
+	bouncing := map[string][]*domain.InboundWebhookEvent{}
 	var softCountEmails []string
+	softCounted := map[string][]*domain.InboundWebhookEvent{}
 	var unsubscribes []*domain.InboundWebhookEvent
 
 	for _, event := range events {
@@ -379,6 +443,7 @@ func (s *InboundWebhookEventService) ProcessWebhook(ctx context.Context, workspa
 			switch class {
 			case domain.BounceClassificationHard:
 				hardEmails = append(hardEmails, event.RecipientEmail)
+				bouncing[event.RecipientEmail] = append(bouncing[event.RecipientEmail], event)
 				if event.MessageID != nil && *event.MessageID != "" {
 					reason := fmt.Sprintf("%s %s %s", event.BounceType, event.BounceCategory, event.BounceDiagnostic)
 					if len(reason) > 255 {
@@ -394,6 +459,7 @@ func (s *InboundWebhookEventService) ProcessWebhook(ctx context.Context, workspa
 
 			case domain.BounceClassificationSoftCount:
 				softCountEmails = append(softCountEmails, event.RecipientEmail)
+				softCounted[event.RecipientEmail] = append(softCounted[event.RecipientEmail], event)
 				s.logger.WithField("recipient_email", event.RecipientEmail).
 					WithField("bounce_type", event.BounceType).
 					WithField("bounce_category", event.BounceCategory).
@@ -403,7 +469,7 @@ func (s *InboundWebhookEventService) ProcessWebhook(ctx context.Context, workspa
 				s.logger.WithField("recipient_email", event.RecipientEmail).
 					WithField("bounce_type", event.BounceType).
 					WithField("bounce_category", event.BounceCategory).
-					Debug("ignoring message-level soft bounce")
+					Debug("ignoring a bounce report that says nothing against the recipient")
 			}
 
 		case domain.EmailEventComplaint:
@@ -444,12 +510,35 @@ func (s *InboundWebhookEventService) ProcessWebhook(ctx context.Context, workspa
 		for email, n := range counts {
 			if n >= threshold {
 				hardEmails = append(hardEmails, email)
+				bouncing[email] = append(bouncing[email], softCounted[email]...)
 			}
 		}
 	}
 
-	if len(hardEmails) > 0 {
-		if err := s.contactRepo.MarkEmailsAsBounced(ctx, workspaceID, dedupeStrings(hardEmails), time.Now().UTC()); err != nil {
+	// An address bounced by an event received for the first time is bounced with no
+	// updated_at condition. One bounced only by events received before keeps a row changed since the
+	// last of them was first received.
+	var newlyBounced []string
+	bouncedBefore := map[string]time.Time{}
+	for _, email := range dedupeStrings(hardEmails) {
+		since, received := lastFirstStored(bouncing[email], firstStored)
+		if received {
+			bouncedBefore[email] = since
+		} else {
+			newlyBounced = append(newlyBounced, email)
+		}
+	}
+	now := time.Now().UTC()
+	if len(newlyBounced) > 0 {
+		if err := s.contactRepo.MarkEmailsAsBounced(ctx, workspaceID, newlyBounced, now); err != nil {
+			// codecov:ignore:start
+			tracing.MarkSpanError(ctx, err)
+			// codecov:ignore:end
+			return fmt.Errorf("failed to mark emails as bounced: %w", err)
+		}
+	}
+	if len(bouncedBefore) > 0 {
+		if err := s.contactRepo.MarkEmailsAsBouncedUnchangedSince(ctx, workspaceID, bouncedBefore, now); err != nil {
 			// codecov:ignore:start
 			tracing.MarkSpanError(ctx, err)
 			// codecov:ignore:end
@@ -459,7 +548,7 @@ func (s *InboundWebhookEventService) ProcessWebhook(ctx context.Context, workspa
 
 	// Last, so an unsubscribe in the same delivery as a complaint or a hard bounce finds
 	// it recorded, and keeps it
-	if err := s.recordUnsubscribes(ctx, workspaceID, unsubscribes); err != nil {
+	if err := s.recordUnsubscribes(ctx, workspaceID, unsubscribes, firstStored); err != nil {
 		// codecov:ignore:start
 		tracing.MarkSpanError(ctx, err)
 		// codecov:ignore:end
@@ -621,10 +710,13 @@ func addressForm(address string, maxDomain int) (string, bool) {
 // still be recorded on the list before it, but the email is not marked: the repository
 // does not mark a redacted email unsubscribed.
 //
+// firstStored holds when each event received before was first received: an opt-out
+// posted again only changes a list row unchanged since then.
+//
 // It stops at the first failure, and still marks the emails handled before it, those sent
 // for no list included: the opt-outs recorded on their lists are committed, so they are
 // marked now rather than on the provider's retry of the delivery.
-func (s *InboundWebhookEventService) recordUnsubscribes(ctx context.Context, workspaceID string, events []*domain.InboundWebhookEvent) error {
+func (s *InboundWebhookEventService) recordUnsubscribes(ctx context.Context, workspaceID string, events []*domain.InboundWebhookEvent, firstStored map[string]time.Time) error {
 	var updates []domain.MessageEventUpdate
 	var failed error
 	for _, event := range events {
@@ -648,7 +740,9 @@ func (s *InboundWebhookEventService) recordUnsubscribes(ctx context.Context, wor
 		}
 		// An email sent for no list, such as a transactional one, is only marked
 		if message.ListID != nil && *message.ListID != "" {
-			if err := s.listUnsubscriber.UnsubscribeFromMessageList(ctx, workspaceID, message.ContactEmail, *message.ListID, messageID); err != nil {
+			// Zero for an opt-out received for the first time: no condition
+			unchangedSince := firstStored[event.ID]
+			if err := s.listUnsubscriber.UnsubscribeFromMessageList(ctx, workspaceID, message.ContactEmail, *message.ListID, messageID, unchangedSince); err != nil {
 				failed = fmt.Errorf("failed to unsubscribe from the list of message %s: %w", messageID, err)
 				break
 			}
@@ -666,6 +760,23 @@ func (s *InboundWebhookEventService) recordUnsubscribes(ctx context.Context, wor
 		}
 	}
 	return failed
+}
+
+// lastFirstStored reports whether every given event was received before, and if so the
+// latest time one of them was first received. An address with no event is reported as
+// not received before, so it is bounced as it was before events were checked.
+func lastFirstStored(events []*domain.InboundWebhookEvent, firstStored map[string]time.Time) (time.Time, bool) {
+	var latest time.Time
+	for _, event := range events {
+		at, ok := firstStored[event.ID]
+		if !ok {
+			return time.Time{}, false
+		}
+		if at.After(latest) {
+			latest = at
+		}
+	}
+	return latest, len(events) > 0
 }
 
 // dedupeStrings returns a new slice with duplicates removed, preserving the
@@ -698,6 +809,13 @@ func extractXMessageIDFromHeaders(headers []domain.SESHeader) string {
 	return ""
 }
 
+// webhookServerError marks a parser failure that is not about the payload (the SNS
+// subscription confirmation's call to AWS): the webhook answers 500, so the provider retries.
+type webhookServerError struct{ err error }
+
+func (e *webhookServerError) Error() string { return e.err.Error() }
+func (e *webhookServerError) Unwrap() error { return e.err }
+
 // confirmSNSSubscription fetches an SNS SubscribeURL to complete a topic subscription.
 //
 // The URL is attacker-supplied — it arrives in the body of a public webhook endpoint
@@ -724,7 +842,17 @@ func (s *InboundWebhookEventService) confirmSNSSubscription(subscribeURL string)
 	if client == nil {
 		client = safehttpclient.New()
 	}
-	return client.Do(req)
+	// The URL passed its checks: a failed call, or an answer other than 2xx, is ours, and
+	// SNS sends the confirmation again.
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, &webhookServerError{err: err}
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		_ = resp.Body.Close()
+		return nil, &webhookServerError{err: fmt.Errorf("the subscription confirmation answered %d", resp.StatusCode)}
+	}
+	return resp, nil
 }
 
 // processSESWebhook processes a webhook event from Amazon SES
@@ -748,9 +876,14 @@ func (s *InboundWebhookEventService) processSESWebhook(integrationID string, raw
 		// the SSRF-safe client so it cannot be aimed at a private address.
 		resp, err := s.confirmSNSSubscription(snsPayload.SubscribeURL)
 		if err != nil {
-			s.logger.WithField("error", err.Error()).
-				WithField("integration_id", integrationID).
-				Error("Failed to confirm subscription")
+			entry := s.logger.WithField("error", err.Error()).WithField("integration_id", integrationID)
+			var serverErr *webhookServerError
+			if errors.As(err, &serverErr) {
+				entry.Error("Failed to confirm subscription")
+			} else {
+				// A refused SubscribeURL answers 400: the sender's mistake, not ours.
+				entry.Warn("Refused the subscription confirmation URL")
+			}
 			return nil, fmt.Errorf("failed to confirm subscription: %w", err)
 		}
 		defer func() { _ = resp.Body.Close() }()
@@ -913,8 +1046,10 @@ func (s *InboundWebhookEventService) processSESWebhook(integrationID string, raw
 	events = make([]*domain.InboundWebhookEvent, 0, len(recipients))
 	for _, recipient := range recipients {
 		eventMessageID := messageID
+		// SNS sends a notification again with its MessageId, and a notification reports on
+		// every recipient it lists
 		event := domain.NewInboundWebhookEvent(
-			uuid.New().String(),
+			domain.ProviderEventID(integrationID, domain.WebhookSourceSES, eventType, snsPayload.MessageID, domain.NormalizeEmail(recipient.email)),
 			eventType,
 			domain.WebhookSourceSES,
 			integrationID,
@@ -1050,9 +1185,17 @@ func (s *InboundWebhookEventService) processPostmarkWebhook(integrationID string
 		messageID = notifuseMessageID
 	}
 
+	// A bounce or a spam complaint has its ID; a delivery has none, and is one recipient's
+	// delivery of the email at a time
+	eventKey := []string{payload.EventID()}
+	if eventType == domain.EmailEventDelivered {
+		deliveredAt, _ := jsonData["DeliveredAt"].(string)
+		eventKey = []string{payload.MessageID, domain.NormalizeEmail(recipientEmail), deliveredAt}
+	}
+
 	// Create the webhook event
 	event := domain.NewInboundWebhookEvent(
-		uuid.New().String(),
+		domain.ProviderEventID(integrationID, domain.WebhookSourcePostmark, eventType, eventKey...),
 		eventType,
 		domain.WebhookSourcePostmark,
 		integrationID,
@@ -1144,7 +1287,7 @@ func (s *InboundWebhookEventService) processMailgunWebhook(integrationID string,
 
 	// Create the webhook event
 	event := domain.NewInboundWebhookEvent(
-		uuid.New().String(),
+		domain.ProviderEventID(integrationID, domain.WebhookSourceMailgun, eventType, payload.EventData.ID),
 		eventType,
 		domain.WebhookSourceMailgun,
 		integrationID,
@@ -1249,7 +1392,7 @@ func (s *InboundWebhookEventService) processSparkPostWebhook(integrationID strin
 
 		// Create the webhook event
 		event := domain.NewInboundWebhookEvent(
-			uuid.New().String(),
+			domain.ProviderEventID(integrationID, domain.WebhookSourceSparkPost, eventType, payload.MSys.MessageEvent.EventID),
 			eventType,
 			domain.WebhookSourceSparkPost,
 			integrationID,
@@ -1387,9 +1530,19 @@ func (s *InboundWebhookEventService) processSingleMailjetEvent(integrationID str
 		messageID = notifuseMessageID
 	}
 
+	// Mailjet gives an event no ID of its own: its message ID, which is one recipient's, its
+	// recipient and its time make one
+	eventKey := []string{payload.Event, domain.NormalizeEmail(recipientEmail), "", ""}
+	if payload.MessageID != 0 {
+		eventKey[2] = strconv.FormatInt(payload.MessageID, 10)
+	}
+	if payload.Time != 0 {
+		eventKey[3] = strconv.FormatInt(payload.Time, 10)
+	}
+
 	// Create the webhook event
 	event := domain.NewInboundWebhookEvent(
-		uuid.New().String(),
+		domain.ProviderEventID(integrationID, domain.WebhookSourceMailjet, eventType, eventKey...),
 		eventType,
 		domain.WebhookSourceMailjet,
 		integrationID,
@@ -1443,8 +1596,9 @@ func (s *InboundWebhookEventService) processSMTPWebhook(integrationID string, ra
 	}
 
 	// Create the webhook event
+	// The format has no event ID: the email, which is one recipient's, and the time make one
 	event := domain.NewInboundWebhookEvent(
-		uuid.New().String(),
+		domain.ProviderEventID(integrationID, domain.WebhookSourceSMTP, eventType, payload.Event, payload.MessageID, payload.Timestamp),
 		eventType,
 		domain.WebhookSourceSMTP,
 		integrationID,
@@ -1541,7 +1695,7 @@ func (s *InboundWebhookEventService) processSendGridWebhook(integrationID string
 
 		// Create the webhook event
 		event := domain.NewInboundWebhookEvent(
-			uuid.New().String(),
+			domain.ProviderEventID(integrationID, domain.WebhookSourceSendGrid, eventType, sgEvent.SGEventID),
 			eventType,
 			domain.WebhookSourceSendGrid,
 			integrationID,

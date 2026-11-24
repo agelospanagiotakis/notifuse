@@ -1,6 +1,7 @@
 import { Dayjs } from 'dayjs'
 import dayjs from '../../../lib/dayjs'
 import { ComparisonMode, DatePreset, Granularity, ResolvedRange } from './types'
+import { formatDayRange } from '../../../i18n/dateFormats'
 
 export interface DayjsRange {
   start: Dayjs
@@ -88,7 +89,8 @@ export function computeDateRange(
     case 'custom':
       if (!customRange) return lastNDays(7)
       return {
-        start: dayjs.tz(customRange.start, timezone).startOf('day'),
+        // Already the local midnight: startOf('day') would shift it by the browser's offset on a DST day
+        start: dayjs.tz(customRange.start, timezone),
         end: dayjs.tz(customRange.end, timezone).endOf('day')
       }
     default:
@@ -107,7 +109,8 @@ export function resolveRange(range: DayjsRange, timezone: string): ResolvedRange
   return {
     startDay,
     endDay,
-    startUtc: dayjs.tz(startDay, timezone).startOf('day').toISOString(),
+    // dayjs.tz of a day is its local midnight; startOf('day') would read the browser's zone on a DST day
+    startUtc: dayjs.tz(startDay, timezone).toISOString(),
     endUtc: dayjs.tz(endDay, timezone).endOf('day').toISOString()
   }
 }
@@ -171,15 +174,9 @@ export function getAvailableGranularities(days: number): Granularity[] {
   return ['week', 'month']
 }
 
-/** Compact label for a custom range, e.g. "3 - 9 Feb" or "28 Jan 24 - 3 Feb 25". */
+/** Compact label for a custom range, e.g. "Feb 3 – 9" or "Jan 28, 2024 – Feb 3, 2025", in the console language. */
 export function formatDateRangeLabel(range: DayjsRange): string {
-  const { start, end } = range
-  if (start.isSame(end, 'day')) return start.format('D MMM')
-  if (start.year() === end.year()) {
-    if (start.month() === end.month()) return `${start.format('D')} - ${end.format('D MMM')}`
-    return `${start.format('D MMM')} - ${end.format('D MMM')}`
-  }
-  return `${start.format('D MMM YY')} - ${end.format('D MMM YY')}`
+  return formatDayRange(range.start, range.end)
 }
 
 export type DateRangeProblem = 'end_before_start' | 'too_long' | 'in_future'

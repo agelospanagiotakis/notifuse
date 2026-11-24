@@ -76,8 +76,9 @@ describe('TreeNodeInput — draft tree', () => {
 
     editCondition(1)
 
-    // Selects, in order: the branch's ALL/ANY, then the open condition's operator and list
-    openSelect(2)
+    // The group's all / any and the condition's in / not in are segmented controls: the list
+    // select is the first combobox
+    openSelect(0)
     fireEvent.click(await screen.findByTitle('Product updates'))
 
     await waitFor(() => expect(lastCall(onDraftTreeChange)).toBeDefined())
@@ -86,6 +87,8 @@ describe('TreeNodeInput — draft tree', () => {
     expect(draft.branch?.leaves[1].leaf?.contact_list?.list_id).toBe('product')
     // ...and its sibling is untouched, so the count reflects the whole segment
     expect(draft.branch?.leaves[0].leaf?.contact_list?.list_id).toBe('newsletter')
+    // The condition keeps its status: its form takes it, so it may be counted
+    expect(onDraftTreeChange.mock.lastCall?.[1]).toBe(true)
   })
 
   it('withdraws the draft once the condition is confirmed', async () => {
@@ -93,7 +96,7 @@ describe('TreeNodeInput — draft tree', () => {
     renderTree(onDraftTreeChange)
 
     editCondition(0)
-    openSelect(2)
+    openSelect(0)
     fireEvent.click(await screen.findByTitle('Product updates'))
     await waitFor(() => expect(lastCall(onDraftTreeChange)).toBeDefined())
 
@@ -105,14 +108,14 @@ describe('TreeNodeInput — draft tree', () => {
 
   it('withdraws the draft when the edit is cancelled', async () => {
     const onDraftTreeChange = vi.fn()
-    const { container } = renderTree(onDraftTreeChange)
+    renderTree(onDraftTreeChange)
 
     editCondition(0)
-    openSelect(2)
+    openSelect(0)
     fireEvent.click(await screen.findByTitle('Product updates'))
     await waitFor(() => expect(lastCall(onDraftTreeChange)).toBeDefined())
 
-    fireEvent.click(container.querySelector('[data-icon="xmark"]')!)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
 
     await waitFor(() => expect(lastCall(onDraftTreeChange)).toBeUndefined())
   })
@@ -122,7 +125,7 @@ describe('TreeNodeInput — draft tree', () => {
     renderTree(onDraftTreeChange)
 
     editCondition(0)
-    openSelect(2)
+    openSelect(0)
     fireEvent.click(await screen.findByTitle('Product updates'))
     await waitFor(() => expect(lastCall(onDraftTreeChange)).toBeDefined())
 

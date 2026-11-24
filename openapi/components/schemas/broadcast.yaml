@@ -72,6 +72,10 @@ Broadcast:
     winner_phase_recipient_count:
       type: integer
       description: Number of recipients in winner phase
+    test_paused_seconds:
+      type: integer
+      description: Seconds an A/B test waiting for its winner spent paused. The automatic winner is picked once the test duration has passed without them. Omitted when 0.
+      example: 3600
     created_at:
       type: string
       format: date-time
@@ -104,6 +108,14 @@ Broadcast:
       type: string
       nullable: true
       description: Reason for pausing the broadcast
+    tracking_mode:
+      type: string
+      enum: [inherit, no_tracking]
+      description: |
+        Absent or `inherit` follows the workspace tracking settings and each recipient's
+        tracking consent (stored as absent). `no_tracking` sends every email without the
+        open pixel and the click-tracking redirect, keeping the UTM parameters; it cannot be
+        combined with an A/B test whose winner is sent automatically.
 
 BroadcastTestSettings:
   type: object
@@ -156,6 +168,21 @@ BroadcastVariation:
       type: string
       description: Template ID for this variation
       example: template_variant_a
+    sender_id:
+      type: string
+      description: |
+        ID of one of the marketing email integration's senders. This variation leaves from it
+        instead of its template's sender. Omitted, the variation uses its template's sender:
+        sending test_settings without it clears a sender chosen earlier. An ID that is not one
+        of the integration's senders is refused with a 400. A variation whose chosen sender has
+        since been removed from the integration is queued for no further recipient until another
+        sender is chosen: the broadcast cannot be scheduled, cannot be resumed while that
+        variation still has recipients to queue, and pauses at the next run of its sending task if
+        it is queuing them. Emails already queued keep the sender they were queued with; nothing
+        falls back to another address. Saving test_settings checks every variation's sender, a
+        losing one's included. Two variations using the same template must choose the same
+        sender.
+      example: 3f1c2a9e-7b4d-4e1a-9c2f-5d8e6a0b1c3d
     metrics:
       $ref: '#/VariationMetrics'
     template:
@@ -209,7 +236,8 @@ AudienceSettings:
       default: true
       description: >-
         Whether to exclude the list's unsubscribed contacts. Omitting the key excludes
-        them; send false to mail them too, e.g. for a legal notice. Bounced and complained
+        them; send false to mail them too, e.g. for a legal notice. With false the emails
+        carry no List-Unsubscribe and List-Unsubscribe-Post headers. Bounced and complained
         contacts are never mailed, whatever this value.
       example: true
 
@@ -237,7 +265,8 @@ AudienceSettingsPatch:
       type: boolean
       description: >-
         Whether to exclude the list's unsubscribed contacts. Omit to keep the stored value;
-        send false to mail them too. Bounced and complained contacts are never mailed,
+        send false to mail them too, in emails without the List-Unsubscribe and
+        List-Unsubscribe-Post headers. Bounced and complained contacts are never mailed,
         whatever this value.
       example: true
 
@@ -321,13 +350,17 @@ CreateBroadcastRequest:
       type: object
       additionalProperties: true
       description: Custom metadata for the broadcast
+    tracking_mode:
+      type: string
+      enum: [inherit, no_tracking]
+      description: See `Broadcast.tracking_mode`.
 
 UpdateBroadcastRequest:
   type: object
   description: >-
     Partial update of a broadcast. workspace_id, id and name are always applied; audience
-    is merged one key at a time, and schedule, test_settings, utm_parameters, metadata and
-    data_feed keep their stored value when the key is left out of the body. Send the key to
+    is merged one key at a time, and schedule, test_settings, utm_parameters, metadata,
+    data_feed and tracking_mode keep their stored value when the key is left out of the body. Send the key to
     change it — including an explicitly empty object to clear it.
   required:
     - workspace_id
@@ -381,6 +414,12 @@ UpdateBroadcastRequest:
       description: >-
         Custom metadata for the broadcast. Omit to keep the stored metadata; send an
         empty object to clear it.
+    tracking_mode:
+      type: string
+      enum: [inherit, no_tracking]
+      description: >-
+        Omit to keep the stored mode. Can be changed only while the broadcast is a draft
+        or scheduled. See `Broadcast.tracking_mode`.
 
 ScheduleBroadcastRequest:
   type: object
@@ -479,6 +518,21 @@ CancelBroadcastRequest:
       description: ID of the broadcast to cancel
       example: broadcast_12345
 
+UnscheduleBroadcastRequest:
+  type: object
+  required:
+    - workspace_id
+    - id
+  properties:
+    workspace_id:
+      type: string
+      description: The ID of the workspace
+      example: ws_1234567890
+    id:
+      type: string
+      description: ID of the scheduled broadcast to send back to draft
+      example: broadcast_12345
+
 DeleteBroadcastRequest:
   type: object
   required:
@@ -551,6 +605,39 @@ BroadcastListResponse:
       type: integer
       description: Total number of broadcasts matching the query
       example: 45
+    status_counts:
+      type: object
+      description: >-
+        Returned only with with_status_counts=true, always an object then. The number of
+        broadcasts in each status, following search and started_after but not status. A
+        status no broadcast has is absent.
+      additionalProperties:
+        type: integer
+      example:
+        draft: 3
+        processed: 12
+        paused: 1
+
+EstimateAudienceRequest:
+  type: object
+  required:
+    - workspace_id
+    - audience
+  properties:
+    workspace_id:
+      type: string
+      description: The ID of the workspace
+      example: ws_1234567890
+    audience:
+      $ref: '#/AudienceSettings'
+
+EstimateAudienceResponse:
+  type: object
+  properties:
+    count:
+      type: integer
+      description: Number of recipients a broadcast with this audience would be sent to
+      example: 2214
 
 VariationResult:
   type: object
@@ -579,15 +666,23 @@ VariationResult:
       type: integer
       description: Number of clicks
       example: 120
+    opens_tracked:
+      type: integer
+      description: Sent emails of this variation that carried the open pixel
+      example: 1000
+    clicks_tracked:
+      type: integer
+      description: Sent emails of this variation whose links were tracked
+      example: 1000
     open_rate:
       type: number
       format: float
-      description: Open rate (opens / recipients)
+      description: Open rate (opens / opens_tracked); 0 when no email was tracked
       example: 0.45
     click_rate:
       type: number
       format: float
-      description: Click rate (clicks / recipients)
+      description: Click rate (clicks / clicks_tracked); 0 when no email was tracked
       example: 0.12
 
 TestResultsResponse:

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"sort"
 	"strings"
 	"time"
@@ -15,8 +16,10 @@ import (
 	"github.com/Notifuse/notifuse/internal/domain"
 	"github.com/Notifuse/notifuse/pkg/logger"
 	"github.com/Notifuse/notifuse/pkg/mailer"
+	"github.com/Notifuse/notifuse/pkg/trackingtoken"
 	"github.com/asaskevich/govalidator"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type WorkspaceService struct {
@@ -35,9 +38,17 @@ type WorkspaceService struct {
 	webhookRegService      domain.WebhookRegistrationService
 	supabaseService        *SupabaseService
 	secretKey              string
-	dnsVerificationService *DNSVerificationService
+	dnsVerificationService CustomDomainVerifier
 	blogService            *BlogService
 	entitlements           domain.EntitlementProvider
+}
+
+// CustomDomainVerifier checks that a custom endpoint's domain points to this instance.
+// *DNSVerificationService is the production one.
+//
+//go:generate mockgen -destination=./mocks/mock_custom_domain_verifier.go -package=mocks github.com/Notifuse/notifuse/internal/service CustomDomainVerifier
+type CustomDomainVerifier interface {
+	VerifyDomainOwnership(ctx context.Context, url string) error
 }
 
 // NewWorkspaceService builds the service. The entitlement provider is a REQUIRED positional
@@ -64,7 +75,7 @@ func NewWorkspaceService(
 	webhookRegService domain.WebhookRegistrationService,
 	secretKey string,
 	supabaseService *SupabaseService,
-	dnsVerificationService *DNSVerificationService,
+	dnsVerificationService CustomDomainVerifier,
 	blogService *BlogService,
 	entitlements domain.EntitlementProvider,
 ) *WorkspaceService {
@@ -115,6 +126,22 @@ func (s *WorkspaceService) licensedWorkspaceQuota() int {
 		return domain.UnlimitedWorkspaces
 	}
 	return s.entitlements.Entitlements().MaxWorkspaces
+}
+
+// UserOwnsAWorkspace reports whether the user holds the owner role in at least one workspace.
+// It reads memberships only: the root user owns every workspace without a membership row, so
+// callers check the root email first.
+func (s *WorkspaceService) UserOwnsAWorkspace(ctx context.Context, userID string) (bool, error) {
+	userWorkspaces, err := s.repo.GetUserWorkspaces(ctx, userID)
+	if err != nil {
+		return false, fmt.Errorf("failed to read the user's workspaces: %w", err)
+	}
+	for _, uw := range userWorkspaces {
+		if uw != nil && uw.Role == "owner" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // ListWorkspaces returns all workspaces for a user
@@ -185,6 +212,30 @@ func (s *WorkspaceService) GetWorkspace(ctx context.Context, id string) (*domain
 	}
 
 	return workspace, nil
+}
+
+// workspaceSetupTimeout bounds what follows the creation of a workspace, detached from
+// the request: the owner membership, contact, list and tasks.
+const workspaceSetupTimeout = 5 * time.Minute
+
+// ensureCustomDomainIsFree refuses a custom endpoint URL whose host is another
+// workspace's custom domain, comparing hosts without case, port or trailing dot.
+func (s *WorkspaceService) ensureCustomDomainIsFree(ctx context.Context, workspaceID, endpoint string) error {
+	host := trackingtoken.HostOf(endpoint)
+	if host == "" {
+		return nil
+	}
+	endpoints, err := s.repo.ListCustomEndpoints(ctx)
+	if err != nil {
+		s.logger.WithField("workspace_id", workspaceID).WithField("error", err.Error()).Error("Failed to read the custom domains in use")
+		return fmt.Errorf("failed to check the custom domain: %w", err)
+	}
+	for id, other := range endpoints {
+		if id != workspaceID && trackingtoken.SameHostname(host, trackingtoken.HostOf(other)) {
+			return domain.ValidationError{Message: fmt.Sprintf("the custom domain %s is already used by another workspace", host)}
+		}
+	}
+	return nil
 }
 
 // CreateWorkspace creates a new workspace and adds the creator as owner
@@ -266,6 +317,7 @@ func (s *WorkspaceService) CreateWorkspace(ctx context.Context, id string, name 
 			FileManager:          fileManager,
 			SecretKey:            randomSecretKey,
 			EmailTrackingEnabled: true,
+			EmailTracking:        domain.DefaultEmailTrackingSettings(),
 			DefaultLanguage:      defaultLanguage,
 			Languages:            languages,
 			WebAnalytics: &domain.WebAnalyticsSettings{
@@ -291,13 +343,20 @@ func (s *WorkspaceService) CreateWorkspace(ctx context.Context, id string, name 
 	// check if workspace already exists
 	if existingWorkspace, _ := s.repo.GetByID(ctx, id); existingWorkspace != nil {
 		s.logger.WithField("workspace_id", id).Error("Workspace already exists")
-		return nil, fmt.Errorf("workspace already exists")
+		return nil, domain.ErrWorkspaceAlreadyExists
 	}
 
-	if err := s.repo.Create(ctx, workspace); err != nil {
+	// From here on, detached from the request: a client disconnecting mid-way must not
+	// leave a registered workspace without its owner membership, contact or list.
+	// Values (the audit entry among them) are kept. The repository bounds the creation
+	// itself; what follows gets its own bound once the workspace exists.
+	detached := context.WithoutCancel(ctx)
+	if err := s.repo.Create(detached, workspace); err != nil {
 		s.logger.WithField("workspace_id", id).WithField("error", err.Error()).Error("Failed to create workspace")
 		return nil, err
 	}
+	ctx, cancel := context.WithTimeout(detached, workspaceSetupTimeout)
+	defer cancel()
 
 	// Add the creator as owner
 	userWorkspace := &domain.UserWorkspace{
@@ -480,6 +539,7 @@ func (s *WorkspaceService) UpdateWorkspace(ctx context.Context, id string, name 
 
 	existingWorkspace.Settings.MarketingEmailProviderID = settings.MarketingEmailProviderID
 	existingWorkspace.Settings.EmailTrackingEnabled = settings.EmailTrackingEnabled
+	existingWorkspace.Settings.EmailTracking = settings.EmailTracking
 
 	// Verify DNS ownership if custom endpoint URL is being set or changed
 	if settings.CustomEndpointURL != nil && *settings.CustomEndpointURL != "" {
@@ -487,6 +547,24 @@ func (s *WorkspaceService) UpdateWorkspace(ctx context.Context, id string, name 
 			*existingWorkspace.Settings.CustomEndpointURL != *settings.CustomEndpointURL
 
 		if isDomainChanging {
+			// A domain belongs to one workspace: another workspace that saved it could show
+			// its own pages and emails under this one's brand. Workspaces that shared one
+			// before the rule may still edit its URL, as long as the host stays the same.
+			// A host that cannot be read would pass the uniqueness check unseen.
+			newHost := trackingtoken.HostOf(*settings.CustomEndpointURL)
+			if newHost == "" {
+				return nil, domain.ValidationError{Message: "the custom endpoint URL has no valid domain"}
+			}
+			previousHost := ""
+			if existingWorkspace.Settings.CustomEndpointURL != nil {
+				previousHost = trackingtoken.HostOf(*existingWorkspace.Settings.CustomEndpointURL)
+			}
+			if !trackingtoken.SameHostname(previousHost, newHost) {
+				if err := s.ensureCustomDomainIsFree(ctx, id, *settings.CustomEndpointURL); err != nil {
+					return nil, err
+				}
+			}
+
 			// Verify DNS ownership
 			if err := s.dnsVerificationService.VerifyDomainOwnership(ctx, *settings.CustomEndpointURL); err != nil {
 				s.logger.
@@ -965,7 +1043,7 @@ func (s *WorkspaceService) InviteMember(ctx context.Context, workspaceID, email 
 	// have no language preference of their own — the email is localized in the
 	// inviter's language.
 	if !s.config.IsDevelopment() {
-		err = s.mailer.SendWorkspaceInvitation(email, workspace.Name, inviterName, token, inviterDetails.Language)
+		err = s.mailer.SendWorkspaceInvitation(email, workspace.Name, inviterName, token, inviterDetails.Language, workspace.Settings.EmailTeamName)
 		if err != nil {
 			s.logger.WithField("workspace_id", workspaceID).WithField("email", email).WithField("error", err.Error()).Error("Failed to send invitation email")
 			// Continue even if email sending fails
@@ -997,11 +1075,16 @@ func (s *WorkspaceService) SetUserPermissions(ctx context.Context, workspaceID, 
 		return err
 	}
 
-	// The canonical permission editor, and the one write path whose entire purpose is a
-	// granular grant — so it is refused outright without the licence rather than tested
-	// against FullPermissions. Membership rows already carrying restricted permissions keep
-	// them and keep having them enforced: this gates the editor, never HasPermission.
-	if !s.isLicensedFor(domain.FeatureRBAC) {
+	// Granular permissions are licensed; full access is not. The same rule as InviteMember and
+	// CreateAPIKey: without the licence an owner may still put a member or an API key on full
+	// access — including one holding a restricted set from when a key covered rbac — and only a
+	// narrower set is refused. Rows already carrying restricted permissions keep them and keep
+	// having them enforced: this gates the editor, never HasPermission.
+	//
+	// After the owner check and Validate on purpose, so a caller who may not edit permissions,
+	// or who sent a malformed map, never learns the licence state through a 402. An empty map
+	// is not full here — stored, it denies every verb — unlike CreateAPIKey's nil.
+	if !grantsFullPermissions(permissions) && !s.isLicensedFor(domain.FeatureRBAC) {
 		return domain.NewFeatureNotLicensedError(domain.FeatureRBAC)
 	}
 
@@ -1058,6 +1141,134 @@ func (s *WorkspaceService) SetUserPermissions(ctx context.Context, workspaceID, 
 	}
 
 	return nil
+}
+
+// passwordAlphabet omits the characters people transcribe wrongly: 0/O, 1/l/I, 5/S and 2/Z.
+// An administrator-issued password is copied off a screen by hand, often over a phone call,
+// and the only thing a rich alphabet buys is transcription errors.
+const passwordAlphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ346789"
+
+// generatePassword returns a crypto/rand password of the given length. 52 characters drawn
+// uniformly give ~5.7 bits per character, so 20 characters is ~114 bits — far beyond the
+// ~40 a bcrypt-12 hash can be attacked at, and comfortably inside the 8..128 the password
+// policy accepts.
+func generatePassword(length int) (string, error) {
+	out := make([]byte, length)
+	// Read one extra byte per character and reject the values that would bias the modulo:
+	// 256 % 52 != 0, so a plain modulo would favour the first 48 characters of the alphabet.
+	// Rejection sampling keeps the draw uniform.
+	alphabetLen := len(passwordAlphabet)
+	maxUnbiased := 256 - (256 % alphabetLen)
+	buf := make([]byte, length*2)
+	filled := 0
+	for filled < length {
+		if _, err := rand.Read(buf); err != nil {
+			return "", fmt.Errorf("failed to read random bytes: %w", err)
+		}
+		for _, b := range buf {
+			if int(b) >= maxUnbiased {
+				continue
+			}
+			out[filled] = passwordAlphabet[int(b)%alphabetLen]
+			filled++
+			if filled == length {
+				break
+			}
+		}
+	}
+	return string(out), nil
+}
+
+// SetUserPassword issues a new password for a member of a workspace and returns it once.
+//
+// The authorization is deliberately NOT "is the caller an owner somewhere". The caller must
+// be an owner of the workspace named in the request (AuthenticateUserForWorkspace synthesizes
+// that for a configured ROOT_EMAIL), and the target must be a member of that same workspace —
+// otherwise an owner of workspace A could reset the password of a member of workspace B,
+// which is an account takeover across a tenancy boundary. The target's own password, once
+// issued, is useless until they change it: must_change_password blocks every route but
+// /api/user.setPassword, and every session the target held is deleted here.
+//
+// Refusals: a platform administrator's password (reset it out of band, on the host), an API
+// key (it authenticates by token; a password would be a second, unused credential), and the
+// caller themselves (they have /api/user.setPassword, and an owner who forces the flag onto
+// their own account locks themselves out of the console that would clear it).
+func (s *WorkspaceService) SetUserPassword(ctx context.Context, req domain.SetUserPasswordRequest) (*domain.SetUserPasswordResponse, error) {
+	ctx, _, callerWorkspace, err := s.authService.AuthenticateUserForWorkspace(ctx, req.WorkspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to authenticate user: %w", err)
+	}
+	if callerWorkspace.Role != "owner" {
+		return nil, &domain.ErrUnauthorized{Message: "only workspace owners can reset a member's password"}
+	}
+
+	target, err := s.userRepo.GetUserByID(ctx, req.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := s.repo.GetUserWorkspace(ctx, req.UserID, req.WorkspaceID); err != nil {
+		s.logger.WithField("workspace_id", req.WorkspaceID).
+			WithField("actor_id", callerWorkspace.UserID).
+			WithField("target_id", req.UserID).
+			Warn("Refused password reset for a user outside the workspace")
+		return nil, &domain.ErrUnauthorized{Message: "that user is not a member of this workspace"}
+	}
+
+	// A root target is refused even for a root caller, and even when the membership check
+	// above passed: a platform administrator reaches every workspace, so any owner of any
+	// workspace would otherwise be able to reset one. The check is on the ADDRESS, which is
+	// what config knows — the same key the synthesized-owner path uses.
+	if s.config != nil && s.config.IsRootEmail(target.Email) {
+		s.logger.WithField("workspace_id", req.WorkspaceID).
+			WithField("actor_id", callerWorkspace.UserID).
+			WithField("target_id", target.ID).
+			Warn("Refused password reset for a platform administrator")
+		return nil, &domain.ErrUnauthorized{Message: "cannot reset the password of a platform administrator"}
+	}
+
+	if target.ID == callerWorkspace.UserID {
+		return nil, &domain.ErrUnauthorized{Message: "use your own account settings to change your own password"}
+	}
+
+	if target.Type == domain.UserTypeAPIKey {
+		return nil, &domain.ErrUnauthorized{Message: "API keys authenticate with a token and have no password"}
+	}
+
+	password, err := generatePassword(20)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate password: %w", err)
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hash password: %w", err)
+	}
+	if err := s.userRepo.UpdatePasswordHash(ctx, target.ID, string(hash)); err != nil {
+		return nil, fmt.Errorf("failed to store password: %w", err)
+	}
+	if err := s.userRepo.SetMustChangePassword(ctx, target.ID, true); err != nil {
+		// The hash is already stored, so this failure leaves the account with a password
+		// nobody knows and no flag forcing a change. Failing loudly is the only way to make
+		// that visible; the operator can issue a second reset, which overwrites the hash.
+		return nil, fmt.Errorf("failed to require a password change: %w", err)
+	}
+	// Every session the target holds is deleted. A stolen token is the whole reason an
+	// administrator resets a password, and a reset that leaves the attacker signed in has
+	// accomplished nothing but a password the victim will change.
+	if err := s.userRepo.DeleteAllSessionsByUserID(ctx, target.ID); err != nil {
+		s.logger.WithField("target_id", target.ID).WithField("error", err.Error()).
+			Warn("Failed to invalidate sessions after a password reset")
+	}
+
+	// The audit line. Fields rather than interpolated text so the three facts stay machine
+	// readable in the log pipeline: who did it, to whom, and when.
+	s.logger.WithField("workspace_id", req.WorkspaceID).
+		WithField("actor_id", callerWorkspace.UserID).
+		WithField("target_id", target.ID).
+		WithField("at", time.Now().UTC().Format(time.RFC3339)).
+		Info("Password reset issued by administrator")
+
+	return &domain.SetUserPasswordResponse{Password: password, MustChangePassword: true}, nil
 }
 
 // SetCustomFieldLabels updates the custom field display labels for a workspace.
@@ -1414,6 +1625,7 @@ func (s *WorkspaceService) GetWorkspaceMembersWithEmail(ctx context.Context, id 
 					UpdatedAt:   now,
 				},
 				Email: rootEmail,
+				Name:  rootUser.Name,
 				Type:  domain.UserTypeUser,
 			})
 			existingEmails[rootEmail] = struct{}{}
@@ -1442,6 +1654,26 @@ const (
 	// it provisions itself. Never widened, never gated, not reachable from the API.
 	scopeFixedByProduct
 )
+
+// apiKeyEmailDomain is the domain of the address an API key is minted with: the host of the API
+// endpoint, without its scheme, path or port. "key@localhost:4000" is no email address, and a
+// self-hosted endpoint often carries a port ("http://203.0.113.7:8080").
+func apiKeyEmailDomain(apiEndpoint string) string {
+	host := apiEndpoint
+	if strings.HasPrefix(host, "http://") {
+		host = strings.TrimPrefix(host, "http://")
+	} else if strings.HasPrefix(host, "https://") {
+		host = strings.TrimPrefix(host, "https://")
+	}
+	if idx := strings.Index(host, "/"); idx != -1 {
+		host = host[:idx]
+	}
+	if hostname, _, err := net.SplitHostPort(host); err == nil {
+		return strings.Trim(hostname, "[]")
+	}
+	// No port: an IPv6 host still comes bracketed ("[::1]").
+	return strings.Trim(host, "[]")
+}
 
 // CreateAPIKey creates an API key for a workspace. A nil permissions map grants the key
 // full access, which is the pre-scoping contract for callers that omit the field.
@@ -1496,17 +1728,7 @@ func (s *WorkspaceService) createAPIKey(ctx context.Context, workspaceID string,
 	}
 
 	// Generate an API email using the prefix
-	// Extract domainName from API endpoint by removing any protocol prefix and path suffix
-	domainName := s.config.APIEndpoint
-	if strings.HasPrefix(domainName, "http://") {
-		domainName = strings.TrimPrefix(domainName, "http://")
-	} else if strings.HasPrefix(domainName, "https://") {
-		domainName = strings.TrimPrefix(domainName, "https://")
-	}
-	if idx := strings.Index(domainName, "/"); idx != -1 {
-		domainName = domainName[:idx]
-	}
-	apiEmail := emailPrefix + "@" + domainName
+	apiEmail := emailPrefix + "@" + apiKeyEmailDomain(s.config.APIEndpoint)
 
 	// Defense-in-depth, mirroring InviteMember: a configured platform admin (ROOT_EMAIL) has
 	// owner access to every workspace, so a prefix that lands on a root address would mint a
@@ -2585,6 +2807,16 @@ func (s *WorkspaceService) UpdateIntegration(ctx context.Context, req domain.Upd
 				existingIntegration.LLMProvider.Gemini != nil {
 				updatedIntegration.LLMProvider.Gemini.EncryptedAPIKey =
 					existingIntegration.LLMProvider.Gemini.EncryptedAPIKey
+			}
+
+			// Preserve DeepSeek encrypted API key if not provided in update
+			if req.LLMProvider.DeepSeek != nil &&
+				req.LLMProvider.DeepSeek.APIKey == "" &&
+				req.LLMProvider.DeepSeek.EncryptedAPIKey == "" &&
+				existingIntegration.LLMProvider != nil &&
+				existingIntegration.LLMProvider.DeepSeek != nil {
+				updatedIntegration.LLMProvider.DeepSeek.EncryptedAPIKey =
+					existingIntegration.LLMProvider.DeepSeek.EncryptedAPIKey
 			}
 		} else {
 			// If no settings provided, preserve existing

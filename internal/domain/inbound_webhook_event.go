@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"time"
 
@@ -14,7 +15,15 @@ import (
 // Permanent (client/config) errors for inbound reply processing. The HTTP handler maps
 // these to 4xx so the provider stops retrying, instead of 5xx (which triggers retries).
 var (
+	// ErrInboundIntegrationNotFound is also the email provider webhook's error for an
+	// integration ID the workspace does not have.
 	ErrInboundIntegrationNotFound = errors.New("inbound: integration not found")
+	// ErrWebhookProviderUnsupported: the email provider webhook names an integration whose
+	// kind sends no delivery events.
+	ErrWebhookProviderUnsupported = errors.New("webhook: the integration is not an email provider that sends events")
+	// ErrWebhookPayloadInvalid wraps the error of a provider's parser that refused the
+	// payload of the email provider webhook.
+	ErrWebhookPayloadInvalid      = errors.New("webhook: invalid payload")
 	ErrInboundProviderUnsupported = errors.New("inbound: provider does not support inbound replies")
 	// ErrInboundControlMessage signals that a ReplyParser handled a provider control
 	// message (e.g. an SNS subscription confirmation) rather than a real reply. The caller
@@ -88,7 +97,23 @@ const (
 
 	// WebhookSourceSendGrid indicates webhook from SendGrid
 	WebhookSourceSendGrid WebhookSource = "sendgrid"
+
+	// WebhookSourceResend indicates webhook from Resend
+	WebhookSourceResend WebhookSource = "resend"
 )
+
+// WebhookSources are the accepted values of the source filter of inboundWebhookEvents.list.
+var WebhookSources = []WebhookSource{
+	WebhookSourceSES,
+	WebhookSourcePostmark,
+	WebhookSourceMailgun,
+	WebhookSourceSparkPost,
+	WebhookSourceMailjet,
+	WebhookSourceSMTP,
+	WebhookSourceResend,
+	WebhookSourceSupabase,
+	WebhookSourceSendGrid,
+}
 
 // InboundWebhookEvent represents an event received from an email provider or integration webhook
 type InboundWebhookEvent struct {
@@ -168,6 +193,7 @@ type InboundWebhookEventListParams struct {
 	EventType      EmailEventType `json:"event_type,omitempty"`
 	RecipientEmail string         `json:"recipient_email,omitempty"`
 	MessageID      string         `json:"message_id,omitempty"`
+	Source         WebhookSource  `json:"source,omitempty"`
 
 	// Time range filters
 	TimestampAfter  *time.Time `json:"timestamp_after,omitempty"`
@@ -182,6 +208,7 @@ func (p *InboundWebhookEventListParams) FromQuery(query url.Values) error {
 	p.EventType = EmailEventType(query.Get("event_type"))
 	p.RecipientEmail = query.Get("recipient_email")
 	p.MessageID = query.Get("message_id")
+	p.Source = WebhookSource(query.Get("source"))
 
 	// Parse limit
 	if limitStr := query.Get("limit"); limitStr != "" {
@@ -230,10 +257,16 @@ func (p *InboundWebhookEventListParams) Validate() error {
 			string(EmailEventUnsubscribe),
 			string(EmailEventReply),
 			string(EmailEventAutoReply),
+			string(EmailEventAuthEmail),
+			string(EmailEventBeforeUserCreated),
 		}
 		if !govalidator.IsIn(string(p.EventType), validEventTypes...) {
 			return fmt.Errorf("invalid event type: %s", p.EventType)
 		}
+	}
+
+	if p.Source != "" && !isWebhookSource(p.Source) {
+		return fmt.Errorf("invalid source: %s", p.Source)
 	}
 
 	// Validate contact email if provided
@@ -251,6 +284,15 @@ func (p *InboundWebhookEventListParams) Validate() error {
 	return nil
 }
 
+func isWebhookSource(source WebhookSource) bool {
+	for _, s := range WebhookSources {
+		if s == source {
+			return true
+		}
+	}
+	return false
+}
+
 // InboundWebhookEventListResult contains the result of a ListInboundWebhookEvents operation
 type InboundWebhookEventListResult struct {
 	Events     []*InboundWebhookEvent `json:"events"`
@@ -261,7 +303,9 @@ type InboundWebhookEventListResult struct {
 // InboundWebhookEventServiceInterface defines the interface for inbound webhook event service
 type InboundWebhookEventServiceInterface interface {
 	// ProcessWebhook processes a webhook event from an email provider
-	ProcessWebhook(ctx context.Context, workspaceID, integrationID string, rawPayload []byte) error
+	// ProcessWebhook handles a provider callback. headers carries the provider's
+	// signature for schemes that sign headers rather than the body (Resend/Svix).
+	ProcessWebhook(ctx context.Context, workspaceID, integrationID string, headers http.Header, rawPayload []byte) error
 
 	// ProcessInboundReply ingests an inbound reply forwarded by a provider's inbound
 	// parsing feature: it verifies the provider signature, parses + classifies the
@@ -277,6 +321,11 @@ type InboundWebhookEventServiceInterface interface {
 type InboundWebhookEventRepository interface {
 	// StoreEvents stores an inbound webhook event in the database
 	StoreEvents(ctx context.Context, workspaceID string, events []*InboundWebhookEvent) error
+
+	// FirstStoredAt returns, for each given event ID already stored, the
+	// created_at of its row: when Notifuse first received the event. IDs with no
+	// row are absent from the map. An empty list runs no query.
+	FirstStoredAt(ctx context.Context, workspaceID string, ids []string) (map[string]time.Time, error)
 
 	// StoreReplyEvent inserts a single inbound reply event, deduplicating on the reply's
 	// Message-ID. Returns inserted=false when an event with the same Message-ID already
@@ -294,12 +343,14 @@ type InboundWebhookEventRepository interface {
 	DeleteForEmail(ctx context.Context, workspaceID, email string) error
 
 	// CountConsecutiveSoftBounces returns, for each given recipient email, the
-	// number of countable soft-bounce events recorded since that email's last
-	// successful delivery (or all-time if it has never been delivered to).
+	// number of emails sent to it with a countable bounce recorded since that
+	// address's last successful delivery (or all-time if it has never been
+	// delivered to); several bounces of one email count once.
 	// Only bounces of emails sent to that address count: an event's message ID
 	// must name a message_history row whose contact_email is the address.
-	// Events whose bounce subtype describes a message-level rejection
-	// (MessageTooLarge, ContentRejected, AttachmentRejected) are excluded.
+	// SES message-level rejections (MessageTooLarge, ContentRejected,
+	// AttachmentRejected) and the Postmark reports ClassifyBounce ignores are
+	// excluded.
 	// The returned map only contains entries with a positive count.
 	CountConsecutiveSoftBounces(ctx context.Context, workspaceID string, emails []string) (map[string]int, error)
 }

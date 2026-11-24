@@ -955,7 +955,14 @@ BEGIN
         'golden1',
         NEW.email,
         'rootnode1',
-        'once'
+        'once',
+        jsonb_build_object(
+            'kind', NEW.kind,
+            'entity_type', NEW.entity_type,
+            'entity_id', NEW.entity_id,
+            'changes', NEW.changes,
+            'occurred_at', NEW.created_at
+        )
     );
     RETURN NEW;
 END;
@@ -1331,7 +1338,7 @@ func TestAutomationTriggerGenerator_JSONCastsCannotAbortTheStatement(t *testing.
 
 		assert.Contains(t, result.ConditionGuard, "CASE WHEN",
 			"a contact holding a non-numeric value must yield NULL, not abort the write")
-		assert.NotContains(t, result.ConditionGuard, `(custom_json_1['score']::text)::numeric >=`,
+		assert.NotContains(t, result.ConditionGuard, `((custom_json_1['score'] #>> '{}'))::numeric >=`,
 			"the bare cast is what raises on the offending row")
 	})
 
@@ -1347,6 +1354,8 @@ func TestAutomationTriggerGenerator_JSONCastsCannotAbortTheStatement(t *testing.
 
 		assert.Contains(t, result.ConditionGuard, "CASE WHEN",
 			"a contact holding an unparseable date must yield NULL, not abort the write")
+		// The shape alone let 2026-02-30 through, whose cast raises: the conversion is tested too.
+		assert.Contains(t, result.ConditionGuard, `pg_input_is_valid((custom_json_1['renewed_at'] #>> '{}'), 'timestamptz')`)
 	})
 
 	// The segment path is deliberately left alone: there a failed cast breaks one query
@@ -1367,7 +1376,236 @@ func TestAutomationTriggerGenerator_JSONCastsCannotAbortTheStatement(t *testing.
 			},
 		})
 		require.NoError(t, err)
-		assert.Contains(t, sql, `(custom_json_1['score']::text)::numeric`,
+		assert.Contains(t, sql, `((custom_json_1['score'] #>> '{}'))::numeric`,
 			"changing the segment path is out of scope for this fix")
 	})
+}
+
+// An email.link_clicked trigger filters on what the timeline entry carries in changes: the
+// WHEN clause cannot read message_history. It never fires on a click on an email the
+// automation itself sent, which would restart an every_time automation once per link of
+// each of its own emails.
+func TestAutomationTriggerGenerator_LinkClickedWHENClause(t *testing.T) {
+	str := func(s string) *string { return &s }
+	gen := NewAutomationTriggerGenerator(NewQueryBuilder())
+	automation := func(trigger *domain.TimelineTriggerConfig) *domain.Automation {
+		trigger.EventKind = "email.link_clicked"
+		trigger.Frequency = domain.TriggerFrequencyEveryTime
+		return &domain.Automation{ID: "auto-1", RootNodeID: "node-1", Trigger: trigger}
+	}
+	const selfGuard = "COALESCE(NEW.changes->'automation_id'->>'new', '') <> 'auto-1'"
+
+	t.Run("kind and self guard only", func(t *testing.T) {
+		result, err := gen.Generate(automation(&domain.TimelineTriggerConfig{}))
+		require.NoError(t, err)
+		assert.Equal(t, "NEW.kind = 'email.link_clicked' AND "+selfGuard, result.WHENClause)
+	})
+
+	t.Run("every filter", func(t *testing.T) {
+		result, err := gen.Generate(automation(&domain.TimelineTriggerConfig{
+			LinkURL: str("Example.com/Pricing"), BroadcastID: str("bc-1"), TemplateID: str("tpl-1"),
+		}))
+		require.NoError(t, err)
+		assert.Equal(t, "NEW.kind = 'email.link_clicked' AND "+selfGuard+
+			" AND strpos(lower(NEW.changes->'clicked_url'->>'new'), lower('Example.com/Pricing')) > 0"+
+			" AND NEW.changes->'broadcast_id'->>'new' = 'bc-1'"+
+			" AND NEW.changes->'template_id'->>'new' = 'tpl-1'", result.WHENClause)
+		assert.NotContains(t, result.WHENClause, "(SELECT")
+	})
+
+	t.Run("an empty filter adds nothing", func(t *testing.T) {
+		result, err := gen.Generate(automation(&domain.TimelineTriggerConfig{
+			LinkURL: str(""), BroadcastID: str(""), TemplateID: str(""),
+		}))
+		require.NoError(t, err)
+		assert.Equal(t, "NEW.kind = 'email.link_clicked' AND "+selfGuard, result.WHENClause)
+	})
+
+	t.Run("quotes, wildcards and backslashes stay literal", func(t *testing.T) {
+		result, err := gen.Generate(automation(&domain.TimelineTriggerConfig{LinkURL: str(`/what's-new?a=50%_\x`)}))
+		require.NoError(t, err)
+		assert.Contains(t, result.WHENClause, `lower(E'/what''s-new?a=50%_\\x')`,
+			"strpos matches literally, so % and _ need no escaping; the quote and the backslash do")
+	})
+
+	t.Run("the filters of another kind are ignored", func(t *testing.T) {
+		result, err := gen.Generate(&domain.Automation{ID: "auto-1", RootNodeID: "node-1", Trigger: &domain.TimelineTriggerConfig{
+			EventKind: "email.clicked", Frequency: domain.TriggerFrequencyOnce, LinkURL: str("pricing"),
+		}})
+		require.NoError(t, err)
+		assert.Equal(t, "NEW.kind = 'email.clicked'", result.WHENClause)
+	})
+}
+
+// A custom event's timeline row does not carry its properties, so the trigger reads the event
+// from custom_events by its key and merges it over the timeline fields.
+func TestAutomationTriggerGenerator_CustomEventPassesItsProperties(t *testing.T) {
+	gen := NewAutomationTriggerGenerator(NewQueryBuilder())
+	name := "cart_abandoned"
+
+	result, err := gen.Generate(&domain.Automation{
+		ID:         "cart1",
+		RootNodeID: "root1",
+		Trigger: &domain.TimelineTriggerConfig{
+			EventKind:       "custom_event",
+			CustomEventName: &name,
+			Frequency:       domain.TriggerFrequencyEveryTime,
+		},
+	})
+	require.NoError(t, err)
+
+	body := result.FunctionBody
+	assert.Contains(t, body, "'every_time',\n        jsonb_build_object(")
+	assert.Contains(t, body, "FROM custom_events ce")
+	// "custom_event." is 13 characters: the name starts at the 14th.
+	assert.Contains(t, body, "WHERE ce.event_name = substring(NEW.kind from 14)")
+	assert.Contains(t, body, "AND ce.external_id = NEW.entity_id")
+	assert.Contains(t, body, "'properties', ce.properties")
+	// The event may be gone: the trigger still passes its name and external id.
+	assert.Contains(t, body, "'properties', '{}'::jsonb")
+	// The name is read from the row, never interpolated into the body.
+	assert.NotContains(t, body, "'cart_abandoned'")
+}
+
+// Only a custom event trigger reads custom_events: any other kind passes the timeline row.
+func TestAutomationTriggerGenerator_OtherKindsDoNotReadCustomEvents(t *testing.T) {
+	gen := NewAutomationTriggerGenerator(NewQueryBuilder())
+	listID := "list1"
+
+	for _, kind := range []string{"list.subscribed", "contact.created", "segment.joined", "email.link_clicked"} {
+		trigger := &domain.TimelineTriggerConfig{EventKind: kind, Frequency: domain.TriggerFrequencyOnce}
+		if kind == "list.subscribed" {
+			trigger.ListID = &listID
+		}
+		segmentID := "seg1"
+		if kind == "segment.joined" {
+			trigger.SegmentID = &segmentID
+		}
+		result, err := gen.Generate(&domain.Automation{ID: "a1", RootNodeID: "root1", Trigger: trigger})
+		require.NoErrorf(t, err, kind)
+		assert.NotContainsf(t, result.FunctionBody, "custom_events", kind)
+		assert.Containsf(t, result.FunctionBody, "'changes', NEW.changes", kind)
+	}
+}
+
+// With conditions, the event travels inside the guard, with the enrolment it belongs to.
+func TestAutomationTriggerGenerator_GuardedEnrolmentPassesTheEvent(t *testing.T) {
+	gen := NewAutomationTriggerGenerator(NewQueryBuilder())
+	result, err := gen.Generate(&domain.Automation{
+		ID:         "guarded1",
+		RootNodeID: "root1",
+		Trigger: &domain.TimelineTriggerConfig{
+			EventKind: "contact.created",
+			Frequency: domain.TriggerFrequencyOnce,
+			Conditions: &domain.TreeNode{
+				Kind: "leaf",
+				Leaf: &domain.TreeNodeLeaf{
+					Source: "contacts",
+					Contact: &domain.ContactCondition{
+						Filters: []*domain.DimensionFilter{{FieldName: "country", FieldType: "string", Operator: "equals", StringValues: []string{"US"}}},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	body := result.FunctionBody
+	guardIdx := strings.Index(body, "IF (")
+	payloadIdx := strings.Index(body, "'kind', NEW.kind")
+	endIfIdx := strings.Index(body, "END IF;")
+	require.True(t, guardIdx >= 0 && payloadIdx >= 0 && endIfIdx >= 0)
+	assert.Less(t, guardIdx, payloadIdx)
+	assert.Less(t, payloadIdx, endIfIdx)
+}
+
+// v38 runs before v44 installs the five-argument enrolment: the triggers it regenerates must call
+// the four-argument one, or every write that fires them fails until v44 commits.
+func TestAutomationTriggerGenerator_WithoutTriggerEventCallsTheFourArgumentEnrolment(t *testing.T) {
+	gen := NewAutomationTriggerGenerator(NewQueryBuilder()).WithoutTriggerEvent()
+	name := "cart_abandoned"
+	result, err := gen.Generate(&domain.Automation{
+		ID:         "old1",
+		RootNodeID: "root1",
+		Trigger:    &domain.TimelineTriggerConfig{EventKind: "custom_event", CustomEventName: &name, Frequency: domain.TriggerFrequencyOnce},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, result.FunctionBody, "'root1',\n        'once'\n    );")
+	assert.NotContains(t, result.FunctionBody, "jsonb_build_object")
+	assert.NotContains(t, result.FunctionBody, "custom_events")
+}
+
+// customEventAutomation is an every_time automation on a custom event, with optional conditions.
+func customEventAutomation(id string, conditions *domain.TreeNode) *domain.Automation {
+	name := "order_placed"
+	return &domain.Automation{
+		ID:         id,
+		RootNodeID: "root1",
+		Trigger: &domain.TimelineTriggerConfig{
+			EventKind:       "custom_event",
+			CustomEventName: &name,
+			Frequency:       domain.TriggerFrequencyEveryTime,
+			Conditions:      conditions,
+		},
+	}
+}
+
+// An update, a soft delete or a restore of a custom event writes a timeline row of the same kind
+// as its insertion, with operation 'update'. Only the insertion is a new occurrence: the body
+// returns before anything else for any other row, so an every_time automation does not send its
+// journey again when an order is updated or deleted.
+func TestAutomationTriggerGenerator_CustomEventEnrolsOnlyOnInsert(t *testing.T) {
+	gen := NewAutomationTriggerGenerator(NewQueryBuilder())
+	const check = "IF NEW.operation IS DISTINCT FROM 'insert' THEN\n        RETURN NEW;\n    END IF;"
+
+	for name, conditions := range map[string]*domain.TreeNode{
+		"without conditions": nil,
+		"with conditions":    contactsLeaf("US"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			result, err := gen.Generate(customEventAutomation("order1", conditions))
+			require.NoError(t, err)
+			body := result.FunctionBody
+
+			checkIdx := strings.Index(body, check)
+			require.NotEqual(t, -1, checkIdx, "the body must return early for a row that is not an insertion")
+			assert.Equal(t, checkIdx, strings.LastIndex(body, check), "one check")
+			assert.Less(t, strings.Index(body, "BEGIN"), checkIdx)
+			assert.Less(t, checkIdx, strings.Index(body, "PERFORM automation_enroll_contact"))
+			if conditions != nil {
+				guardIdx := strings.Index(body, "IF ("+result.ConditionGuard+") THEN")
+				require.NotEqual(t, -1, guardIdx)
+				assert.Less(t, checkIdx, guardIdx, "the check runs before the conditions are evaluated")
+			}
+			// The WHEN clause still matches the kind only: replacing a body must be enough.
+			assert.Equal(t, "NEW.kind = 'custom_event.order_placed'", result.WHENClause)
+		})
+	}
+}
+
+// Every other kind describes one occurrence per row (contact.updated is itself an update), so
+// their bodies read no operation.
+func TestAutomationTriggerGenerator_OtherKindsDoNotCheckTheOperation(t *testing.T) {
+	gen := NewAutomationTriggerGenerator(NewQueryBuilder())
+	listID, segmentID := "list1", "seg1"
+	for _, trigger := range []*domain.TimelineTriggerConfig{
+		{EventKind: "contact.created"},
+		{EventKind: "contact.updated"},
+		{EventKind: "list.subscribed", ListID: &listID},
+		{EventKind: "segment.joined", SegmentID: &segmentID},
+		{EventKind: "email.link_clicked"},
+	} {
+		trigger.Frequency = domain.TriggerFrequencyEveryTime
+		result, err := gen.Generate(&domain.Automation{ID: "a1", RootNodeID: "root1", Trigger: trigger})
+		require.NoErrorf(t, err, trigger.EventKind)
+		assert.NotContainsf(t, result.FunctionBody, "NEW.operation", trigger.EventKind)
+	}
+}
+
+// The pre-44 generator keeps the bodies as v38 shipped them; v44 replaces them right after.
+func TestAutomationTriggerGenerator_WithoutTriggerEventKeepsThePre44CustomEventBody(t *testing.T) {
+	gen := NewAutomationTriggerGenerator(NewQueryBuilder()).WithoutTriggerEvent()
+	result, err := gen.Generate(customEventAutomation("old1", nil))
+	require.NoError(t, err)
+	assert.NotContains(t, result.FunctionBody, "NEW.operation")
 }

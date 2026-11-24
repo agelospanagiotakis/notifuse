@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,6 +18,11 @@ import (
 	"github.com/Notifuse/notifuse/pkg/logger"
 )
 
+// gracefulShutdownTimeout bounds the graceful shutdown that a SIGTERM starts. A container
+// runtime must wait longer than this before it kills the process: compose.yaml sets the api
+// service's stop_grace_period accordingly.
+const gracefulShutdownTimeout = 70 * time.Second
+
 // osExit is a variable to allow mocking os.Exit in tests
 var osExit = os.Exit
 
@@ -25,10 +32,24 @@ var signalNotify = signal.Notify
 // NewAppFunc defines the function signature for creating a new app
 type NewAppFunc func(cfg *config.Config, opts ...app.AppOption) app.AppInterface
 
+// newApp creates the app runServer runs; tests replace it.
+var newApp NewAppFunc = app.NewApp
+
+// shutdownWaiter is what runServer needs to wait for a shutdown it did not start: the app
+// closing its own server to load a new configuration (setup, system settings).
+type shutdownWaiter interface {
+	ShutdownDone() <-chan struct{}
+}
+
+// shutdownTimeout is the bound runServer applies: gracefulShutdownTimeout, unless a test
+// sets it shorter. Past it runServer returns, even when the app's shutdown has not ended; it leaves 5
+// seconds beyond the app's own 65-second timeout.
+var shutdownTimeout = gracefulShutdownTimeout
+
 // runServer contains the core server logic, extracted for testability
 func runServer(cfg *config.Config, appLogger logger.Logger) error {
 	// Create app instance
-	appInstance := app.NewApp(cfg, app.WithLogger(appLogger))
+	appInstance := newApp(cfg, app.WithLogger(appLogger))
 
 	// Initialize all components
 	if err := appInstance.Initialize(); err != nil {
@@ -50,6 +71,26 @@ func runServer(cfg *config.Config, appLogger logger.Logger) error {
 	// Wait for shutdown signal or server error
 	select {
 	case err := <-serverError:
+		if errors.Is(err, http.ErrServerClosed) {
+			// The app closed its own server to load a new configuration (setup, system settings):
+			// Start returns as soon as its Shutdown reaches the HTTP server, which then still waits
+			// for the requests in flight and closes the databases. Exit once it has ended; the
+			// handlers bound that shutdown under shutdownTimeout. A signal meanwhile exits at once.
+			appLogger.Info("Server stopped to load its new configuration - waiting for its shutdown to end")
+			if waiter, ok := appInstance.(shutdownWaiter); ok {
+				select {
+				case <-waiter.ShutdownDone():
+				case sig := <-shutdown:
+					appLogger.WithField("signal", sig.String()).Warn("Signal received while the shutdown for the new configuration runs - exiting now")
+				case <-time.After(shutdownTimeout):
+					appLogger.WithField("timeout", shutdownTimeout.String()).Warn("Shutdown for the new configuration did not end in time - exiting")
+				}
+			}
+			// The error still ends the process with a failure code, so that a process manager
+			// restarting only on failure starts it again.
+			appLogger.Info("Exiting so that the process manager restarts the server with its new configuration")
+			return err
+		}
 		if err != nil {
 			appLogger.WithField("error", err.Error()).Error("Server error")
 		}
@@ -62,9 +103,7 @@ func runServer(cfg *config.Config, appLogger logger.Logger) error {
 		// Set to 65 seconds to allow tasks to complete or save progress
 		appInstance.SetShutdownTimeout(65 * time.Second)
 
-		// Create a context with timeout for graceful shutdown
-		// Use 70 seconds to give 5 seconds buffer beyond app's internal timeout
-		ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 
 		// Log current active requests
@@ -90,6 +129,9 @@ func runServer(cfg *config.Config, appLogger logger.Logger) error {
 			}
 			appLogger.Info("Server shut down gracefully")
 			return nil
+		case <-ctx.Done():
+			appLogger.WithField("timeout", shutdownTimeout.String()).Error("Graceful shutdown did not end in time - exiting")
+			return ctx.Err()
 		case forceSig := <-forceShutdown:
 			appLogger.WithField("signal", forceSig.String()).Warn("Force shutdown signal received - terminating immediately")
 			appLogger.Warn("Some requests may be interrupted!")

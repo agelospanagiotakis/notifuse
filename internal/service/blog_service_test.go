@@ -316,6 +316,33 @@ func TestBlogService_UpdateCategory(t *testing.T) {
 		assert.Equal(t, req.Name, category.Settings.Name)
 	})
 
+	t.Run("a slug another route answers is refused when the slug changes", func(t *testing.T) {
+		ctx := setupBlogContextWithAuth(mockAuthService, "workspace123", true, true)
+		req := &domain.UpdateBlogCategoryRequest{ID: "cat123", Name: "Name", Slug: "track"}
+		mockCategoryRepo.EXPECT().GetCategory(ctx, req.ID).
+			Return(&domain.BlogCategory{ID: "cat123", Slug: "old-slug"}, nil)
+		// No slug lookup and no update: the strict mock refuses them.
+
+		category, err := service.UpdateCategory(ctx, req)
+
+		require.Error(t, err)
+		assert.Nil(t, category)
+		assert.Equal(t, "slug is reserved by another route", err.Error())
+	})
+
+	t.Run("a category that already has a reserved slug stays editable", func(t *testing.T) {
+		ctx := setupBlogContextWithAuth(mockAuthService, "workspace123", true, true)
+		req := &domain.UpdateBlogCategoryRequest{ID: "cat123", Name: "New name", Slug: "health"}
+		mockCategoryRepo.EXPECT().GetCategory(ctx, req.ID).
+			Return(&domain.BlogCategory{ID: "cat123", Slug: "health"}, nil)
+		mockCategoryRepo.EXPECT().UpdateCategory(ctx, gomock.Any()).Return(nil)
+
+		category, err := service.UpdateCategory(ctx, req)
+
+		require.NoError(t, err)
+		assert.Equal(t, "New name", category.Settings.Name)
+	})
+
 	t.Run("validation error", func(t *testing.T) {
 		ctx := setupBlogContextWithAuth(mockAuthService, "workspace123", true, true)
 		req := &domain.UpdateBlogCategoryRequest{
@@ -1014,6 +1041,24 @@ func TestBlogService_GetPublicPostByCategoryAndSlug(t *testing.T) {
 		assert.Contains(t, err.Error(), "post not found")
 	})
 
+	t.Run("scheduled post - not accessible before its date", func(t *testing.T) {
+		future := time.Now().Add(24 * time.Hour)
+		scheduled := &domain.BlogPost{
+			ID:          "post456",
+			Slug:        "my-scheduled",
+			PublishedAt: &future,
+		}
+
+		mockPostRepo.EXPECT().
+			GetPostByCategoryAndSlug(ctx, "tech", "my-scheduled").
+			Return(scheduled, nil)
+
+		post, err := service.GetPublicPostByCategoryAndSlug(ctx, "tech", "my-scheduled")
+		require.Error(t, err)
+		assert.Nil(t, post)
+		assert.Contains(t, err.Error(), "post not found")
+	})
+
 	t.Run("post not found", func(t *testing.T) {
 		mockPostRepo.EXPECT().
 			GetPostByCategoryAndSlug(ctx, "tech", "nonexistent").
@@ -1025,50 +1070,76 @@ func TestBlogService_GetPublicPostByCategoryAndSlug(t *testing.T) {
 	})
 }
 
-func TestBlogService_ListPublicPosts(t *testing.T) {
-	service, _, mockPostRepo, _, _, _, _, _ := setupBlogServiceTest(t)
-	ctx := context.Background()
+func TestBlogService_ListPublicSitemapPosts(t *testing.T) {
+	// The auth mock has no expectation: any authentication call fails the test.
+	ctx := context.WithValue(context.Background(), domain.WorkspaceIDKey, "ws1")
 
-	t.Run("successful listing - only published", func(t *testing.T) {
-		params := &domain.ListBlogPostsRequest{
-			Status: domain.BlogPostStatusAll, // Will be forced to published
-			Limit:  50,
-		}
-
-		now := time.Now()
-		expectedResponse := &domain.BlogPostListResponse{
-			Posts: []*domain.BlogPost{
-				{ID: "post1", PublishedAt: &now},
-				{ID: "post2", PublishedAt: &now},
-			},
-			TotalCount: 2,
-		}
-
+	t.Run("lists the live posts up to the sitemap's cap, as of now in UTC", func(t *testing.T) {
+		service, _, mockPostRepo, _, _, _, _, _ := setupBlogServiceTest(t)
+		posts := []*domain.BlogSitemapPost{{CategorySlug: "tech", PostSlug: "hello", PublishedAt: time.Now().UTC()}}
+		before := time.Now()
 		mockPostRepo.EXPECT().
-			ListPosts(ctx, gomock.Any()).
-			DoAndReturn(func(ctx context.Context, p domain.ListBlogPostsRequest) (*domain.BlogPostListResponse, error) {
-				// Verify status was forced to published
-				assert.Equal(t, domain.BlogPostStatusPublished, p.Status)
-				return expectedResponse, nil
+			ListSitemapPosts(ctx, gomock.Any(), domain.BlogSitemapMaxPosts).
+			DoAndReturn(func(_ context.Context, now time.Time, _ int) ([]*domain.BlogSitemapPost, error) {
+				assert.Equal(t, time.UTC, now.Location())
+				assert.False(t, now.Before(before.Add(-time.Second)), "now is taken at the call")
+				assert.False(t, now.After(time.Now()), "now is taken at the call")
+				return posts, nil
 			})
 
-		result, err := service.ListPublicPosts(ctx, params)
+		result, err := service.ListPublicSitemapPosts(ctx)
+
 		require.NoError(t, err)
-		assert.Equal(t, 2, result.TotalCount)
+		assert.Equal(t, posts, result)
 	})
 
-	t.Run("repository error", func(t *testing.T) {
-		params := &domain.ListBlogPostsRequest{
-			Limit: 50,
-		}
-
+	t.Run("returns the repository error", func(t *testing.T) {
+		service, _, mockPostRepo, _, _, _, _, _ := setupBlogServiceTest(t)
 		mockPostRepo.EXPECT().
-			ListPosts(ctx, gomock.Any()).
+			ListSitemapPosts(ctx, gomock.Any(), gomock.Any()).
 			Return(nil, errors.New("database error"))
 
-		result, err := service.ListPublicPosts(ctx, params)
+		_, err := service.ListPublicSitemapPosts(ctx)
+
 		require.Error(t, err)
-		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "database error")
+	})
+}
+
+func TestBlogService_NextScheduledPublishAt(t *testing.T) {
+	// The auth mock has no expectation: any authentication call fails the test.
+	ctx := context.WithValue(context.Background(), domain.WorkspaceIDKey, "ws1")
+	now := time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)
+
+	t.Run("returns the repository's next publication for the instant given", func(t *testing.T) {
+		service, _, mockPostRepo, _, _, _, _, _ := setupBlogServiceTest(t)
+		due := now.Add(30 * time.Second)
+		mockPostRepo.EXPECT().NextScheduledPublishAt(ctx, now).Return(&due, nil)
+
+		next, err := service.NextScheduledPublishAt(ctx, now)
+
+		require.NoError(t, err)
+		assert.Equal(t, &due, next)
+	})
+
+	t.Run("returns nil when none is scheduled", func(t *testing.T) {
+		service, _, mockPostRepo, _, _, _, _, _ := setupBlogServiceTest(t)
+		mockPostRepo.EXPECT().NextScheduledPublishAt(ctx, now).Return(nil, nil)
+
+		next, err := service.NextScheduledPublishAt(ctx, now)
+
+		require.NoError(t, err)
+		assert.Nil(t, next)
+	})
+
+	t.Run("returns the repository error", func(t *testing.T) {
+		service, _, mockPostRepo, _, _, _, _, _ := setupBlogServiceTest(t)
+		mockPostRepo.EXPECT().NextScheduledPublishAt(ctx, now).Return(nil, errors.New("database error"))
+
+		_, err := service.NextScheduledPublishAt(ctx, now)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "database error")
 	})
 }
 
@@ -1705,9 +1776,13 @@ func TestBlogService_RenderHomePage(t *testing.T) {
 		mockThemeRepo.EXPECT().GetPublishedTheme(ctx).Return(theme, nil)
 		mockListRepo.EXPECT().GetLists(ctx, "workspace123").Return(publicLists, nil)
 		posts[0].CategoryID = "cat-1" // Add category ID to post
+		before := time.Now()
 		mockPostRepo.EXPECT().
 			ListPosts(ctx, gomock.Any()).
-			Return(&domain.BlogPostListResponse{Posts: posts, TotalCount: 1}, nil)
+			DoAndReturn(func(_ context.Context, p domain.ListBlogPostsRequest) (*domain.BlogPostListResponse, error) {
+				assertPublishedBeforeNow(t, p, before, time.Now())
+				return &domain.BlogPostListResponse{Posts: posts, TotalCount: 1}, nil
+			})
 		mockCategoryRepo := mocks.NewMockBlogCategoryRepository(gomock.NewController(t))
 		service.categoryRepo = mockCategoryRepo
 		mockCategoryRepo.EXPECT().ListCategories(ctx).Return(categories, nil)
@@ -1953,6 +2028,42 @@ func TestBlogService_RenderPostPage(t *testing.T) {
 		assert.Contains(t, html, "Blog post content")
 	})
 
+	t.Run("handles scheduled post before its date", func(t *testing.T) {
+		ctx := context.WithValue(context.Background(), domain.WorkspaceIDKey, "workspace123")
+		workspace := &domain.Workspace{ID: "workspace123", Name: "Test"}
+
+		future := time.Now().Add(24 * time.Hour)
+		post := &domain.BlogPost{
+			ID:          "post-2",
+			Slug:        "scheduled-post",
+			CategoryID:  "cat-1",
+			PublishedAt: &future,
+			Settings: domain.BlogPostSettings{
+				Title: "Scheduled Post",
+				Template: domain.BlogPostTemplateReference{
+					TemplateID:      "tpl-1",
+					TemplateVersion: 1,
+				},
+			},
+		}
+
+		theme := &domain.BlogTheme{Version: 1}
+		publishedAt := time.Now()
+		theme.PublishedAt = &publishedAt
+
+		mockWorkspaceRepo.EXPECT().GetByID(ctx, "workspace123").Return(workspace, nil)
+		mockThemeRepo.EXPECT().GetPublishedTheme(ctx).Return(theme, nil)
+		mockPostRepo.EXPECT().GetPostByCategoryAndSlug(ctx, "tech", "scheduled-post").Return(post, nil)
+
+		html, err := service.RenderPostPage(ctx, "workspace123", "tech", "scheduled-post", nil)
+		assert.Error(t, err)
+		assert.Empty(t, html)
+
+		var blogErr *domain.BlogRenderError
+		require.ErrorAs(t, err, &blogErr)
+		assert.Equal(t, domain.ErrCodePostNotFound, blogErr.Code)
+	})
+
 	t.Run("handles unpublished post", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), domain.WorkspaceIDKey, "workspace123")
 		workspace := &domain.Workspace{ID: "workspace123", Name: "Test"}
@@ -2171,7 +2282,12 @@ func TestBlogService_RenderCategoryPage(t *testing.T) {
 		mockThemeRepo.EXPECT().GetPublishedTheme(ctx).Return(theme, nil)
 		mockCategoryRepo.EXPECT().GetCategoryBySlug(ctx, "tech").Return(category, nil)
 		mockListRepo.EXPECT().GetLists(ctx, "workspace123").Return(publicLists, nil)
-		mockPostRepo.EXPECT().ListPosts(ctx, gomock.Any()).Return(&domain.BlogPostListResponse{Posts: posts, TotalCount: 1}, nil)
+		before := time.Now()
+		mockPostRepo.EXPECT().ListPosts(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, p domain.ListBlogPostsRequest) (*domain.BlogPostListResponse, error) {
+			assert.Equal(t, "cat-1", p.CategoryID)
+			assertPublishedBeforeNow(t, p, before, time.Now())
+			return &domain.BlogPostListResponse{Posts: posts, TotalCount: 1}, nil
+		})
 		mockCategoryRepo.EXPECT().ListCategories(ctx).Return([]*domain.BlogCategory{category}, nil)
 
 		html, err := service.RenderCategoryPage(ctx, "workspace123", "tech", 1, nil)
@@ -2623,6 +2739,26 @@ func TestBlogService_RenderPostContent(t *testing.T) {
 		assert.Equal(t, domain.ErrCodePostNotFound, renderErr.Code)
 	})
 
+	t.Run("errors with PostNotFound for a post scheduled after now", func(t *testing.T) {
+		service, _, mockPostRepo, _, mockWorkspaceRepo, _, _, _ := setupBlogServiceTest(t)
+		ctx := context.Background()
+
+		scheduled := newPost()
+		future := time.Now().Add(24 * time.Hour)
+		scheduled.PublishedAt = &future
+
+		mockWorkspaceRepo.EXPECT().
+			GetByID(ctx, workspaceID).Return(newWorkspace(), nil)
+		mockPostRepo.EXPECT().
+			GetPostByCategoryAndSlug(ctx, "tech", "hello").Return(scheduled, nil)
+
+		_, err := service.RenderPostContent(ctx, workspaceID, "tech", "hello")
+		require.Error(t, err)
+		var renderErr *domain.BlogRenderError
+		require.ErrorAs(t, err, &renderErr)
+		assert.Equal(t, domain.ErrCodePostNotFound, renderErr.Code)
+	})
+
 	t.Run("errors with PostNotFound for unpublished post", func(t *testing.T) {
 		service, _, mockPostRepo, _, mockWorkspaceRepo, _, _, _ := setupBlogServiceTest(t)
 		ctx := context.Background()
@@ -3030,4 +3166,14 @@ func TestBlogService_GetFeedFingerprint(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotEqual(t, etagBefore, etagAfter)
 	})
+}
+
+// assertPublishedBeforeNow checks that a public listing hides scheduled posts:
+// PublishedBefore is set, in UTC, to the time of the call.
+func assertPublishedBeforeNow(t *testing.T, p domain.ListBlogPostsRequest, before, after time.Time) {
+	t.Helper()
+	require.NotNil(t, p.PublishedBefore, "a public listing must hide posts scheduled after now")
+	assert.Equal(t, time.UTC, p.PublishedBefore.Location())
+	assert.False(t, p.PublishedBefore.Before(before.UTC()), "PublishedBefore %s is before the call", p.PublishedBefore)
+	assert.False(t, p.PublishedBefore.After(after.UTC()), "PublishedBefore %s is after the call", p.PublishedBefore)
 }

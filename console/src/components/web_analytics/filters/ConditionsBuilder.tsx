@@ -1,22 +1,25 @@
 import { useCallback, useRef, useState } from 'react'
-import { Button, Input, Popconfirm, Select } from 'antd'
+import { Button, ConfigProvider, Form, Popconfirm, Select } from 'antd'
 import type { RefSelectProps } from 'antd/es/select'
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import { useLingui } from '@lingui/react/macro'
+import { RuleValueInput } from './RuleValueInput'
 import { WebFilterCondition, WebFilterOperator } from '../../../services/api/web_analytics'
 import {
-  isValuelessOperator,
+  isValuelessRuleOperator,
   OPERATORS,
   SOURCE_FIELD_OPTIONS,
   useFilterVocabulary
 } from '../lib/filterCatalog'
+import { typography } from '../../../theme/tokens'
+
+const MONO_THEME = { token: { fontFamily: typography.mono } }
 
 interface ConditionRowProps {
   index: number
   value: WebFilterCondition
   onChange: (condition: WebFilterCondition) => void
   onRemove: () => void
-  isOnlyCondition: boolean
   autoFocus?: boolean
   onFocused?: () => void
 }
@@ -48,63 +51,75 @@ function ConditionRow(props: ConditionRowProps) {
     [autoFocus, onFocused]
   )
 
-  const showValueInput = !isValuelessOperator(props.value.operator)
+  const showValueInput = !isValuelessRuleOperator(props.value.operator)
+  // The list's error, once shown, outlines the value that causes it, not the whole row.
+  const { errors } = Form.Item.useStatus()
+  const valueMissing = errors.length > 0 && !props.value.value?.trim()
 
+  // One line when the card is wide enough (field, operator, value, delete); on a narrow card the
+  // value goes under them.
   return (
-    <div className="flex flex-col gap-2 md:flex-row md:items-center">
-      <div className="flex flex-1 items-center gap-2">
-        <span className="w-4 shrink-0 text-xs text-gray-400">{props.index + 1}.</span>
+    <div
+      data-condition-row
+      className="flex flex-wrap items-center gap-2 border-t border-line-soft py-2.5 first:border-t-0 first:pt-0"
+    >
+      <span className="w-4 shrink-0 text-xs text-ink-4">{props.index + 1}.</span>
+      <div className="min-w-0 flex-1">
         <Select
           ref={handleSelectRef}
           value={props.value.field}
           onChange={(field) => props.onChange({ ...props.value, field })}
           options={SOURCE_FIELD_OPTIONS}
           placeholder={t`Select field`}
-          className="w-full md:!w-[180px] md:shrink-0"
+          aria-label={t`Field`}
+          style={{ width: '100%' }}
           showSearch
           optionFilterProp="label"
           open={isOpen}
           onOpenChange={setIsOpen}
         />
       </div>
-      <Select
-        value={props.value.operator}
-        onChange={(operator: WebFilterOperator) => {
-          if (isValuelessOperator(operator)) {
-            props.onChange({ ...props.value, operator, value: undefined })
-            return
-          }
-          props.onChange({ ...props.value, operator })
-        }}
-        options={OPERATORS.map((operator) => ({
-          value: operator,
-          label: vocabulary.operators[operator]
-        }))}
-        className="w-full md:!w-[160px] md:shrink-0"
-      />
-      {showValueInput ? (
-        <Input
-          value={props.value.value ?? ''}
-          onChange={(event) => props.onChange({ ...props.value, value: event.target.value })}
-          placeholder={props.value.operator === 'regex' ? t`Regular expression` : t`Value`}
-          className="min-w-0 flex-1"
+      <div className="w-[140px] shrink-0">
+        <Select
+          value={props.value.operator}
+          onChange={(operator: WebFilterOperator) => {
+            if (isValuelessRuleOperator(operator)) {
+              props.onChange({ ...props.value, operator, value: undefined })
+              return
+            }
+            props.onChange({ ...props.value, operator })
+          }}
+          options={OPERATORS.map((operator) => ({
+            value: operator,
+            label: vocabulary.operators[operator]
+          }))}
+          aria-label={t`Operator`}
+          style={{ width: '100%' }}
         />
-      ) : (
-        <div className="hidden flex-1 md:block" />
-      )}
+      </div>
+      {showValueInput ? (
+        <div className="order-last basis-full pl-6 @min-[480px]:order-none @min-[480px]:basis-0 @min-[480px]:flex-1 @min-[480px]:pl-0">
+          {/* A pattern reads in the code typeface. */}
+          <ConfigProvider theme={props.value.operator === 'regex' ? MONO_THEME : undefined}>
+            <RuleValueInput
+              // A pattern is typed whatever the field holds.
+              field={props.value.operator === 'regex' ? '' : props.value.field}
+              value={props.value.value ?? ''}
+              onChange={(value) => props.onChange({ ...props.value, value })}
+              placeholder={props.value.operator === 'regex' ? t`Regular expression` : t`Value`}
+              status={valueMissing ? 'error' : undefined}
+            />
+          </ConfigProvider>
+        </div>
+      ) : null}
       <Popconfirm
         title={t`Delete this condition?`}
         onConfirm={props.onRemove}
         okText={t`Delete`}
+        okButtonProps={{ danger: true }}
         cancelText={t`Cancel`}
-        disabled={props.isOnlyCondition}
       >
-        <Button
-          type="text"
-          icon={<DeleteOutlined />}
-          disabled={props.isOnlyCondition}
-          className="shrink-0 self-end md:self-auto"
-        />
+        <Button type="text" aria-label={t`Delete condition`} icon={<DeleteOutlined />} />
       </Popconfirm>
     </div>
   )
@@ -130,9 +145,14 @@ export function ConditionsBuilder(props: ConditionsBuilderProps) {
   }
 
   return (
-    <div>
-      <div className="mb-3 text-xs text-gray-500">{t`All conditions must match (AND logic):`}</div>
-      <div className="space-y-2">
+    <div className="@container">
+      {conditions.length === 0 ? (
+        // The server runs a rule without conditions on every session; the seeded catch-alls are.
+        <p data-always-matches className="m-0 text-sm text-ink-3">
+          {t`Always matches: with no condition, this rule runs on every session.`}
+        </p>
+      ) : null}
+      <div>
         {conditions.map((condition, index) => (
           <ConditionRow
             key={index}
@@ -142,23 +162,16 @@ export function ConditionsBuilder(props: ConditionsBuilderProps) {
               emit(conditions.map((current, position) => (position === index ? next : current)))
             }
             onRemove={() => emit(conditions.filter((_, position) => position !== index))}
-            isOnlyCondition={conditions.length === 1}
             autoFocus={focusIndex === index}
             onFocused={() => setFocusIndex(null)}
           />
         ))}
       </div>
-      <Button
-        type="primary"
-        ghost
-        block
-        size="small"
-        icon={<PlusOutlined />}
-        onClick={addCondition}
-        className="!mt-4"
-      >
-        {t`Add condition`}
-      </Button>
+      <div className="mt-3">
+        <Button type="dashed" block size="small" icon={<PlusOutlined />} onClick={addCondition}>
+          {t`Add condition`}
+        </Button>
+      </div>
     </div>
   )
 }

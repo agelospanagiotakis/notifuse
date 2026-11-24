@@ -6,22 +6,22 @@ import (
 	"html"
 	"regexp"
 	"strings"
-	"sync"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/Notifuse/liquidgo/v5/liquid"
 )
 
-// liquidEnginePool reuses SecureLiquidEngine instances across renders.
-// Creating an engine registers all standard tags on a fresh environment,
-// which is wasteful when rendering many blocks (e.g. during a broadcast).
-// A pool is used instead of a shared instance because liquid.Environment
-// caches strainer classes in an unsynchronized map during rendering, so a
-// single engine must not be used from multiple goroutines concurrently.
-var liquidEnginePool = sync.Pool{
-	New: func() interface{} {
-		return NewSecureLiquidEngine()
-	},
-}
+// liquidEngine renders the Liquid of every email text that is not HTML (a subject,
+// the text version) and of display conditions. One engine serves every goroutine:
+// its environment is never changed after it is built, and each render has a state of
+// its own (liquid.Template.Render), so a render that outlives its timeout, until it
+// stops at its next node, touches no other render.
+var liquidEngine = NewSecureLiquidEngine()
+
+// liquidHTMLEngine renders the Liquid of the HTML of an email, whose outputs are
+// HTML-escaped (see newSecureHTMLLiquidEngine).
+var liquidHTMLEngine = newSecureHTMLLiquidEngine()
 
 // ConvertJSONToMJML converts an EmailBlock JSON tree to MJML string
 func ConvertJSONToMJML(tree EmailBlock) string {
@@ -31,7 +31,13 @@ func ConvertJSONToMJML(tree EmailBlock) string {
 // ConvertJSONToMJMLRaw converts an EmailBlock JSON tree to MJML string
 // without processing Liquid templates - preserving raw template syntax
 func ConvertJSONToMJMLRaw(tree EmailBlock) string {
-	return convertBlockToMJMLRaw(tree, 0)
+	return convertBlockToMJMLRaw(tree, 0, false)
+}
+
+// ConvertJSONToMJMLRawWithMarkers is ConvertJSONToMJMLRaw with the marks the visual
+// editor's MJML import reads back (see liquid_markers.go): the MJML export.
+func ConvertJSONToMJMLRawWithMarkers(tree EmailBlock) string {
+	return convertBlockToMJMLRaw(tree, 0, true)
 }
 
 // ConvertJSONToMJMLWithData converts an EmailBlock JSON tree to MJML string with template data
@@ -41,7 +47,7 @@ func ConvertJSONToMJMLWithData(tree EmailBlock, templateData string) (string, er
 	if parseErr != nil {
 		return "", fmt.Errorf("template data parsing failed: %v", parseErr)
 	}
-	return convertBlockToMJMLWithErrorAndParsedData(tree, 0, templateData, parsedData, false)
+	return convertBlockToMJMLWithErrorAndParsedData(tree, 0, templateData, parsedData, false, newRenderBudget())
 }
 
 // ConvertJSONToMJMLWithDataProtected is ConvertJSONToMJMLWithData but neutralizes the
@@ -50,15 +56,26 @@ func ConvertJSONToMJMLWithData(tree EmailBlock, templateData string) (string, er
 // value) rather than from the template. The caller must call restoreLiquidDelimiters
 // on the result after that pass. Used only by CompileTemplate.
 func ConvertJSONToMJMLWithDataProtected(tree EmailBlock, templateData string) (string, error) {
+	return convertJSONToMJMLWithDataProtectedIn(newRenderBudget(), tree, templateData)
+}
+
+// convertJSONToMJMLWithDataProtectedIn is ConvertJSONToMJMLWithDataProtected within budget,
+// the Liquid work left to the compilation.
+func convertJSONToMJMLWithDataProtectedIn(budget *renderBudget, tree EmailBlock, templateData string) (string, error) {
 	parsedData, parseErr := parseTemplateDataString(templateData)
 	if parseErr != nil {
 		return "", fmt.Errorf("template data parsing failed: %v", parseErr)
 	}
-	return convertBlockToMJMLWithErrorAndParsedData(tree, 0, templateData, parsedData, true)
+	return convertBlockToMJMLWithErrorAndParsedData(tree, 0, templateData, parsedData, true, budget)
 }
 
 // convertBlockToMJMLWithErrorAndParsedData recursively converts a single EmailBlock to MJML string with error handling and pre-parsed data
-func convertBlockToMJMLWithErrorAndParsedData(block EmailBlock, indentLevel int, templateData string, parsedData map[string]interface{}, protectLiquid bool) (string, error) {
+func convertBlockToMJMLWithErrorAndParsedData(block EmailBlock, indentLevel int, templateData string, parsedData map[string]interface{}, protectLiquid bool, budget *renderBudget) (string, error) {
+	// Defensive check, as in the other walks: a nil or untyped block renders nothing
+	if isNilBlock(block) || block.GetType() == "" {
+		return "", nil
+	}
+
 	// mj-liquid: output content directly, no wrapping tags
 	// Content is raw MJML+Liquid processed in the whole-string Liquid pass
 	if block.GetType() == MJMLComponentMjLiquid {
@@ -82,7 +99,7 @@ func convertBlockToMJMLWithErrorAndParsedData(block EmailBlock, indentLevel int,
 				// Only process Liquid when we have actual template data.
 				// When parsedData is nil or empty, preserve Liquid syntax for MJML export (issue #226).
 				if len(parsedData) > 0 {
-					processedContent, err := processLiquidContent(content, parsedData, block.GetID())
+					processedContent, err := processBlockLiquid(budget, blockType, content, parsedData, block.GetID())
 					if err != nil {
 						// Return error instead of just logging
 						return "", fmt.Errorf("liquid processing failed for block %s: %v", block.GetID(), err)
@@ -96,7 +113,7 @@ func convertBlockToMJMLWithErrorAndParsedData(block EmailBlock, indentLevel int,
 			}
 
 			// Block with content - don't escape for mj-raw, mj-text, and mj-button (they can contain HTML per MJML spec)
-			attributeString := formatAttributesWithLiquid(block.GetAttributes(), parsedData, block.GetID(), protectLiquid)
+			attributeString := formatAttributesWithLiquid(budget, block.GetAttributes(), parsedData, block.GetID(), protectLiquid)
 			if blockType == MJMLComponentMjRaw || blockType == MJMLComponentMjText || blockType == MJMLComponentMjButton {
 				return fmt.Sprintf("%s<%s%s>%s</%s>", indent, tagName, attributeString, content, tagName), nil
 			} else {
@@ -104,7 +121,7 @@ func convertBlockToMJMLWithErrorAndParsedData(block EmailBlock, indentLevel int,
 			}
 		} else {
 			// Self-closing block or empty block
-			attributeString := formatAttributesWithLiquid(block.GetAttributes(), parsedData, block.GetID(), protectLiquid)
+			attributeString := formatAttributesWithLiquid(budget, block.GetAttributes(), parsedData, block.GetID(), protectLiquid)
 			if attributeString != "" {
 				return fmt.Sprintf("%s<%s%s />", indent, tagName, attributeString), nil
 			} else {
@@ -114,20 +131,30 @@ func convertBlockToMJMLWithErrorAndParsedData(block EmailBlock, indentLevel int,
 	}
 
 	// Block with children
-	attributeString := formatAttributesWithLiquid(block.GetAttributes(), parsedData, block.GetID(), protectLiquid)
+	attributeString := formatAttributesWithLiquid(budget, block.GetAttributes(), parsedData, block.GetID(), protectLiquid)
 	openTag := fmt.Sprintf("%s<%s%s>", indent, tagName, attributeString)
 	closeTag := fmt.Sprintf("%s</%s>", indent, tagName)
 
 	// Process children
 	var childrenMJML []string
 	for _, child := range children {
-		if child != nil {
-			childMJML, err := convertBlockToMJMLWithErrorAndParsedData(child, indentLevel+1, templateData, parsedData, protectLiquid)
-			if err != nil {
-				return "", err
-			}
-			childrenMJML = append(childrenMJML, childMJML)
+		if isNilBlock(child) {
+			continue
 		}
+		// a hidden block is skipped before its content is rendered, so its Liquid
+		// cannot fail the send
+		shown, err := child.GetDisplayCondition().evaluateIn(budget, parsedData)
+		if err != nil {
+			return "", fmt.Errorf("display condition failed for block %s: %w", child.GetID(), err)
+		}
+		if !shown {
+			continue
+		}
+		childMJML, err := convertBlockToMJMLWithErrorAndParsedData(child, indentLevel+1, templateData, parsedData, protectLiquid, budget)
+		if err != nil {
+			return "", err
+		}
+		childrenMJML = append(childrenMJML, childMJML)
 	}
 
 	return fmt.Sprintf("%s\n%s\n%s", openTag, strings.Join(childrenMJML, "\n"), closeTag), nil
@@ -149,7 +176,7 @@ func convertBlockToMJML(block EmailBlock, indentLevel int, templateData string) 
 // needs no delimiter protection; the data path uses convertBlockToMJMLWithErrorAndParsedData.
 func convertBlockToMJMLWithParsedData(block EmailBlock, indentLevel int, templateData string, parsedData map[string]interface{}) string {
 	// Defensive check: ensure the block has a valid BaseBlock pointer
-	if block == nil {
+	if isNilBlock(block) {
 		return ""
 	}
 
@@ -180,7 +207,7 @@ func convertBlockToMJMLWithParsedData(block EmailBlock, indentLevel int, templat
 				// Only process Liquid when we have actual template data.
 				// When parsedData is nil or empty, preserve Liquid syntax for MJML export (issue #226).
 				if len(parsedData) > 0 {
-					processedContent, err := processLiquidContent(content, parsedData, block.GetID())
+					processedContent, err := processBlockLiquid(nil, blockType, content, parsedData, block.GetID())
 					if err != nil {
 						// Log error but continue with original content
 						fmt.Printf("Warning: Liquid processing failed for block %s: %v\n", block.GetID(), err)
@@ -191,7 +218,7 @@ func convertBlockToMJMLWithParsedData(block EmailBlock, indentLevel int, templat
 			}
 
 			// Block with content - don't escape for mj-raw, mj-text, and mj-button (they can contain HTML per MJML spec)
-			attributeString := formatAttributesWithLiquid(block.GetAttributes(), parsedData, block.GetID(), false)
+			attributeString := formatAttributesWithLiquid(nil, block.GetAttributes(), parsedData, block.GetID(), false)
 			if blockType == MJMLComponentMjRaw || blockType == MJMLComponentMjText || blockType == MJMLComponentMjButton {
 				return fmt.Sprintf("%s<%s%s>%s</%s>", indent, tagName, attributeString, content, tagName)
 			} else {
@@ -199,7 +226,7 @@ func convertBlockToMJMLWithParsedData(block EmailBlock, indentLevel int, templat
 			}
 		} else {
 			// Self-closing block or empty block
-			attributeString := formatAttributesWithLiquid(block.GetAttributes(), parsedData, block.GetID(), false)
+			attributeString := formatAttributesWithLiquid(nil, block.GetAttributes(), parsedData, block.GetID(), false)
 			if attributeString != "" {
 				return fmt.Sprintf("%s<%s%s />", indent, tagName, attributeString)
 			} else {
@@ -209,16 +236,23 @@ func convertBlockToMJMLWithParsedData(block EmailBlock, indentLevel int, templat
 	}
 
 	// Block with children
-	attributeString := formatAttributesWithLiquid(block.GetAttributes(), parsedData, block.GetID(), false)
+	attributeString := formatAttributesWithLiquid(nil, block.GetAttributes(), parsedData, block.GetID(), false)
 	openTag := fmt.Sprintf("%s<%s%s>", indent, tagName, attributeString)
 	closeTag := fmt.Sprintf("%s</%s>", indent, tagName)
 
 	// Process children
 	var childrenMJML []string
 	for _, child := range children {
-		if child != nil {
-			childrenMJML = append(childrenMJML, convertBlockToMJMLWithParsedData(child, indentLevel+1, templateData, parsedData))
+		if isNilBlock(child) {
+			continue
 		}
+		// without test data the condition sees an empty map, so a block that needs a
+		// variable is hidden; an engine failure keeps the block, as this walk ignores
+		// Liquid errors
+		if shown, err := child.GetDisplayCondition().Evaluate(parsedData); err == nil && !shown {
+			continue
+		}
+		childrenMJML = append(childrenMJML, convertBlockToMJMLWithParsedData(child, indentLevel+1, templateData, parsedData))
 	}
 
 	return fmt.Sprintf("%s\n%s\n%s", openTag, strings.Join(childrenMJML, "\n"), closeTag)
@@ -226,9 +260,9 @@ func convertBlockToMJMLWithParsedData(block EmailBlock, indentLevel int, templat
 
 // convertBlockToMJMLRaw recursively converts a single EmailBlock to MJML string
 // without any Liquid template processing - preserving raw template syntax
-func convertBlockToMJMLRaw(block EmailBlock, indentLevel int) string {
+func convertBlockToMJMLRaw(block EmailBlock, indentLevel int, markers bool) string {
 	// Defensive check: ensure the block has a valid BaseBlock pointer
-	if block == nil {
+	if isNilBlock(block) {
 		return ""
 	}
 
@@ -240,6 +274,9 @@ func convertBlockToMJMLRaw(block EmailBlock, indentLevel int) string {
 
 	if blockType == MJMLComponentMjLiquid {
 		content := getBlockContent(block)
+		if markers {
+			return LiquidBlockMarkerOpen + content + LiquidBlockMarkerClose
+		}
 		return content
 	}
 
@@ -280,9 +317,23 @@ func convertBlockToMJMLRaw(block EmailBlock, indentLevel int) string {
 	// Process children
 	var childrenMJML []string
 	for _, child := range children {
-		if child != nil {
-			childrenMJML = append(childrenMJML, convertBlockToMJMLRaw(child, indentLevel+1))
+		if isNilBlock(child) {
+			continue
 		}
+		childMJML := convertBlockToMJMLRaw(child, indentLevel+1, markers)
+		// the export keeps the condition as the Liquid that sending evaluates
+		if open, close := child.GetDisplayCondition().ToLiquid(child.GetID()); open != "" {
+			if markers {
+				// a condition that cannot be written as a mark is exported unmarked, both ends
+				if mark := conditionMarkerOpen(child.GetDisplayCondition()); mark != "" {
+					open = mark + open
+					close += ConditionMarkerClose
+				}
+			}
+			childIndent := strings.Repeat("  ", indentLevel+1)
+			childMJML = childIndent + open + "\n" + childMJML + "\n" + childIndent + close
+		}
+		childrenMJML = append(childrenMJML, childMJML)
 	}
 
 	return fmt.Sprintf("%s\n%s\n%s", openTag, strings.Join(childrenMJML, "\n"), closeTag)
@@ -307,8 +358,30 @@ func parseTemplateDataString(templateData string) (map[string]interface{}, error
 	return jsonData, nil
 }
 
-// processLiquidContent processes Liquid templating in content with security protections
+// processBlockLiquid renders the Liquid of a block's content: mj-title and mj-preview
+// hold text, which the converter escapes itself; the others hold HTML.
+func processBlockLiquid(budget *renderBudget, blockType MJMLComponentType, content string, templateData map[string]interface{}, blockID string) (string, error) {
+	if blockType == MJMLComponentMjTitle || blockType == MJMLComponentMjPreview {
+		return processLiquidWith(budget, liquidEngine, cleanLiquidTemplate, content, templateData, blockID)
+	}
+	return processLiquidWith(budget, liquidHTMLEngine, cleanLiquidTemplateHTML, content, templateData, blockID)
+}
+
+// processLiquidContent processes Liquid templating in text that is not HTML (a
+// subject, the text version), with security protections.
 func processLiquidContent(content string, templateData map[string]interface{}, blockID string) (string, error) {
+	return processLiquidWith(nil, liquidEngine, cleanLiquidTemplate, content, templateData, blockID)
+}
+
+// processLiquidHTML processes Liquid templating in the HTML or MJML of an email:
+// its outputs are HTML-escaped (see newSecureHTMLLiquidEngine).
+func processLiquidHTML(content string, templateData map[string]interface{}, blockID string) (string, error) {
+	return processLiquidWith(nil, liquidHTMLEngine, cleanLiquidTemplateHTML, content, templateData, blockID)
+}
+
+// processLiquidWith renders content with engine within budget, the Liquid work left to its
+// compilation (nil outside a compilation).
+func processLiquidWith(budget *renderBudget, engine *SecureLiquidEngine, clean func(string) string, content string, templateData map[string]interface{}, blockID string) (string, error) {
 	// Check if content contains Liquid templating markup
 	if !strings.Contains(content, "{{") && !strings.Contains(content, "{%") {
 		return content, nil // No Liquid markup found, return original content
@@ -316,10 +389,7 @@ func processLiquidContent(content string, templateData map[string]interface{}, b
 
 	// Undo what rich text editors do to Liquid markup: invisible characters,
 	// curly or encoded quotes, encoded operators (see cleanLiquidTemplate)
-	content = cleanLiquidTemplate(content)
-
-	// Get a secure Liquid engine (timeout and size protections) from the pool
-	engine := liquidEnginePool.Get().(*SecureLiquidEngine)
+	content = clean(content)
 
 	// Use provided template data or initialize empty map if nil
 	var jsonData map[string]interface{}
@@ -330,16 +400,10 @@ func processLiquidContent(content string, templateData map[string]interface{}, b
 	}
 
 	// Render the content with Liquid (with security protections)
-	renderedContent, err := engine.RenderWithTimeout(content, jsonData)
+	renderedContent, err := engine.renderIn(budget, content, jsonData, false)
 	if err != nil {
-		// Do not return the engine to the pool on error: on timeout the
-		// render goroutine is still running and still using the engine's
-		// environment, so repooling it would hand a busy engine to the next
-		// caller. Dropping the engine is cheap relative to that risk.
 		return content, fmt.Errorf("liquid rendering error in block (ID: %s): %w", blockID, err)
 	}
-
-	liquidEnginePool.Put(engine)
 	return renderedContent, nil
 }
 
@@ -393,21 +457,101 @@ func restoreLiquidDelimiters(s string) string {
 // verbatim.
 var liquidRawTagRegex = regexp.MustCompile(`^\{%-?\s*raw\s*-?%\}$`)
 
-// isLiquidEndRawTag reports whether markup ends a raw body, the way liquidgo's raw tag
-// decides it: the markup between {% and %}, trimmed, is "endraw" or starts with
-// "endraw " ({%- endraw -%} is not an end there, so the body runs on).
+// isLiquidEndRawTag reports whether markup ends a raw body, with liquidgo's own rule
+// (Ruby's FullTokenPossiblyInvalid): the markup ends with a tag named endraw, whatever
+// its whitespace control ({%- endraw -%}) or the text before it in the same markup.
 func isLiquidEndRawTag(markup string) bool {
-	if !strings.HasPrefix(markup, "{%") {
-		return false
-	}
-	name := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(markup, "{%"), "%}"))
-	return name == "endraw" || strings.HasPrefix(name, "endraw ")
+	_, tagName, ok := liquid.MatchTagPossiblyInvalid(markup)
+	return ok && tagName == "endraw"
 }
 
 // cleanLiquidTemplate undoes what rich text editors do to the Liquid markup typed
 // into them (see cleanLiquidMarkup). The body of a {% raw %} block is copied
 // unchanged, since Liquid outputs it verbatim.
 func cleanLiquidTemplate(content string) string {
+	return cleanLiquidTemplateWith(content, cleanLiquidMarkup)
+}
+
+// cleanLiquidTemplateHTML is cleanLiquidTemplate for Liquid rendered into HTML,
+// whose outputs are escaped: it also decodes the entities of the string literals
+// of the markup, which the editors wrote encoded (an attribute value is escaped
+// before the whole-document pass renders its Liquid, a rich text editor encodes
+// "&"), so that the literal is the text the author typed and is escaped once.
+func cleanLiquidTemplateHTML(content string) string {
+	return cleanLiquidTemplateWith(content, func(markup string) string {
+		return decodeLiquidLiteralEntities(cleanLiquidMarkup(markup))
+	})
+}
+
+// decodeLiquidLiteralEntities decodes the entities inside the string literals of a
+// cleaned markup (see decodeLiteralEntity for which). A literal holding its own quote
+// as an entity is rewritten with the other quote when it holds none of that one:
+// Liquid has no escape for a quote, and keeping the entity would show it escaped.
+func decodeLiquidLiteralEntities(markup string) string {
+	if !strings.Contains(markup, "&") {
+		return markup
+	}
+	var b strings.Builder
+	b.Grow(len(markup))
+	for i := 0; i < len(markup); {
+		c := markup[i]
+		if c != '\'' && c != '"' {
+			b.WriteByte(c)
+			i++
+			continue
+		}
+		end := strings.IndexByte(markup[i+1:], c)
+		if end < 0 {
+			b.WriteString(markup[i:])
+			break
+		}
+		literal := markup[i+1 : i+1+end]
+		quote := c
+		decoded, ownQuote := decodeLiteralEntities(literal, quote)
+		if ownQuote {
+			other := byte('"')
+			if quote == '"' {
+				other = '\''
+			}
+			if all, _ := decodeLiteralEntities(literal, 0); !strings.ContainsRune(all, rune(other)) {
+				quote, decoded = other, all
+			}
+		}
+		b.WriteByte(quote)
+		b.WriteString(decoded)
+		b.WriteByte(quote)
+		i += end + 2
+	}
+	return b.String()
+}
+
+// literalEntityRegexp matches the entities a literal is decoded from: the XML ones,
+// &nbsp; and numeric references, each with its semicolon. A name without one, as
+// in a query string (?a=1&copy=2), is not an entity here.
+var literalEntityRegexp = regexp.MustCompile(`&(?:amp|lt|gt|quot|apos|nbsp|#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6});`)
+
+// decodeLiteralEntities decodes the entities of a literal, except one that stands
+// for quote (0: none), and those that would give {, } or %, which would change
+// the Liquid markup around the literal. ownQuote reports a kept entity of quote.
+func decodeLiteralEntities(literal string, quote byte) (decoded string, ownQuote bool) {
+	if !strings.Contains(literal, "&") {
+		return literal, false
+	}
+	decoded = literalEntityRegexp.ReplaceAllStringFunc(literal, func(entity string) string {
+		text := html.UnescapeString(entity)
+		switch {
+		case quote != 0 && text == string(quote):
+			ownQuote = true
+			return entity
+		case text == "{" || text == "}" || text == "%":
+			return entity
+		}
+		return text
+	})
+	return decoded, ownQuote
+}
+
+func cleanLiquidTemplateWith(content string, clean func(string) string) string {
 	locs := liquidMarkupRegex.FindAllStringIndex(content, -1)
 	if len(locs) == 0 {
 		return content
@@ -417,7 +561,15 @@ func cleanLiquidTemplate(content string) string {
 	last := 0
 	inRaw := false
 	for _, loc := range locs {
-		cleaned := cleanLiquidMarkup(content[loc[0]:loc[1]])
+		start := loc[0]
+		if inRaw {
+			// The closing tag is the last {% of the markup; text before it in the same
+			// markup ({% raw %}{% if x {% endraw %}) is still raw body, copied unchanged.
+			if i := strings.LastIndex(content[loc[0]:loc[1]], "{%"); i > 0 {
+				start += i
+			}
+		}
+		cleaned := clean(content[start:loc[1]])
 		if inRaw {
 			if !isLiquidEndRawTag(cleaned) {
 				continue
@@ -426,7 +578,7 @@ func cleanLiquidTemplate(content string) string {
 		} else {
 			inRaw = liquidRawTagRegex.MatchString(cleaned)
 		}
-		b.WriteString(content[last:loc[0]])
+		b.WriteString(content[last:start])
 		b.WriteString(cleaned)
 		last = loc[1]
 	}
@@ -623,11 +775,11 @@ func getBlockContent(block EmailBlock) string {
 
 // formatAttributes formats attributes object into MJML attribute string
 func formatAttributes(attributes map[string]interface{}) string {
-	return formatAttributesWithLiquid(attributes, nil, "", false)
+	return formatAttributesWithLiquid(nil, attributes, nil, "", false)
 }
 
 // formatAttributesWithLiquid formats attributes object into MJML attribute string with liquid processing
-func formatAttributesWithLiquid(attributes map[string]interface{}, templateData map[string]interface{}, blockID string, protectLiquid bool) string {
+func formatAttributesWithLiquid(budget *renderBudget, attributes map[string]interface{}, templateData map[string]interface{}, blockID string, protectLiquid bool) string {
 	if len(attributes) == 0 {
 		return ""
 	}
@@ -639,7 +791,7 @@ func formatAttributesWithLiquid(attributes map[string]interface{}, templateData 
 			continue
 		}
 		if shouldIncludeAttribute(value) {
-			if attr := formatSingleAttributeWithLiquid(key, value, templateData, blockID, protectLiquid); attr != "" {
+			if attr := formatSingleAttributeWithLiquid(budget, key, value, templateData, blockID, protectLiquid); attr != "" {
 				attrPairs = append(attrPairs, attr)
 			}
 		}
@@ -672,11 +824,11 @@ func shouldIncludeAttribute(value interface{}) bool {
 
 // formatSingleAttribute formats a single attribute key-value pair
 func formatSingleAttribute(key string, value interface{}) string {
-	return formatSingleAttributeWithLiquid(key, value, nil, "", false)
+	return formatSingleAttributeWithLiquid(nil, key, value, nil, "", false)
 }
 
 // formatSingleAttributeWithLiquid formats a single attribute key-value pair with liquid processing
-func formatSingleAttributeWithLiquid(key string, value interface{}, templateData map[string]interface{}, blockID string, protectLiquid bool) string {
+func formatSingleAttributeWithLiquid(budget *renderBudget, key string, value interface{}, templateData map[string]interface{}, blockID string, protectLiquid bool) string {
 	// Convert camelCase to kebab-case for MJML attributes
 	kebabKey := camelToKebab(key)
 
@@ -696,14 +848,14 @@ func formatSingleAttributeWithLiquid(key string, value interface{}, templateData
 		if v == "" {
 			return ""
 		}
-		processedValue := processAttributeValue(v, kebabKey, templateData, blockID, protectLiquid)
+		processedValue := processAttributeValue(budget, v, kebabKey, templateData, blockID, protectLiquid)
 		escapedValue := escapeAttributeValue(processedValue, kebabKey)
 		return fmt.Sprintf(` %s="%s"`, kebabKey, escapedValue)
 	case *string:
 		if v == nil || *v == "" {
 			return ""
 		}
-		processedValue := processAttributeValue(*v, kebabKey, templateData, blockID, protectLiquid)
+		processedValue := processAttributeValue(budget, *v, kebabKey, templateData, blockID, protectLiquid)
 		escapedValue := escapeAttributeValue(processedValue, kebabKey)
 		return fmt.Sprintf(` %s="%s"`, kebabKey, escapedValue)
 	case map[string]interface{}:
@@ -714,7 +866,7 @@ func formatSingleAttributeWithLiquid(key string, value interface{}, templateData
 		if !ok || cssValue == "" {
 			return ""
 		}
-		processedValue := processAttributeValue(cssValue, kebabKey, templateData, blockID, protectLiquid)
+		processedValue := processAttributeValue(budget, cssValue, kebabKey, templateData, blockID, protectLiquid)
 		escapedValue := escapeAttributeValue(processedValue, kebabKey)
 		return fmt.Sprintf(` %s="%s"`, kebabKey, escapedValue)
 	default:
@@ -723,7 +875,7 @@ func formatSingleAttributeWithLiquid(key string, value interface{}, templateData
 		if strValue == "" {
 			return ""
 		}
-		processedValue := processAttributeValue(strValue, kebabKey, templateData, blockID, protectLiquid)
+		processedValue := processAttributeValue(budget, strValue, kebabKey, templateData, blockID, protectLiquid)
 		escapedValue := escapeAttributeValue(processedValue, kebabKey)
 		return fmt.Sprintf(` %s="%s"`, kebabKey, escapedValue)
 	}
@@ -775,7 +927,7 @@ func formatBoxModelMap(m map[string]interface{}) (string, bool) {
 }
 
 // processAttributeValue processes attribute values through liquid templating if applicable
-func processAttributeValue(value, attributeKey string, templateData map[string]interface{}, blockID string, protectLiquid bool) string {
+func processAttributeValue(budget *renderBudget, value, attributeKey string, templateData map[string]interface{}, blockID string, protectLiquid bool) string {
 	// Process liquid templates for URL-related attributes and alt text
 	isURLAttribute := attributeKey == "href" || attributeKey == "src" || attributeKey == "action" ||
 		attributeKey == "background-url" || strings.HasSuffix(attributeKey, "-url")
@@ -795,7 +947,7 @@ func processAttributeValue(value, attributeKey string, templateData map[string]i
 	hasLiquidSyntax := strings.Contains(value, "{{") || strings.Contains(value, "{%")
 
 	// Process liquid content for URL attributes
-	processedValue, err := processLiquidContent(value, templateData, fmt.Sprintf("%s.%s", blockID, attributeKey))
+	processedValue, err := processLiquidWith(budget, liquidHTMLEngine, cleanLiquidTemplateHTML, value, templateData, fmt.Sprintf("%s.%s", blockID, attributeKey))
 	if err != nil {
 		// If liquid processing fails, return original value and log warning
 		fmt.Printf("Warning: Liquid processing failed for attribute %s in block %s: %v\n", attributeKey, blockID, err)
@@ -851,24 +1003,29 @@ func camelToKebab(str string) string {
 // All ampersands must be escaped as &amp; per XML specification
 // The MJML compiler will handle converting them back to & in the final HTML
 func escapeAttributeValue(value string, attributeName string) string {
-	// The MJML renderer (gomjml) decodes the named XML entities &lt; &gt; &quot; &apos;
-	// back to raw characters in a pre-pass *before* its XML parse, and then writes
-	// attribute values to the final HTML without re-escaping them. A value escaped the
-	// ordinary XML way (" -> &quot;) therefore reaches the attribute as a raw " < or >,
-	// which closes the attribute and fails the compile, or emits broken HTML. Escaping
-	// the ampersand of each entity a second time (&amp;quot;) survives that pre-pass:
-	// gomjml preserves &amp;, the XML parser turns &amp; back into &, and the literal
-	// entity &quot; is what lands in the HTML, which the browser decodes to ". The
-	// apostrophe uses the numeric &#39;, which gomjml does not pre-decode, and a raw '
-	// inside a double-quoted attribute needs no further escaping. See the gomjml
-	// write-up (double-decoding + unescaped attribute output); drop the doubling once a
-	// renderer release escapes attribute output.
+	// Text that reads as an entity (&quot;, &eacute;, &#39;) is the character a
+	// browser reads there, as it has always been: decode it first. Then the
+	// ordinary XML escaping is enough, since safe-mjml escapes every attribute
+	// value it writes (its XML parser decodes &quot; back to ", and the output
+	// escapes it again). A decoded character XML does not allow would fail the
+	// whole compile, so it is dropped.
+	value = strings.Map(xmlAllowedRune, html.UnescapeString(value))
 	value = strings.ReplaceAll(value, "&", "&amp;")
-	value = strings.ReplaceAll(value, "\"", "&amp;quot;")
+	value = strings.ReplaceAll(value, "\"", "&quot;")
 	value = strings.ReplaceAll(value, "'", "&#39;")
-	value = strings.ReplaceAll(value, "<", "&amp;lt;")
-	value = strings.ReplaceAll(value, ">", "&amp;gt;")
+	value = strings.ReplaceAll(value, "<", "&lt;")
+	value = strings.ReplaceAll(value, ">", "&gt;")
 	return value
+}
+
+// xmlAllowedRune returns r, or -1 (dropped by strings.Map) for a character XML
+// does not allow: a control character other than tab and line breaks, U+FFFE and
+// U+FFFF.
+func xmlAllowedRune(r rune) rune {
+	if (r < 0x20 && r != '\t' && r != '\n' && r != '\r') || r == 0xFFFE || r == 0xFFFF {
+		return -1
+	}
+	return r
 }
 
 // escapeContent escapes content for safe insertion as element text content.
@@ -892,7 +1049,7 @@ func ConvertToMJMLString(block EmailBlock) (string, error) {
 
 // ConvertToMJMLStringWithData converts an EmailBlock to MJML with template data
 func ConvertToMJMLStringWithData(block EmailBlock, templateData string) (string, error) {
-	if block == nil {
+	if isNilBlock(block) {
 		return "", fmt.Errorf("block cannot be nil")
 	}
 
@@ -919,7 +1076,7 @@ type MJMLConvertOptions struct {
 
 // ConvertToMJMLWithOptions converts an EmailBlock to MJML string with additional options
 func ConvertToMJMLWithOptions(block EmailBlock, options MJMLConvertOptions) (string, error) {
-	if block == nil {
+	if isNilBlock(block) {
 		return "", fmt.Errorf("block cannot be nil")
 	}
 

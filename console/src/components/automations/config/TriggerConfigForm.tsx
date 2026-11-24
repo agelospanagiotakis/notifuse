@@ -7,12 +7,14 @@ import { treeUsesSource } from '../../segment/tree_completeness'
 import type { TreeNode } from '../../../services/api/segment'
 import { listsApi } from '../../../services/api/list'
 import { listSegments } from '../../../services/api/segment'
-import { OptionSelector } from '../../ui/OptionSelector'
+import BroadcastSelectorInput from '../../segment/BroadcastSelectorInput'
+import TemplateSelectorInput from '../../templates/TemplateSelectorInput'
 import type { Workspace } from '../../../services/api/types'
+import { EVENT_KIND_OPTIONS } from '../describeTrigger'
 
 // Kinds that fire often enough that a condition is worth a word about cost: it runs for every
 // matching row written to contact_timeline.
-const FREQUENT_EVENT_KINDS = ['email.opened', 'email.clicked', 'contact.updated', 'custom_event']
+const FREQUENT_EVENT_KINDS = ['email.opened', 'email.clicked', 'email.link_clicked', 'contact.updated', 'custom_event']
 
 // Event kind cascader options are built inside the component to support i18n
 
@@ -43,6 +45,9 @@ interface TriggerConfig {
   segment_id?: string
   custom_event_name?: string
   updated_fields?: string[]
+  link_url?: string
+  broadcast_id?: string
+  template_id?: string
   // Declared here as well as in TimelineTriggerConfig: without it the field survives only by
   // the runtime {...config} spreads, invisible to the type checker.
   conditions?: TreeNode
@@ -54,57 +59,33 @@ interface TriggerConfigFormProps {
   onChange: (config: TriggerConfig) => void
   workspaceId: string
   workspace?: Workspace
+  // Without Templates read the template filter shows the stored ID, locked. Defaults to true.
+  canReadTemplates?: boolean
+  /** Read-only: a field that sets its own `disabled` ignores the panel's ConfigProvider. */
+  readOnly?: boolean
 }
 
-export const TriggerConfigForm: React.FC<TriggerConfigFormProps> = ({ config, onChange, workspaceId, workspace }) => {
+export const TriggerConfigForm: React.FC<TriggerConfigFormProps> = ({
+  config,
+  onChange,
+  workspaceId,
+  workspace,
+  canReadTemplates = true,
+  readOnly = false
+}) => {
   const { t } = useLingui()
 
-  // Cascader options for event kinds
-  const EVENT_KIND_CASCADER_OPTIONS = useMemo(() => [
-    {
-      value: 'contact',
-      label: t`Contact`,
-      children: [
-        { value: 'contact.created', label: t`Created` },
-        { value: 'contact.updated', label: t`Updated` },
-        { value: 'contact.deleted', label: t`Deleted` }
-      ]
-    },
-    {
-      value: 'list',
-      label: t`List`,
-      children: [
-        { value: 'list.subscribed', label: t`Subscribed` },
-        { value: 'list.unsubscribed', label: t`Unsubscribed` },
-        { value: 'list.confirmed', label: t`Confirmed` },
-        { value: 'list.resubscribed', label: t`Resubscribed` },
-        { value: 'list.bounced', label: t`Bounced` },
-        { value: 'list.complained', label: t`Complained` },
-        { value: 'list.pending', label: t`Pending` },
-        { value: 'list.removed', label: t`Removed` }
-      ]
-    },
-    {
-      value: 'segment',
-      label: t`Segment`,
-      children: [
-        { value: 'segment.joined', label: t`Joined` },
-        { value: 'segment.left', label: t`Left` }
-      ]
-    },
-    {
-      value: 'email',
-      label: t`Email`,
-      children: [
-        { value: 'email.opened', label: t`Opened` },
-        { value: 'email.clicked', label: t`Clicked` },
-        { value: 'email.bounced', label: t`Bounced` },
-        { value: 'email.complained', label: t`Complained` },
-        { value: 'email.unsubscribed', label: t`Unsubscribed` }
-      ]
-    },
-    { value: 'custom_event', label: t`Custom Event` }
-  ], [t])
+  // Cascader options for event kinds, shared with the list's trigger labels.
+  const { i18n } = useLingui()
+  const EVENT_KIND_CASCADER_OPTIONS = useMemo(
+    () =>
+      EVENT_KIND_OPTIONS.map((option) => ({
+        value: option.value,
+        label: i18n._(option.label),
+        children: option.children?.map((child) => ({ value: child.value, label: i18n._(child.label) }))
+      })),
+    [i18n]
+  )
 
   // Build contact field options with custom labels from workspace settings
   const contactFieldOptions = useMemo(
@@ -128,6 +109,13 @@ export const TriggerConfigForm: React.FC<TriggerConfigFormProps> = ({ config, on
           { value: 'country', label: t`Country` },
           { value: 'state', label: t`State` },
           { value: 'postcode', label: t`Postcode` }
+        ]
+      },
+      {
+        label: t`Email Tracking Consent`,
+        options: [
+          { value: 'tracking_opens_consent', label: t`Opens Tracking Consent` },
+          { value: 'tracking_clicks_consent', label: t`Clicks Tracking Consent` }
         ]
       },
       {
@@ -197,7 +185,10 @@ export const TriggerConfigForm: React.FC<TriggerConfigFormProps> = ({ config, on
       list_id: undefined,
       segment_id: undefined,
       custom_event_name: undefined,
-      updated_fields: undefined
+      updated_fields: undefined,
+      link_url: undefined,
+      broadcast_id: undefined,
+      template_id: undefined
     }
     onChange(newConfig)
   }
@@ -214,12 +205,21 @@ export const TriggerConfigForm: React.FC<TriggerConfigFormProps> = ({ config, on
     onChange({ ...config, custom_event_name: e.target.value })
   }
 
-  const handleFrequencyChange = (value: 'once' | 'every_time') => {
-    onChange({ ...config, frequency: value })
-  }
-
   const handleUpdatedFieldsChange = (value: string[]) => {
     onChange({ ...config, updated_fields: value.length > 0 ? value : undefined })
+  }
+
+  // An empty filter is no filter: sent as absent rather than "".
+  const handleLinkURLChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    onChange({ ...config, link_url: e.target.value || undefined })
+  }
+
+  const handleBroadcastIdChange = (value: string | null) => {
+    onChange({ ...config, broadcast_id: value || undefined })
+  }
+
+  const handleTemplateIdChange = (value: string | null) => {
+    onChange({ ...config, template_id: value || undefined })
   }
 
   const handleConditionsChange = (conditions: TreeNode) => {
@@ -234,6 +234,7 @@ export const TriggerConfigForm: React.FC<TriggerConfigFormProps> = ({ config, on
   const isSegmentEvent = config.event_kind?.startsWith('segment.')
   const isCustomEvent = config.event_kind === 'custom_event'
   const isContactUpdated = config.event_kind === 'contact.updated'
+  const isLinkClicked = config.event_kind === 'email.link_clicked'
   const usesTimeline = treeUsesSource(config.conditions, 'contact_timeline')
   const isFrequentEvent = Boolean(config.event_kind && FREQUENT_EVENT_KINDS.includes(config.event_kind))
 
@@ -342,24 +343,50 @@ export const TriggerConfigForm: React.FC<TriggerConfigFormProps> = ({ config, on
         </Form.Item>
       )}
 
-      <Form.Item label={t`Frequency`} required>
-        <OptionSelector
-          value={config.frequency || 'once'}
-          onChange={handleFrequencyChange}
-          options={[
-            {
-              value: 'once',
-              label: t`Once per contact`,
-              description: t`Each contact enters the automation only once`
-            },
-            {
-              value: 'every_time',
-              label: t`Every time`,
-              description: t`Contact re-enters each time the event occurs`
-            }
-          ]}
-        />
-      </Form.Item>
+      {/* Filters of a link click: what the clicked URL contains, and which email it was in */}
+      {isLinkClicked && (
+        <>
+          <Alert
+            type="info"
+            showIcon
+            className="mb-3"
+            title={t`Starts the first time a contact clicks each link of an email. A click on an email this automation sent does not start it again.`}
+          />
+          <Form.Item
+            label={t`Clicked link contains`}
+            extra={t`Part of the link's URL, not case-sensitive. Leave empty to start on any link.`}
+          >
+            <Input
+              placeholder={t`e.g. /pricing`}
+              value={config.link_url}
+              onChange={handleLinkURLChange}
+              allowClear
+            />
+          </Form.Item>
+          <Form.Item label={t`Broadcast`} extra={t`Only links in emails of this broadcast.`}>
+            <BroadcastSelectorInput
+              workspaceId={workspaceId}
+              value={config.broadcast_id}
+              onChange={handleBroadcastIdChange}
+              placeholder={t`Any broadcast`}
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+          <Form.Item label={t`Template`} extra={t`Only links in emails sent with this template.`}>
+            <TemplateSelectorInput
+              workspaceId={workspaceId}
+              value={config.template_id}
+              onChange={handleTemplateIdChange}
+              placeholder={t`Any template`}
+              anyLabel={t`Any template`}
+              subtitle={t`Only links in emails sent with this template.`}
+              clearable={true}
+              canReadTemplates={canReadTemplates}
+              disabled={readOnly}
+            />
+          </Form.Item>
+        </>
+      )}
 
       <ConditionsField
         title={t`Entry conditions`}
@@ -389,7 +416,6 @@ export const TriggerConfigForm: React.FC<TriggerConfigFormProps> = ({ config, on
           </>
         }
       />
-
     </Form>
   )
 }

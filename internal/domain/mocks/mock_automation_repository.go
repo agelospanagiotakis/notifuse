@@ -37,6 +37,51 @@ func (m *MockAutomationRepository) EXPECT() *MockAutomationRepositoryMockRecorde
 	return m.recorder
 }
 
+// ClaimScheduledContactAutomations mocks base method.
+func (m *MockAutomationRepository) ClaimScheduledContactAutomations(arg0 context.Context, arg1 string, arg2 int, arg3 time.Duration) ([]*domain.ContactAutomation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimScheduledContactAutomations", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].([]*domain.ContactAutomation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimScheduledContactAutomations indicates an expected call of ClaimScheduledContactAutomations.
+func (mr *MockAutomationRepositoryMockRecorder) ClaimScheduledContactAutomations(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimScheduledContactAutomations", reflect.TypeOf((*MockAutomationRepository)(nil).ClaimScheduledContactAutomations), arg0, arg1, arg2, arg3)
+}
+
+// ClaimScheduledContactAutomationsGlobal mocks base method.
+func (m *MockAutomationRepository) ClaimScheduledContactAutomationsGlobal(arg0 context.Context, arg1 int, arg2 time.Duration) ([]*domain.ContactAutomationWithWorkspace, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimScheduledContactAutomationsGlobal", arg0, arg1, arg2)
+	ret0, _ := ret[0].([]*domain.ContactAutomationWithWorkspace)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimScheduledContactAutomationsGlobal indicates an expected call of ClaimScheduledContactAutomationsGlobal.
+func (mr *MockAutomationRepositoryMockRecorder) ClaimScheduledContactAutomationsGlobal(arg0, arg1, arg2 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimScheduledContactAutomationsGlobal", reflect.TypeOf((*MockAutomationRepository)(nil).ClaimScheduledContactAutomationsGlobal), arg0, arg1, arg2)
+}
+
+// CountJourneysByStatus mocks base method.
+func (m *MockAutomationRepository) CountJourneysByStatus(arg0 context.Context, arg1 string, arg2 []string) (map[string]domain.JourneyCounts, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountJourneysByStatus", arg0, arg1, arg2)
+	ret0, _ := ret[0].(map[string]domain.JourneyCounts)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountJourneysByStatus indicates an expected call of CountJourneysByStatus.
+func (mr *MockAutomationRepositoryMockRecorder) CountJourneysByStatus(arg0, arg1, arg2 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountJourneysByStatus", reflect.TypeOf((*MockAutomationRepository)(nil).CountJourneysByStatus), arg0, arg1, arg2)
+}
+
 // Create mocks base method.
 func (m *MockAutomationRepository) Create(arg0 context.Context, arg1 string, arg2 *domain.Automation) error {
 	m.ctrl.T.Helper()
@@ -268,34 +313,19 @@ func (mr *MockAutomationRepositoryMockRecorder) GetNodeExecutions(arg0, arg1, ar
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeExecutions", reflect.TypeOf((*MockAutomationRepository)(nil).GetNodeExecutions), arg0, arg1, arg2)
 }
 
-// GetScheduledContactAutomations mocks base method.
-func (m *MockAutomationRepository) GetScheduledContactAutomations(arg0 context.Context, arg1 string, arg2 time.Time, arg3 int) ([]*domain.ContactAutomation, error) {
+// GetNodeStats mocks base method.
+func (m *MockAutomationRepository) GetNodeStats(arg0 context.Context, arg1, arg2 string, arg3, arg4 *time.Time, arg5 bool) (*domain.NodeStatsRaw, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetScheduledContactAutomations", arg0, arg1, arg2, arg3)
-	ret0, _ := ret[0].([]*domain.ContactAutomation)
+	ret := m.ctrl.Call(m, "GetNodeStats", arg0, arg1, arg2, arg3, arg4, arg5)
+	ret0, _ := ret[0].(*domain.NodeStatsRaw)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetScheduledContactAutomations indicates an expected call of GetScheduledContactAutomations.
-func (mr *MockAutomationRepositoryMockRecorder) GetScheduledContactAutomations(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
+// GetNodeStats indicates an expected call of GetNodeStats.
+func (mr *MockAutomationRepositoryMockRecorder) GetNodeStats(arg0, arg1, arg2, arg3, arg4, arg5 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetScheduledContactAutomations", reflect.TypeOf((*MockAutomationRepository)(nil).GetScheduledContactAutomations), arg0, arg1, arg2, arg3)
-}
-
-// GetScheduledContactAutomationsGlobal mocks base method.
-func (m *MockAutomationRepository) GetScheduledContactAutomationsGlobal(arg0 context.Context, arg1 time.Time, arg2 int) ([]*domain.ContactAutomationWithWorkspace, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetScheduledContactAutomationsGlobal", arg0, arg1, arg2)
-	ret0, _ := ret[0].([]*domain.ContactAutomationWithWorkspace)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetScheduledContactAutomationsGlobal indicates an expected call of GetScheduledContactAutomationsGlobal.
-func (mr *MockAutomationRepositoryMockRecorder) GetScheduledContactAutomationsGlobal(arg0, arg1, arg2 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetScheduledContactAutomationsGlobal", reflect.TypeOf((*MockAutomationRepository)(nil).GetScheduledContactAutomationsGlobal), arg0, arg1, arg2)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeStats", reflect.TypeOf((*MockAutomationRepository)(nil).GetNodeStats), arg0, arg1, arg2, arg3, arg4, arg5)
 }
 
 // IncrementAutomationStat mocks base method.
@@ -342,6 +372,36 @@ func (m *MockAutomationRepository) ListContactAutomations(arg0 context.Context, 
 func (mr *MockAutomationRepositoryMockRecorder) ListContactAutomations(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListContactAutomations", reflect.TypeOf((*MockAutomationRepository)(nil).ListContactAutomations), arg0, arg1, arg2)
+}
+
+// ReleaseContactAutomationClaim mocks base method.
+func (m *MockAutomationRepository) ReleaseContactAutomationClaim(arg0 context.Context, arg1, arg2 string, arg3 time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReleaseContactAutomationClaim", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReleaseContactAutomationClaim indicates an expected call of ReleaseContactAutomationClaim.
+func (mr *MockAutomationRepositoryMockRecorder) ReleaseContactAutomationClaim(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleaseContactAutomationClaim", reflect.TypeOf((*MockAutomationRepository)(nil).ReleaseContactAutomationClaim), arg0, arg1, arg2, arg3)
+}
+
+// RenewContactAutomationClaim mocks base method.
+func (m *MockAutomationRepository) RenewContactAutomationClaim(arg0 context.Context, arg1, arg2 string, arg3 time.Time, arg4 time.Duration) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RenewContactAutomationClaim", arg0, arg1, arg2, arg3, arg4)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RenewContactAutomationClaim indicates an expected call of RenewContactAutomationClaim.
+func (mr *MockAutomationRepositoryMockRecorder) RenewContactAutomationClaim(arg0, arg1, arg2, arg3, arg4 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewContactAutomationClaim", reflect.TypeOf((*MockAutomationRepository)(nil).RenewContactAutomationClaim), arg0, arg1, arg2, arg3, arg4)
 }
 
 // Update mocks base method.

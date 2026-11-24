@@ -1,6 +1,10 @@
 package emailerror
 
 import (
+	"context"
+	"errors"
+	"net"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,6 +24,13 @@ func NewClassifier() *Classifier {
 func (c *Classifier) Classify(err error, provider domain.EmailProviderKind) *ClassifiedError {
 	if err == nil {
 		return nil
+	}
+
+	// A send cut by its deadline is a provider timeout whatever its text says: the text of a
+	// network timeout carries addresses, and one with "5.1.1" in it would read as a recipient's
+	// mailbox refused, failing the email for good.
+	if isTimeout(err) {
+		return &ClassifiedError{Original: err, Type: ErrorTypeProvider, Provider: timeoutProviderName(provider), Retryable: true}
 	}
 
 	errStr := err.Error()
@@ -42,6 +53,27 @@ func (c *Classifier) Classify(err error, provider domain.EmailProviderKind) *Cla
 		return c.classifySendGridError(err, errStr, httpStatus)
 	default:
 		return c.classifyUnknownProvider(err, errStr, httpStatus)
+	}
+}
+
+// isTimeout reports whether err is a context deadline or a network timeout.
+func isTimeout(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+// timeoutProviderName is the provider name the provider's own classification gives.
+func timeoutProviderName(provider domain.EmailProviderKind) string {
+	switch provider {
+	case domain.EmailProviderKindSES, domain.EmailProviderKindPostmark, domain.EmailProviderKindMailgun,
+		domain.EmailProviderKindMailjet, domain.EmailProviderKindSparkPost, domain.EmailProviderKindSMTP,
+		domain.EmailProviderKindSendGrid:
+		return string(provider)
+	default:
+		return "unknown"
 	}
 }
 
@@ -120,6 +152,28 @@ func containsAny(errStr string, patterns []string) bool {
 	return false
 }
 
+// quotaWords mark a refusal for a sending quota. AWS, for one, reports "Daily message
+// quota exceeded" and "Maximum sending rate exceeded" under the same throttling code.
+var quotaWords = []string{"daily", "hourly", "monthly", "quota", "credits"}
+
+// isQuotaSignal reports whether a refusal names a quota, which sending more slowly does
+// not bring back.
+func isQuotaSignal(text string) bool {
+	return containsAny(text, quotaWords)
+}
+
+// classifyThrottle classifies a refusal for the sending pace: an HTTP 429, which every API
+// provider uses to say the requests arrive too fast, or an SES throttling code. It is
+// decided before the phrase lists, so a substring in the message can neither take it for
+// a recipient error nor change its retryability. One that names a quota is not rate
+// limited: slowing down does not help it.
+func classifyThrottle(result *ClassifiedError, errStr string) *ClassifiedError {
+	result.Type = ErrorTypeProvider
+	result.Retryable = true
+	result.RateLimited = !isQuotaSignal(errStr)
+	return result
+}
+
 // classifyUnknownProvider handles errors from unknown providers
 func (c *Classifier) classifyUnknownProvider(err error, errStr string, httpStatus int) *ClassifiedError {
 	result := &ClassifiedError{
@@ -127,6 +181,10 @@ func (c *Classifier) classifyUnknownProvider(err error, errStr string, httpStatu
 		Provider:   "unknown",
 		HTTPStatus: httpStatus,
 		Retryable:  true,
+	}
+
+	if httpStatus == 429 {
+		return classifyThrottle(result, errStr)
 	}
 
 	// Try HTTP status classification

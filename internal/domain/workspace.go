@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Notifuse/notifuse/pkg/crypto"
+	"github.com/Notifuse/notifuse/pkg/notifuse_mjml"
 	"github.com/asaskevich/govalidator"
 )
 
@@ -79,7 +80,7 @@ var AllPermissionResources = []PermissionResource{
 // grants them on purpose. They are deliberately absent from
 // AllPermissionResources, because that list is what "full access" means:
 // NewFullPermissions builds it, grantsFullPermissions checks every entry of it,
-// the console's Full Access tag counts it and the telemetry rbac_custom flag is
+// the console's Full Access tag checks it and the telemetry rbac_custom flag is
 // derived from it — and every permission map stored before a resource was added
 // to it lacks that resource. Appending audit_logs there would have turned every
 // existing full-access member into a "restricted" one on upgrade: the RBAC
@@ -466,24 +467,41 @@ type WorkspaceSettings struct {
 	MarketingEmailProviderID     string              `json:"marketing_email_provider_id,omitempty"`
 	EncryptedSecretKey           string              `json:"encrypted_secret_key,omitempty"`
 	EmailTrackingEnabled         bool                `json:"email_tracking_enabled"`
+	// EmailTracking splits the tracking switch into opens and clicks and says
+	// what an unknown consent means. nil on every workspace created before it
+	// existed: TrackingPolicy then reads EmailTrackingEnabled alone. After an
+	// update, EmailTrackingEnabled is always OpensEnabled || ClicksEnabled.
+	EmailTracking *EmailTrackingSettings `json:"email_tracking,omitempty"`
 	// TemplateBlocks live inside this settings blob rather than in their own table,
 	// which is why block CRUD emits no webhook events while template CRUD does:
 	// every webhook event in the product is produced by a row trigger writing to
 	// webhook_deliveries, and there are no block rows to trigger on. Adding them
 	// would mean inserting deliveries from the service layer — a second, parallel
 	// mechanism — so it is a deliberate initiative, not an oversight to patch.
-	TemplateBlocks    []TemplateBlock       `json:"template_blocks,omitempty"`
-	CustomEndpointURL *string               `json:"custom_endpoint_url,omitempty"`
-	CustomFieldLabels map[string]string     `json:"custom_field_labels,omitempty"`
-	BlogEnabled       bool                  `json:"blog_enabled"`            // Enable blog feature at workspace level
-	BlogSettings      *BlogSettings         `json:"blog_settings,omitempty"` // Blog styling and SEO settings
-	WebAnalytics      *WebAnalyticsSettings `json:"web_analytics,omitempty"` // Web analytics configuration
+	TemplateBlocks    []TemplateBlock   `json:"template_blocks,omitempty"`
+	CustomEndpointURL *string           `json:"custom_endpoint_url,omitempty"`
+	CustomFieldLabels map[string]string `json:"custom_field_labels,omitempty"`
+	BlogEnabled       bool              `json:"blog_enabled"`            // Enable blog feature at workspace level
+	BlogSettings      *BlogSettings     `json:"blog_settings,omitempty"` // Blog styling and SEO settings
+	// Archive is the public campaign archive (see ArchiveSettings). A typed field
+	// rather than an untyped bag because Update() rewrites the whole settings row:
+	// anything this struct does not name is dropped on the next save.
+	Archive *ArchiveSettings `json:"archive,omitempty"`
+	// MailchimpAPIKeyEnc holds the Mailchimp API key encrypted with the deployment
+	// secret. The import screen needs it to count what is there; embedding it in a
+	// shell command each time is how keys end up in shell history.
+	MailchimpAPIKeyEnc string                `json:"mailchimp_api_key_enc,omitempty"`
+	WebAnalytics       *WebAnalyticsSettings `json:"web_analytics,omitempty"` // Web analytics configuration
 	// AuditLogs is the per-workspace audit retention; nil means the deployment
 	// default. Written only through workspaces.setAuditLogSettings and preserved
 	// across a partial workspaces.update like the other owner-only settings.
 	AuditLogs       *AuditLogSettings `json:"audit_logs,omitempty"`
 	DefaultLanguage string            `json:"default_language"`
 	Languages       []string          `json:"languages"`
+	// EmailTeamName overrides the signature ("The … Team") used in this
+	// workspace's system emails (invitation, circuit-breaker alert). Empty falls
+	// back to the mailer's global TeamName and then the built-in translation.
+	EmailTeamName string `json:"email_team_name,omitempty"`
 
 	// decoded secret key, not stored in the database
 	SecretKey string `json:"-"`
@@ -497,6 +515,9 @@ type WorkspaceSettings struct {
 	// anywhere else (a stored row, another endpoint) carry no record and are used
 	// whole, exactly as before.
 	omittedKeys map[string]struct{}
+	// emailTrackingNull records an update body that sent "email_tracking": null,
+	// which Validate refuses: it would drop the policy back to the fallback.
+	emailTrackingNull bool
 }
 
 // Validate validates workspace settings
@@ -533,6 +554,10 @@ func (ws *WorkspaceSettings) Validate(passphrase string) error {
 		}
 	}
 
+	if err := ws.validateEmailTracking(); err != nil {
+		return err
+	}
+
 	// FileManager is completely optional, but if any fields are set, validate them
 	if err := ws.FileManager.Validate(passphrase); err != nil {
 		return fmt.Errorf("invalid file manager settings: %w", err)
@@ -548,6 +573,9 @@ func (ws *WorkspaceSettings) Validate(passphrase string) error {
 		}
 		if templateBlock.Block == nil || templateBlock.Block.GetType() == "" {
 			return fmt.Errorf("template block at index %d: block kind is required", i)
+		}
+		if err := notifuse_mjml.ValidateDisplayConditionsInBlock(templateBlock.Block); err != nil {
+			return fmt.Errorf("template block at index %d: %w", i, err)
 		}
 	}
 
@@ -710,6 +738,24 @@ func ValidateNewWorkspaceID(id string) error {
 		return fmt.Errorf("id must contain only lowercase letters and digits")
 	}
 	return nil
+}
+
+// NormalizeWorkspaceIDReplica reduces an arbitrary string to the shape a workspace id may
+// legally take: lowercase alphanumerics only.
+//
+// A provider webhook is a URL registered with the provider that cannot always be corrected
+// from here: the address carries a workspace_id, and a callback may carry the workspace NAME
+// ("kois-optics") where the id is "koisoptics". Accepting the replica as a fallback, only
+// after the exact id has failed to resolve, turns those events back on. It is a migration
+// shim, not a second identifier.
+func NormalizeWorkspaceIDReplica(raw string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(raw) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // Validate performs validation on the workspace fields
@@ -1054,6 +1100,7 @@ type UserWorkspace struct {
 type UserWorkspaceWithEmail struct {
 	UserWorkspace
 	Email               string     `json:"email" db:"email"`
+	Name                string     `json:"name,omitempty" db:"name"`
 	Type                UserType   `json:"type" db:"type"`
 	Language            string     `json:"language" db:"language"`
 	InvitationExpiresAt *time.Time `json:"invitation_expires_at" db:"invitation_expires_at"`
@@ -1135,6 +1182,9 @@ type WorkspaceRepository interface {
 	Create(ctx context.Context, workspace *Workspace) error
 	GetByID(ctx context.Context, id string) (*Workspace, error)
 	GetWorkspaceByCustomDomain(ctx context.Context, hostname string) (*Workspace, error)
+	// ListCustomEndpoints returns the custom endpoint URL of every workspace that has
+	// one, keyed by workspace ID.
+	ListCustomEndpoints(ctx context.Context) (map[string]string, error)
 	List(ctx context.Context) ([]*Workspace, error)
 	Update(ctx context.Context, workspace *Workspace) error
 
@@ -1182,8 +1232,6 @@ type WorkspaceRepository interface {
 	// Database management
 	GetConnection(ctx context.Context, workspaceID string) (*sql.DB, error)
 	GetSystemConnection(ctx context.Context) (*sql.DB, error)
-	CreateDatabase(ctx context.Context, workspaceID string) error
-	DeleteDatabase(ctx context.Context, workspaceID string) error
 
 	// Transaction management
 	WithWorkspaceTransaction(ctx context.Context, workspaceID string, fn func(*sql.Tx) error) error
@@ -1225,6 +1273,23 @@ func (e *ErrWorkspaceNotFound) Error() string {
 	return fmt.Sprintf("workspace not found: %s", e.WorkspaceID)
 }
 
+// ErrWorkspaceAlreadyExists is returned when a workspace is created under an ID a
+// workspace already has.
+var ErrWorkspaceAlreadyExists = errors.New("workspace already exists")
+
+// ErrWorkspaceDatabaseNotEmpty is returned when a workspace is created under an ID whose
+// database already exists and holds tables while no workspace uses it. Such a database
+// is never adopted (its schema may predate the code, and nothing proves it holds no
+// data) nor dropped automatically.
+type ErrWorkspaceDatabaseNotEmpty struct {
+	WorkspaceID  string
+	DatabaseName string
+}
+
+func (e *ErrWorkspaceDatabaseNotEmpty) Error() string {
+	return fmt.Sprintf("a database for workspace ID %q already exists and holds tables, but no workspace uses it (%s): choose another ID, or remove that database", e.WorkspaceID, e.DatabaseName)
+}
+
 // ErrTeamMemberLimitReached is returned when a workspace has reached its team member limit
 type ErrTeamMemberLimitReached struct {
 	Limit   int
@@ -1250,6 +1315,10 @@ type WorkspaceServiceInterface interface {
 	CreateWorkspace(ctx context.Context, id, name, websiteURL, logoURL, coverURL, timezone string, fileManager FileManagerSettings, defaultLanguage string, languages []string) (*Workspace, error)
 	GetWorkspace(ctx context.Context, id string) (*Workspace, error)
 	ListWorkspaces(ctx context.Context) ([]*Workspace, error)
+	// UserOwnsAWorkspace reports whether the user holds the owner role in at least one workspace.
+	// It reads memberships only, so it says nothing about the root user, who owns every workspace
+	// without a membership row: callers check the root email first.
+	UserOwnsAWorkspace(ctx context.Context, userID string) (bool, error)
 	UpdateWorkspace(ctx context.Context, id, name string, settings WorkspaceSettings) (*Workspace, error)
 	DeleteWorkspace(ctx context.Context, id string) error
 	GetWorkspaceMembersWithEmail(ctx context.Context, id string) ([]*UserWorkspaceWithEmail, error)
@@ -1281,6 +1350,10 @@ type WorkspaceServiceInterface interface {
 
 	// Permission management
 	SetUserPermissions(ctx context.Context, workspaceID, userID string, permissions UserPermissions) error
+
+	// SetUserPassword issues a new password for a member of a workspace and returns it once.
+	// Only a platform admin or an owner of a workspace the target belongs to may call it.
+	SetUserPassword(ctx context.Context, req SetUserPasswordRequest) (*SetUserPasswordResponse, error)
 
 	// Custom field management
 	SetCustomFieldLabels(ctx context.Context, workspaceID string, labels map[string]string) error
@@ -1563,6 +1636,7 @@ var preservableWorkspaceSettingKeys = []string{
 	"transactional_email_provider_id",
 	"marketing_email_provider_id",
 	"email_tracking_enabled",
+	"email_tracking",
 	"custom_endpoint_url",
 	"audit_logs",
 }
@@ -1594,6 +1668,10 @@ func (r *UpdateWorkspaceRequest) UnmarshalJSON(data []byte) error {
 	}
 
 	r.Settings.omittedKeys = nil
+	r.Settings.emailTrackingNull = false
+	if raw, ok := sent["email_tracking"]; ok && strings.TrimSpace(string(raw)) == "null" {
+		r.Settings.emailTrackingNull = true
+	}
 	for _, key := range preservableWorkspaceSettingKeys {
 		if _, ok := sent[key]; ok {
 			continue
@@ -1612,6 +1690,9 @@ func (r *UpdateWorkspaceRequest) UnmarshalJSON(data []byte) error {
 // Settings assembled in Go record nothing and are therefore applied whole, which is
 // the only thing a caller with no body to omit keys from can mean.
 func (ws *WorkspaceSettings) PreserveOmitted(stored WorkspaceSettings) {
+	// The two tracking keys are reconciled whatever the body carried: an old
+	// client resending the whole settings object omits nothing.
+	defer ws.reconcileEmailTracking(stored)
 	if len(ws.omittedKeys) == 0 {
 		return
 	}
@@ -1628,6 +1709,7 @@ func (ws *WorkspaceSettings) PreserveOmitted(stored WorkspaceSettings) {
 	keep("transactional_email_provider_id", func() { ws.TransactionalEmailProviderID = stored.TransactionalEmailProviderID })
 	keep("marketing_email_provider_id", func() { ws.MarketingEmailProviderID = stored.MarketingEmailProviderID })
 	keep("email_tracking_enabled", func() { ws.EmailTrackingEnabled = stored.EmailTrackingEnabled })
+	keep("email_tracking", func() { ws.EmailTracking = nil })
 	keep("custom_endpoint_url", func() { ws.CustomEndpointURL = stored.CustomEndpointURL })
 	keep("audit_logs", func() { ws.AuditLogs = stored.AuditLogs })
 }
@@ -1829,6 +1911,45 @@ type InviteMemberRequest struct {
 	WorkspaceID string          `json:"workspace_id"`
 	Email       string          `json:"email"`
 	Permissions UserPermissions `json:"permissions,omitempty"`
+}
+
+// SetUserPasswordRequest issues a new sign-in password for one member of a workspace.
+//
+// It carries no password: the server generates one and returns it once. A password that
+// never travels from the browser cannot be one the browser chose poorly, and the endpoint
+// then has exactly one secret to leak — the response — instead of two.
+type SetUserPasswordRequest struct {
+	WorkspaceID string `json:"workspace_id"`
+	UserID      string `json:"user_id"`
+}
+
+// Validate validates the reset request. It mirrors SetUserPermissionsRequest's workspace_id
+// rules on purpose: both name a workspace the same way, and a value that one accepts and the
+// other rejects would be a difference nobody could explain.
+func (r *SetUserPasswordRequest) Validate() error {
+	if r.WorkspaceID == "" {
+		return fmt.Errorf("workspace_id is required")
+	}
+	if !govalidator.IsAlphanumeric(r.WorkspaceID) {
+		return fmt.Errorf("workspace_id must be alphanumeric")
+	}
+	if len(r.WorkspaceID) > 32 {
+		return fmt.Errorf("workspace_id length must be between 1 and 32")
+	}
+	if r.UserID == "" {
+		return fmt.Errorf("user_id is required")
+	}
+	return nil
+}
+
+// SetUserPasswordResponse carries the generated password. It is returned exactly once, in
+// this response; nothing stores it and no second request can reproduce it.
+type SetUserPasswordResponse struct {
+	Password string `json:"password"`
+	// MustChangePassword tells the console what the platform already enforced on the server:
+	// the account is blocked from every route but /api/user.setPassword until the holder
+	// replaces this password. Reported rather than assumed, so the UI cannot claim otherwise.
+	MustChangePassword bool `json:"must_change_password"`
 }
 
 // SetUserPermissionsRequest defines the request structure for setting user permissions

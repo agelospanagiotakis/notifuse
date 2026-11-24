@@ -1,87 +1,150 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   Table,
-  Typography,
-  Spin,
   Button,
   Drawer,
   Form,
   Input,
   App,
-  Tag,
   Alert,
   Space,
-  Popconfirm,
   Tooltip,
-  Popover
+  Popover,
+  Dropdown,
+  Result,
+  Skeleton,
+  Modal
 } from 'antd'
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faTrashCan } from '@fortawesome/free-regular-svg-icons'
-import { faRefresh, faUserCog } from '@fortawesome/free-solid-svg-icons'
+import type { ColumnsType } from 'antd/es/table'
+import { AtSign, KeyRound, MoreHorizontal, Plus } from 'lucide-react'
+import { plural } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
 import { WorkspaceMember, UserPermissions, StoredPermissions } from '../../services/api/types'
 import { workspaceService } from '../../services/api/workspace'
 import {
-  ALL_PERMISSION_RESOURCES,
   createEmptyPermissions,
   createFullPermissions,
-  grantUnenforcedPermissions
+  grantsFullPermissions
 } from '../../services/api/permissions'
 import { ApiError } from '../../services/api/client'
+import { isRootUser } from '../../services/api/auth'
 import { EditPermissionsDrawer } from './EditPermissionsDrawer'
 import { PermissionsMatrix } from './PermissionsMatrix'
+import { PermissionScopePresets } from './PermissionScopePresets'
 import { useLicense } from '../../hooks/useLicense'
 import { LicenceGateNotice } from '../license/LicenceGateNotice'
 import { SettingsSectionHeader } from './SettingsSectionHeader'
+import { Panel, Pill } from '../layout'
+import { initialsFor } from '../../layouts/app-shell/gravatar'
+import { summarizeAccess } from './accessSummary'
+import { API_KEY_PREFIX_MAX_LENGTH, apiKeyDomain, finalApiKeyPrefix, toApiKeyPrefix } from './apiKeyPrefix'
+import { PERMISSION_RESOURCE_LABELS } from './permissionLabels'
 
-const { Text } = Typography
-
-// Narrowly scoped keys are the common case for an integration — the Zapier onboarding asks for
-// three resources out of the canonical list — and reaching one from the full-access default meant
-// flipping every other switch by hand. These two set the floor the owner then edits.
-function PermissionScopePresets({ onChange }: { onChange: (value: UserPermissions) => void }) {
-  const { t } = useLingui()
-
-  return (
-    <div className="flex justify-end gap-1 mb-2">
-      <Button size="small" type="link" onClick={() => onChange(createFullPermissions())}>
-        {t`Grant all`}
-      </Button>
-      {/* Revoking still hands back the unenforceable verbs granted: a stored `false` there would
-          never be widened by a backfill, which only ever adds the keys a row is missing. */}
-      <Button
-        size="small"
-        type="link"
-        onClick={() => onChange(grantUnenforcedPermissions(createEmptyPermissions()))}
-      >
-        {t`Revoke all`}
-      </Button>
-    </div>
-  )
-}
+const DAY = 24 * 60 * 60 * 1000
 
 interface WorkspaceMembersProps {
   workspaceId: string
   members: WorkspaceMember[]
   loading: boolean
+  /** The members could not load: the panel offers to retry (onMembersChange). */
+  error?: boolean
   onMembersChange: () => void
   isOwner: boolean
+  /** The signed-in user, marked "(you)". */
+  currentUserId?: string
+}
+
+/** The Access cell: a pill, or the resources of a partial grant, with the matrix on hover. */
+function AccessCell({ member }: { member: WorkspaceMember }) {
+  const { t, i18n } = useLingui()
+  const summary = summarizeAccess(member)
+  const permissions: StoredPermissions = member.permissions ?? createEmptyPermissions()
+
+  const withDetails = (content: ReactNode, count?: ReactNode) => (
+    <Popover
+      title={t`Permission details`}
+      trigger="hover"
+      content={
+        <div className="flex flex-col gap-2">
+          {count ? <div className="text-xs text-ink-3">{count}</div> : null}
+          <PermissionsMatrix value={permissions} />
+        </div>
+      }
+    >
+      <span className="cursor-help">{content}</span>
+    </Popover>
+  )
+
+  switch (summary.kind) {
+    case 'owner':
+      return (
+        <Pill tone="primary" dot={false}>
+          {t`Owner`}
+        </Pill>
+      )
+    case 'pending':
+      return <Pill tone="warning">{t`Pending`}</Pill>
+    case 'none':
+      return (
+        <Pill tone="danger" dot={false}>
+          {t`No access`}
+        </Pill>
+      )
+    case 'full': {
+      const pill = (
+        <Pill tone="success" dot={false}>
+          {t`Full access`}
+        </Pill>
+      )
+      // An opt-in grant on top of full access (Audit logs read) is not implied by it, so it
+      // stays one hover away rather than hidden behind the same pill as a plain full grant.
+      return summary.optIn ? withDetails(pill) : pill
+    }
+    case 'partial': {
+      const names = summary.resources.map((resource) => i18n._(PERMISSION_RESOURCE_LABELS[resource])).join(', ')
+      const more = summary.more
+      const active = summary.active
+      const total = summary.total
+      return withDetails(
+        <span className="text-sm text-ink-2">
+          {names}
+          {more > 0 ? ` +${more}` : null}
+          {summary.readOnly ? <span className="text-ink-3"> {t`· read only`}</span> : null}
+        </span>,
+        t`${active} of ${total} permissions granted`
+      )
+    }
+  }
+}
+
+function Avatar({ children }: { children: ReactNode }) {
+  return (
+    <span className="grid size-6 shrink-0 place-items-center rounded-full bg-primary-100 text-2xs font-semibold text-primary-700">
+      {children}
+    </span>
+  )
 }
 
 export function WorkspaceMembers({
   workspaceId,
   members,
   loading,
+  error = false,
   onMembersChange,
-  isOwner
+  isOwner,
+  currentUserId
 }: WorkspaceMembersProps) {
-  const { t } = useLingui()
+  const { t, i18n } = useLingui()
   const [inviteDrawerOpen, setInviteDrawerOpen] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviting, setInviting] = useState(false)
   const [invitePermissions, setInvitePermissions] =
     useState<UserPermissions>(createFullPermissions)
   const { has } = useLicense()
+  // Without the rbac licence the server accepts full access and refuses anything narrower, on
+  // invitations and API keys alike: the choices that would narrow a set are greyed, and the
+  // submit button waits until the set is full access. Advisory: the 402 stays the real gate.
+  const rbacLocked = !has('rbac')
   const { message } = App.useApp()
 
   // API Key drawer states
@@ -92,182 +155,208 @@ export function WorkspaceMembers({
     useState<UserPermissions>(createFullPermissions)
   const [creatingApiKey, setCreatingApiKey] = useState(false)
   const [apiKeyToken, setApiKeyToken] = useState('')
-  const [removingMember, setRemovingMember] = useState(false)
-  const [resendingInvitation, setResendingInvitation] = useState(false)
+  const [resetTarget, setResetTarget] = useState<WorkspaceMember | null>(null)
+  const [generatedPassword, setGeneratedPassword] = useState('')
+  const [resettingPassword, setResettingPassword] = useState(false)
+  const [, setRemovingMember] = useState(false)
+  const [, setResendingInvitation] = useState(false)
 
   // Permissions drawer states
   const [permissionsDrawerOpen, setPermissionsDrawerOpen] = useState(false)
   const [editingMember, setEditingMember] = useState<WorkspaceMember | null>(null)
 
-  const columns = [
-    {
-      title: t`Email`,
-      dataIndex: 'email',
-      key: 'email',
-      render: (email: string) => {
-        return <Text className="break-all">{email}</Text>
-      }
-    },
-    {
-      title: t`Role`,
-      dataIndex: 'role',
-      key: 'role',
-      render: (role: string, record: WorkspaceMember) => {
-        if (record.type === 'api_key') {
-          return (
-            <Tag variant="filled" color="purple">
-              {t`API Key`}
-            </Tag>
-          )
-        }
-        const roleDisplay = record.invitation_expires_at
-          ? t`Invitation sent`
-          : role.charAt(0).toUpperCase() + role.slice(1)
+  const { modal } = App.useApp()
+  const shortDate = (value: string) =>
+    new Intl.DateTimeFormat(i18n.locale, { dateStyle: 'medium' }).format(new Date(value))
 
-        return (
-          <Tag variant="filled" color={role === 'owner' ? 'gold' : 'blue'}>
-            {roleDisplay}
-          </Tag>
-        )
-      }
-    },
-    {
-      title: t`Permissions`,
-      key: 'permissions',
-      render: (record: WorkspaceMember) => {
-        if (record.invitation_expires_at) {
-          return <Tag color="orange">{t`Pending`}</Tag>
-        }
+  const isInvitation = (member: WorkspaceMember) => Boolean(member.invitation_expires_at)
+  // Platform admins (ROOT_EMAIL) are surfaced to an owner as owner rows the server builds; their
+  // created_at is the time of the request, not a date they joined.
+  const isPlatformAdmin = (member: WorkspaceMember) => member.role === 'owner' && isRootUser(member.email)
 
-        // An API key is a member row, so its grant is counted the same way. The row's own map
-        // may be partial or null — a resource it does not mention is denied.
-        const permissions: StoredPermissions = record.permissions ?? createEmptyPermissions()
+  const memberRows = members
+    .filter((member) => member.type !== 'api_key')
+    .sort((a, b) => {
+      if ((a.role === 'owner') !== (b.role === 'owner')) return a.role === 'owner' ? -1 : 1
+      return a.created_at.localeCompare(b.created_at)
+    })
+  const apiKeyRows = members
+    .filter((member) => member.type === 'api_key')
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
 
-        // The denominator is the whole resource list, not the row's key count: a row holding
-        // three resources is not Full Access.
-        const totalPermissions = ALL_PERMISSION_RESOURCES.length * 2 // read + write for each resource
-        const activePermissions = Object.values(permissions).reduce(
-          (count, perm) => count + (perm?.read ? 1 : 0) + (perm?.write ? 1 : 0),
-          0
-        )
+  const confirmRemove = (member: WorkspaceMember) => {
+    const email = member.email
+    modal.confirm({
+      title: member.type === 'api_key' ? t`Delete this API key?` : t`Remove member`,
+      content:
+        member.type === 'api_key'
+          ? t`Are you sure you want to remove ${email}? This API key will be permanently deleted.`
+          : t`Are you sure you want to remove ${email}?`,
+      okText: member.type === 'api_key' ? t`Delete` : t`Remove`,
+      cancelText: t`Cancel`,
+      okButtonProps: { danger: true },
+      onOk: () => handleRemoveMember(member.user_id)
+    })
+  }
 
-        if (activePermissions === 0) {
-          return (
-            <Popover
-              content={<PermissionsMatrix value={permissions} />}
-              title={t`Permission Details`}
-              trigger="hover"
-            >
-              <Tag color="red" className="cursor-pointer">
-                {t`No Access`}
-              </Tag>
-            </Popover>
-          )
-        }
-        if (activePermissions === totalPermissions) {
-          return <Tag color="green">{t`Full Access`}</Tag>
-        }
-        return (
-          <Popover
-            content={<PermissionsMatrix value={permissions} />}
-            title={t`Permission Details`}
-            trigger="hover"
-          >
-            <Tag color="blue" className="cursor-pointer">
-              {activePermissions}/{totalPermissions}
-            </Tag>
-          </Popover>
-        )
-      }
-    },
-    {
-      title: t`Since`,
-      dataIndex: 'created_at',
-      key: 'created_at',
-      render: (date: string) => new Date(date).toLocaleDateString()
-    },
-    // Only add the action column if the user is an owner
-    ...(isOwner
+  const confirmDeleteInvitation = (member: WorkspaceMember) => {
+    const email = member.email
+    modal.confirm({
+      title: t`Delete invitation`,
+      content: t`Are you sure you want to delete the invitation for ${email}?`,
+      okText: t`Delete`,
+      cancelText: t`Cancel`,
+      okButtonProps: { danger: true },
+      onOk: () => handleDeleteInvitation(member.invitation_id!)
+    })
+  }
+
+  const openPasswordReset = (member: WorkspaceMember) => {
+    setGeneratedPassword('')
+    setResetTarget(member)
+  }
+
+  const closePasswordReset = () => {
+    setResetTarget(null)
+    setGeneratedPassword('')
+  }
+
+  const handleResetPassword = async () => {
+    if (!resetTarget) return
+    setResettingPassword(true)
+    try {
+      const res = await workspaceService.setUserPassword({
+        workspace_id: workspaceId,
+        user_id: resetTarget.user_id
+      })
+      setGeneratedPassword(res.password)
+    } catch (error) {
+      message.error((error as Error).message || t`Failed to reset the password`)
+    } finally {
+      setResettingPassword(false)
+    }
+  }
+
+  const actionsFor = (member: WorkspaceMember) => {
+    if (!isOwner || member.role === 'owner') return null
+    const items = isInvitation(member)
       ? [
-          {
-            title: '',
-            key: 'action',
-            width: 100,
-            render: (_: unknown, record: WorkspaceMember) => {
-              // Don't show remove button for the owner or for the current user
-              if (record.role === 'owner') {
-                return null
-              }
-
-              const isInvitation = record.invitation_expires_at
-
-              return (
-                <Space size="small">
-                  {!isInvitation && record.role !== 'owner' && (
-                    <Tooltip title={t`Edit permissions`} placement="left">
-                      <Button
-                        icon={<FontAwesomeIcon icon={faUserCog} />}
-                        size="small"
-                        type="text"
-                        onClick={() => handleEditPermissions(record)}
-                      />
-                    </Tooltip>
-                  )}
-                  {!isInvitation && (
-                    <Popconfirm
-                      title={t`Remove member`}
-                      description={t`Are you sure you want to remove ${record.email}?${record.type === 'api_key' ? ' This API key will be permanently deleted.' : ''}`}
-                      onConfirm={() => handleRemoveMember(record.user_id)}
-                      okText={t`Yes`}
-                      cancelText={t`No`}
-                      okButtonProps={{ danger: true, loading: removingMember }}
-                    >
-                      <Tooltip title={t`Remove member`} placement="left">
-                        <Button
-                          icon={<FontAwesomeIcon icon={faTrashCan} />}
-                          size="small"
-                          type="text"
-                          loading={removingMember}
-                        />
-                      </Tooltip>
-                    </Popconfirm>
-                  )}
-                  {isInvitation && (
-                    <>
-                      <Popconfirm
-                        title={t`Delete invitation`}
-                        description={t`Are you sure you want to delete the invitation for ${record.email}?`}
-                        onConfirm={() => handleDeleteInvitation(record.invitation_id!)}
-                        okText={t`Yes`}
-                        cancelText={t`No`}
-                        okButtonProps={{ danger: true, loading: removingMember }}
-                      >
-                        <Tooltip title={t`Delete invitation`} placement="left">
-                          <Button
-                            icon={<FontAwesomeIcon icon={faTrashCan} />}
-                            size="small"
-                            type="text"
-                            loading={removingMember}
-                          />
-                        </Tooltip>
-                        <Tooltip title={t`Resend invitation`} placement="left">
-                          <Button
-                            icon={<FontAwesomeIcon icon={faRefresh} />}
-                            size="small"
-                            type="text"
-                            onClick={() => handleResendInvitation(record)}
-                            loading={resendingInvitation}
-                          />
-                        </Tooltip>
-                      </Popconfirm>
-                    </>
-                  )}
-                </Space>
-              )
-            }
-          }
+          { key: 'resend', label: t`Resend invitation`, onClick: () => handleResendInvitation(member) },
+          { key: 'delete', label: t`Delete invitation`, danger: true, onClick: () => confirmDeleteInvitation(member) }
         ]
-      : [])
+      : [
+          { key: 'edit', label: t`Edit permissions`, onClick: () => handleEditPermissions(member) },
+          member.type === 'api_key'
+            ? { key: 'remove', label: t`Delete key`, danger: true, onClick: () => confirmRemove(member) }
+            : { key: 'remove', label: t`Remove from workspace`, danger: true, onClick: () => confirmRemove(member) }
+        ]
+    return (
+      <Dropdown trigger={['click']} menu={{ items }} placement="bottomRight">
+        <Button
+          type="text"
+          aria-label={t`Actions`}
+          icon={<MoreHorizontal size={16} aria-hidden="true" />}
+        />
+      </Dropdown>
+    )
+  }
+
+  const memberActions = (member: WorkspaceMember) => (
+    <Space>
+      {isOwner && !isInvitation(member) && member.type !== 'api_key' && member.role !== 'owner' && (
+        <Tooltip title={t`Reset password`}>
+          <Button
+            type="text"
+            aria-label={t`Reset password`}
+            icon={
+              <span data-icon="key">
+                <KeyRound size={14} aria-hidden="true" />
+              </span>
+            }
+            onClick={() => openPasswordReset(member)}
+          />
+        </Tooltip>
+      )}
+      {actionsFor(member)}
+    </Space>
+  )
+
+  const invitationLine = (member: WorkspaceMember) => {
+    const expiresAt = new Date(member.invitation_expires_at as string).getTime()
+    const remaining = expiresAt - Date.now()
+    if (remaining <= 0) return <span className="text-warning-fg">{t`Invitation expired`}</span>
+    const sent = shortDate(member.created_at)
+    const days = Math.ceil(remaining / DAY)
+    const expires = plural(days, { one: 'expires in # day', other: 'expires in # days' })
+    return t`Invitation sent ${sent}, ${expires}`
+  }
+
+  const memberColumns: ColumnsType<WorkspaceMember> = [
+    {
+      title: t`Member`,
+      key: 'member',
+      render: (_, member) => {
+        const invitation = isInvitation(member)
+        const you = member.user_id !== '' && member.user_id === currentUserId
+        return (
+          <div className="flex min-w-0 items-center gap-2.5">
+            <Avatar>{invitation ? <AtSign size={12} aria-hidden="true" /> : initialsFor(member)}</Avatar>
+            <div className="flex min-w-0 flex-col">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate font-medium text-ink">{member.name || member.email}</span>
+                {you ? <span className="shrink-0 text-ink-3">{t`(you)`}</span> : null}
+                {isPlatformAdmin(member) ? (
+                  <Pill tone="neutral" dot={false}>
+                    {t`Platform admin`}
+                  </Pill>
+                ) : null}
+              </div>
+              {member.name && !invitation ? <span className="truncate text-xs text-ink-3">{member.email}</span> : null}
+              {invitation ? <span className="truncate text-xs text-ink-3">{invitationLine(member)}</span> : null}
+            </div>
+          </div>
+        )
+      }
+    },
+    { title: t`Access`, key: 'access', width: 260, render: (_, member) => <AccessCell member={member} /> },
+    {
+      title: t`Joined`,
+      key: 'joined',
+      width: 130,
+      render: (_, member) =>
+        isInvitation(member) ? null : isPlatformAdmin(member) ? (
+          // Never joined: an empty cell read as a missing date.
+          <Tooltip title={t`A platform admin reaches every workspace without joining it`}>
+            <span data-joined-none className="text-ink-4">
+              —
+            </span>
+          </Tooltip>
+        ) : (
+          <span className="text-ink-3">{shortDate(member.created_at)}</span>
+        )
+    },
+    { title: '', key: 'actions', width: 72, align: 'right', render: (_, member) => memberActions(member) }
+  ]
+
+  const apiKeyColumns: ColumnsType<WorkspaceMember> = [
+    {
+      title: t`Name`,
+      key: 'name',
+      render: (_, member) => (
+        // createAPIKey builds the address from the name typed: the part before "@" is that name.
+        <Tooltip title={member.email}>
+          <span className="font-medium text-ink">{member.email.split('@')[0]}</span>
+        </Tooltip>
+      )
+    },
+    { title: t`Access`, key: 'access', width: 260, render: (_, member) => <AccessCell member={member} /> },
+    {
+      title: t`Created`,
+      key: 'created',
+      width: 130,
+      render: (_, member) => <span className="text-ink-3">{shortDate(member.created_at)}</span>
+    },
+    { title: '', key: 'actions', width: 72, align: 'right', render: (_, member) => memberActions(member) }
   ]
 
   const handleInvite = async () => {
@@ -304,23 +393,17 @@ export function WorkspaceMembers({
   }
 
   const handleCreateApiKey = async () => {
-    if (!apiKeyName.trim()) {
+    const prefix = finalApiKeyPrefix(apiKeyName)
+    if (!prefix) {
       message.error(t`Please enter an API key name`)
       return
     }
-
-    // Convert to snake_case
-    const snakeCaseName = apiKeyName
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, '_')
-      .replace(/[^a-z0-9_]/g, '')
 
     setCreatingApiKey(true)
     try {
       const response = await workspaceService.createAPIKey({
         workspace_id: workspaceId,
-        email_prefix: snakeCaseName,
+        email_prefix: prefix,
         permissions: apiKeyPermissions
       })
 
@@ -346,8 +429,8 @@ export function WorkspaceMembers({
 
   // The server mints the address as `prefix@{apiHost}` — the workspace id is not part of it, so
   // prefixing one here advertised an address that does not exist and cannot receive anything.
-  const domainName =
-    window.API_ENDPOINT?.replace(/^https?:\/\//, '').split('/')[0] || 'api.example.com'
+  // The host without its port, as the server takes it (apiKeyEmailDomain).
+  const domainName = apiKeyDomain(window.API_ENDPOINT)
 
   const handleRemoveMember = async (userId: string) => {
     if (!userId) return
@@ -438,40 +521,81 @@ export function WorkspaceMembers({
 
   return (
     <>
-      <SettingsSectionHeader title={t`Team`} description={t`Manage your workspace members`} />
+      <SettingsSectionHeader title={t`Team & API keys`} description={t`Who can do what in this workspace`} />
 
-      {isOwner && (
-        <div className="flex justify-end mb-4">
-          <Space size="middle">
-            <Button type="primary" size="small" ghost onClick={() => setApiKeyDrawerOpen(true)}>
-              {t`Create API Key`}
+      <Panel
+        flush
+        title={t`Members`}
+        extra={
+          isOwner ? (
+            <Button
+              type="primary"
+              size="small"
+              icon={<Plus size={14} aria-hidden="true" />}
+              onClick={() => setInviteDrawerOpen(true)}
+            >
+              {t`Invite`}
             </Button>
-            <Button type="primary" size="small" ghost onClick={() => setInviteDrawerOpen(true)}>
-              {t`Invite Member`}
-            </Button>
-          </Space>
-        </div>
-      )}
+          ) : null
+        }
+      >
+        {error ? (
+          <Result
+            status="error"
+            title={t`Couldn't load the members`}
+            extra={<Button onClick={onMembersChange}>{t`Retry`}</Button>}
+          />
+        ) : loading ? (
+          <div className="px-3.5 py-3">
+            <Skeleton active title={false} paragraph={{ rows: 4 }} />
+          </div>
+        ) : (
+          <Table
+            size="small"
+            dataSource={memberRows}
+            columns={memberColumns}
+            // Invitations have no user id: keyed by user id alone, they would all share "".
+            rowKey={(member) => member.invitation_id ?? member.user_id}
+            pagination={false}
+            locale={{ emptyText: t`No members found` }}
+          />
+        )}
+      </Panel>
 
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: '20px' }}>
-          <Spin />
-        </div>
-      ) : (
-        <Table
-          dataSource={members}
-          columns={columns}
-          rowKey="user_id"
-          pagination={false}
-          locale={{ emptyText: t`No members found` }}
-          className="border border-gray-200 rounded-md"
-        />
-      )}
+      <Panel
+        flush
+        title={t`API keys`}
+        extra={
+          isOwner ? (
+            <Button size="small" icon={<KeyRound size={14} aria-hidden="true" />} onClick={() => setApiKeyDrawerOpen(true)}>
+              {t`New key`}
+            </Button>
+          ) : null
+        }
+      >
+        {error ? null : loading ? (
+          <div className="px-3.5 py-3">
+            <Skeleton active title={false} paragraph={{ rows: 2 }} />
+          </div>
+        ) : apiKeyRows.length === 0 ? (
+          <div className="px-3.5 py-4 text-sm text-ink-3">
+            {t`No API keys yet. Create one to call the API or connect Zapier.`}
+          </div>
+        ) : (
+          <Table
+            size="small"
+            dataSource={apiKeyRows}
+            columns={apiKeyColumns}
+            rowKey="user_id"
+            pagination={false}
+          />
+        )}
+      </Panel>
 
       {/* Drawers rather than modals: the permissions matrix carries fourteen expandable rows, and
           an expanded one lists every endpoint the permission gates — Contacts alone gates 23. */}
       <Drawer
-        title={t`Invite Member`}
+        title={t`Invite member`}
         open={inviteDrawerOpen}
         onClose={() => setInviteDrawerOpen(false)}
         placement="right"
@@ -481,8 +605,13 @@ export function WorkspaceMembers({
           <div className="flex justify-end">
             <Space>
               <Button onClick={() => setInviteDrawerOpen(false)}>{t`Cancel`}</Button>
-              <Button type="primary" onClick={handleInvite} loading={inviting}>
-                {t`Send Invitation`}
+              <Button
+                type="primary"
+                onClick={handleInvite}
+                loading={inviting}
+                disabled={rbacLocked && !grantsFullPermissions(invitePermissions)}
+              >
+                {t`Send invitation`}
               </Button>
             </Space>
           </div>
@@ -490,7 +619,7 @@ export function WorkspaceMembers({
       >
         <Form layout="vertical">
           <Form.Item
-            label={t`Email Address`}
+            label={t`Email address`}
             required
             rules={[{ required: true, message: t`Please enter an email address` }]}
           >
@@ -502,14 +631,18 @@ export function WorkspaceMembers({
           </Form.Item>
 
           <Form.Item label={t`Permissions`}>
-            {/* An invite starts from a full grant, which is never gated, so a locked matrix
-                still holds a legal invitation; only narrowing it needs the licence. */}
+            {/* An invite starts from a full grant, which is never gated, so it can be sent as it
+                is without the licence; only narrowing it needs one. */}
             <LicenceGateNotice feature="rbac" workspaceId={workspaceId} />
-            <PermissionScopePresets onChange={setInvitePermissions} />
+            <PermissionScopePresets
+              value={invitePermissions}
+              onChange={setInvitePermissions}
+              fullAccessOnly={rbacLocked}
+            />
             <PermissionsMatrix
               value={invitePermissions}
               onChange={setInvitePermissions}
-              disabled={!has('rbac')}
+              fullAccessOnly={rbacLocked}
             />
           </Form.Item>
         </Form>
@@ -534,7 +667,12 @@ export function WorkspaceMembers({
             ) : (
               <Space>
                 <Button onClick={resetApiKeyDrawer}>{t`Cancel`}</Button>
-                <Button type="primary" onClick={handleCreateApiKey} loading={creatingApiKey}>
+                <Button
+                  type="primary"
+                  onClick={handleCreateApiKey}
+                  loading={creatingApiKey}
+                  disabled={rbacLocked && !grantsFullPermissions(apiKeyPermissions)}
+                >
                   {t`Create API Key`}
                 </Button>
               </Space>
@@ -552,15 +690,8 @@ export function WorkspaceMembers({
               <Space.Compact style={{ width: '100%' }}>
                 <Input
                   value={apiKeyName}
-                  onChange={(e) => {
-                    // Convert to snake_case on change
-                    const snakeCaseName = e.target.value
-                      .toLowerCase()
-                      .replace(/\s+/g, '_')
-                      .replace(/[^a-z0-9_]/g, '')
-                    setApiKeyName(snakeCaseName)
-                  }}
-                  maxLength={64}
+                  onChange={(e) => setApiKeyName(toApiKeyPrefix(e.target.value))}
+                  maxLength={API_KEY_PREFIX_MAX_LENGTH}
                   style={{ flex: 1 }}
                 />
                 <Button disabled style={{ pointerEvents: 'none', color: 'rgba(0, 0, 0, 0.88)' }}>
@@ -570,8 +701,19 @@ export function WorkspaceMembers({
             </Form.Item>
 
             <Form.Item label={t`Permissions`}>
-              <PermissionScopePresets onChange={setApiKeyPermissions} />
-              <PermissionsMatrix value={apiKeyPermissions} onChange={setApiKeyPermissions} />
+              {/* Same rule as the invitation: a key starts from full access, which is never
+                  gated; scoping it down needs the licence. */}
+              <LicenceGateNotice feature="rbac" workspaceId={workspaceId} />
+              <PermissionScopePresets
+                value={apiKeyPermissions}
+                onChange={setApiKeyPermissions}
+                fullAccessOnly={rbacLocked}
+              />
+              <PermissionsMatrix
+                value={apiKeyPermissions}
+                onChange={setApiKeyPermissions}
+                fullAccessOnly={rbacLocked}
+              />
             </Form.Item>
           </Form>
         ) : (
@@ -603,6 +745,56 @@ export function WorkspaceMembers({
         onClose={handlePermissionsDrawerClose}
         onSuccess={handlePermissionsSuccess}
       />
+
+      <Modal
+        title={generatedPassword ? t`New password` : t`Reset password`}
+        open={resetTarget !== null}
+        onCancel={closePasswordReset}
+        destroyOnHidden
+        footer={
+          generatedPassword ? (
+            <Button type="primary" onClick={closePasswordReset}>
+              {t`Close`}
+            </Button>
+          ) : (
+            <Space>
+              <Button onClick={closePasswordReset}>{t`Cancel`}</Button>
+              <Button type="primary" danger loading={resettingPassword} onClick={handleResetPassword}>
+                {t`Reset password`}
+              </Button>
+            </Space>
+          )
+        }
+      >
+        {generatedPassword ? (
+          <>
+            <Alert
+              title={t`The password was changed`}
+              description={t`This password is shown once and cannot be retrieved again. Tell ${resetTarget?.email ?? ''} out of band; they are signed out everywhere and must choose a new password before they can use the console.`}
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+            <Form layout="vertical">
+              <Form.Item label={t`Generated password`}>
+                <Input.TextArea
+                  value={generatedPassword}
+                  readOnly
+                  autoSize={{ minRows: 2, maxRows: 2 }}
+                  style={{ fontFamily: 'monospace', fontSize: 16 }}
+                />
+              </Form.Item>
+            </Form>
+          </>
+        ) : (
+          <Alert
+            title={t`This signs them out immediately`}
+            description={t`A new password is generated for ${resetTarget?.email ?? ''}, every session they have open is closed, and they must replace the password before they can use the console again.`}
+            type="info"
+            showIcon
+          />
+        )}
+      </Modal>
     </>
   )
 }

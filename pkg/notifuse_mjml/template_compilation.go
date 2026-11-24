@@ -12,137 +12,24 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Notifuse/notifuse/pkg/crypto"
-	"github.com/preslavrachev/gomjml/mjml"
+	"github.com/Notifuse/notifuse/pkg/plaintext"
+	"github.com/Notifuse/notifuse/pkg/trackingtoken"
+	"github.com/Notifuse/safe-mjml/mjml"
 )
-
-// htmlVoidElements are HTML elements that must be self-closing in XML
-var htmlVoidElements = []string{
-	"area", "base", "br", "col", "embed", "hr", "img", "input",
-	"link", "meta", "param", "source", "track", "wbr",
-}
-
-// htmlEntityToCodepoint maps HTML named entities to their Unicode code points
-// Only entities not predefined in XML (amp, lt, gt, quot, apos) need conversion
-var htmlEntityToCodepoint = map[string]int{
-	// Whitespace and formatting
-	"nbsp": 160, "ensp": 8194, "emsp": 8195, "thinsp": 8201,
-	// Punctuation
-	"bull": 8226, "hellip": 8230, "mdash": 8212, "ndash": 8211,
-	"lsquo": 8216, "rsquo": 8217, "ldquo": 8220, "rdquo": 8221,
-	"laquo": 171, "raquo": 187,
-	// Symbols
-	"copy": 169, "reg": 174, "trade": 8482, "sect": 167, "para": 182,
-	"deg": 176, "plusmn": 177, "times": 215, "divide": 247,
-	"micro": 181, "middot": 183,
-	// Currency
-	"euro": 8364, "pound": 163, "yen": 165, "cent": 162,
-	// Arrows
-	"larr": 8592, "rarr": 8594, "uarr": 8593, "darr": 8595, "harr": 8596,
-	// Spanish/French punctuation
-	"iexcl": 161, "iquest": 191,
-}
-
-// preprocessMjmlForXML preprocesses MJML string to fix common HTML vs XML incompatibilities
-// This is necessary because gomjml uses a strict XML parser
-func preprocessMjmlForXML(mjmlString string) string {
-	processed := mjmlString
-
-	// Step 1: Convert HTML void tags to self-closing XML format
-	// HTML allows <br>, <hr>, <img>, etc. without closing slash
-	// XML requires self-closing: <br/>, <hr/>, <img/>
-	// Match: <br>, <br >, <hr>, <img src="...">, etc.
-	// Don't match: <br/>, <br />
-	voidTagPattern := regexp.MustCompile(
-		`(?i)<(` + strings.Join(htmlVoidElements, "|") + `)(\s[^>]*)?>`,
-	)
-	processed = voidTagPattern.ReplaceAllStringFunc(processed, func(match string) string {
-		// Check if already self-closing (ends with /> or / >)
-		trimmed := strings.TrimSpace(match)
-		if strings.HasSuffix(trimmed, "/>") {
-			return match
-		}
-
-		// Extract tag name and attributes using submatch
-		parts := voidTagPattern.FindStringSubmatch(match)
-		if len(parts) < 2 {
-			return match
-		}
-		tagName := parts[1]
-		attrs := ""
-		if len(parts) > 2 && parts[2] != "" {
-			attrs = strings.TrimRight(parts[2], " ")
-		}
-		return "<" + tagName + attrs + "/>"
-	})
-
-	// Step 2: Convert HTML named entities to XML numeric entities
-	// XML only predefines: &amp; &lt; &gt; &quot; &apos;
-	// HTML entities like &nbsp; must be converted to &#160;
-	entityPattern := regexp.MustCompile(`&([a-zA-Z]+);`)
-	processed = entityPattern.ReplaceAllStringFunc(processed, func(match string) string {
-		// Extract entity name (without & and ;)
-		entityName := strings.ToLower(match[1 : len(match)-1])
-
-		// Preserve XML predefined entities
-		if entityName == "amp" || entityName == "lt" || entityName == "gt" ||
-			entityName == "quot" || entityName == "apos" {
-			return match
-		}
-
-		// Convert known HTML entities to numeric
-		if codepoint, ok := htmlEntityToCodepoint[entityName]; ok {
-			return fmt.Sprintf("&#%d;", codepoint)
-		}
-
-		// Unknown entity - leave as-is
-		return match
-	})
-
-	// Step 3: Keep quote entities inside URL attributes from turning into the
-	// quote that delimits them. gomjml decodes &quot; and &apos; to raw quotes
-	// before its XML parse, everywhere, including the raw HTML of an mj-text.
-	// A rich-text link saved as href="…?q=&quot;exact&quot;" therefore reached
-	// the HTML as href="…?q="exact"", which ends the URL at "q=". Doubling the
-	// ampersand (&amp;quot;) survives that pre-pass the way escapeAttributeValue
-	// does for visual-editor attributes; decodeHTMLEntitiesInURLAttributes
-	// brings it back to &quot; after the render.
-	//
-	// The numeric forms &#34; and &#x22; (Go's html.EscapeString writes the
-	// former) get the same treatment: the XML parser decodes them to a raw "
-	// too, and an MJML element writes it back unescaped.
-	//
-	// A single-quoted value needs more: gomjml writes an MJML element's
-	// attributes back between double quotes without escaping them, so a " in
-	// <mj-button href='…?q="exact"'>, raw or as an entity, would close the
-	// output attribute too. It gets the same &amp;quot;. Its &apos; becomes
-	// &#39;, which gomjml leaves alone.
-	//
-	// A hexadecimal reference written with an upper-case X, valid HTML, fails
-	// the whole compile when it sits in an MJML element's attribute, such as an
-	// mj-button's href: the XML parser only reads &#x. It is lower-cased.
-	processed = replaceQuotedValues(processed, urlAttrRegexp, func(value string, quote byte) string {
-		value = doubleQuoteEntityRegexp.ReplaceAllString(value, "&amp;quot;")
-		value = upperCaseHexReferenceRegexp.ReplaceAllString(value, "&#x$1;")
-		if quote == '\'' {
-			value = singleQuotedURLAttrForGomjml.Replace(value)
-		}
-		return value
-	})
-
-	return processed
-}
 
 // MapOfAny represents a map of string to any value, used for template data
 type MapOfAny map[string]any
 
-// Per-notification tracking modes. The zero value ("") and TrackingModeInherit
-// both follow the workspace tracking flag; TrackingModeDisabled suppresses all
-// rewriting (redirect, pixel, and UTM parameters) because opted-out
-// notifications carry single-use auth URLs that must never be modified.
+// Per-send tracking modes. The zero value ("") and TrackingModeInherit both
+// follow the workspace tracking policy and the recipient's consent;
+// TrackingModeNoTracking turns open and click tracking off for the send but
+// keeps the UTM parameters; TrackingModeDisabled suppresses all rewriting
+// (redirect, pixel, and UTM parameters) because opted-out notifications carry
+// single-use auth URLs that must never be modified.
 const (
-	TrackingModeInherit  = "inherit"
-	TrackingModeDisabled = "disabled"
+	TrackingModeInherit    = "inherit"
+	TrackingModeNoTracking = "no_tracking"
+	TrackingModeDisabled   = "disabled"
 )
 
 // WebIdentifyQueryParam is the URL parameter a tracked link carries so the web
@@ -158,10 +45,10 @@ const WebIdentifyQueryParam = "nf_id"
 // ValidateTrackingMode rejects unknown tracking mode values.
 func ValidateTrackingMode(mode string) error {
 	switch mode {
-	case "", TrackingModeInherit, TrackingModeDisabled:
+	case "", TrackingModeInherit, TrackingModeNoTracking, TrackingModeDisabled:
 		return nil
 	default:
-		return fmt.Errorf("invalid tracking_mode %q: must be %q or %q", mode, TrackingModeInherit, TrackingModeDisabled)
+		return fmt.Errorf("invalid tracking_mode %q: must be %q, %q or %q", mode, TrackingModeInherit, TrackingModeNoTracking, TrackingModeDisabled)
 	}
 }
 
@@ -188,6 +75,65 @@ type TrackingSettings struct {
 	// the only hosts the token above may be handed to. Request-scoped like the
 	// token, hence also excluded from the persisted JSON.
 	IdentifyAllowedHosts []string `json:"-"`
+	// SigningKey is the workspace's tracking key (trackingtoken.DeriveKey of its
+	// secret key), which signs the /r/ and /t/ tokens. Set only by the send paths
+	// from the loaded workspace, never from a request or the database, hence
+	// excluded from the JSON. Without it, tokens are minted unsigned.
+	SigningKey []byte `json:"-"`
+	// SuppressOpens and SuppressClicks are this recipient's consent decisions:
+	// with EnableTracking on, the open pixel is left out when SuppressOpens is set
+	// and links are not wrapped in the click redirect when SuppressClicks is set.
+	// The UTM parameters are written either way. SuppressIdentify tells the senders
+	// that mint the web analytics identity token not to mint one; TrackLinks never
+	// reads it, an empty IdentifyToken already writes nothing. All three are
+	// decided per recipient at send time, so like the token they never reach a
+	// stored tracking_settings row.
+	SuppressOpens    bool `json:"-"`
+	SuppressClicks   bool `json:"-"`
+	SuppressIdentify bool `json:"-"`
+}
+
+// opensTracked reports whether the open pixel is written.
+func (t *TrackingSettings) opensTracked() bool {
+	return t.EnableTracking && !t.SuppressOpens
+}
+
+// clicksTracked reports whether links are wrapped in the click redirect.
+func (t *TrackingSettings) clicksTracked() bool {
+	return t.EnableTracking && !t.SuppressClicks
+}
+
+// isTrackingPreferenceLink reports whether sourceURL is a link to this
+// endpoint's notification center that opens the tracking preferences
+// (action=tracking) or the tracking opt-out (action=tracking_optout). Those
+// links are left exactly as written: withdrawing consent must not itself be
+// recorded as a click, and the link must reach the notification center without
+// UTM parameters or an identity token.
+func (t *TrackingSettings) isTrackingPreferenceLink(sourceURL string) bool {
+	if t.Endpoint == "" {
+		return false
+	}
+	// An href read out of the HTML keeps its &amp; references (see
+	// decodeHrefCharacterReferences), and the query cannot be read through them.
+	// It is read the way the click route reads a destination, so a link
+	// browsers open is recognised even when net/url refuses one of its escapes.
+	_, link := trackingtoken.ParseLenient(strings.ReplaceAll(sourceURL, "&amp;", "&"))
+	if link == nil {
+		return false
+	}
+	endpoint, err := url.Parse(t.Endpoint)
+	if err != nil || endpoint.Host == "" {
+		return false
+	}
+	if !strings.EqualFold(link.Host, endpoint.Host) {
+		return false
+	}
+	wantPath := strings.TrimRight(endpoint.Path, "/") + "/notification-center"
+	if strings.TrimRight(link.Path, "/") != wantPath {
+		return false
+	}
+	action := link.Query().Get("action")
+	return action == "tracking" || action == "tracking_optout"
 }
 
 // IsZero reports whether no field is set. Callers use it to tell "no tracking
@@ -205,7 +151,11 @@ func (t TrackingSettings) IsZero() bool {
 		t.WorkspaceID == "" &&
 		t.MessageID == "" &&
 		t.IdentifyToken == "" &&
-		len(t.IdentifyAllowedHosts) == 0
+		len(t.IdentifyAllowedHosts) == 0 &&
+		len(t.SigningKey) == 0 &&
+		!t.SuppressOpens &&
+		!t.SuppressClicks &&
+		!t.SuppressIdentify
 }
 
 // Value implements the driver.Valuer interface for database storage
@@ -360,9 +310,10 @@ func (t *TrackingSettings) applyUTMParameters(sourceURL string) string {
 		return sourceURL
 	}
 
-	// url.Parse is used to reject input that is not a URL at all. The string it
-	// would rebuild is never used.
-	if _, err := url.Parse(sourceURL); err != nil {
+	// The parse only rejects input that is not a URL at all; the string it would
+	// rebuild is never used. It repairs invalid escapes as browsers read them, so
+	// https://shop.com/50%off is tagged like any other link.
+	if _, err := trackingtoken.ParseRepaired(sourceURL); err != nil {
 		return sourceURL
 	}
 
@@ -508,9 +459,10 @@ func (t *TrackingSettings) applyIdentityParam(sourceURL string) string {
 		return sourceURL
 	}
 
-	// url.Parse is used to read the host for the allowlist gate and to reject
-	// input that is not a URL at all. The string it would rebuild is never used.
-	parsedURL, err := url.Parse(sourceURL)
+	// The parse reads the host for the allowlist gate and rejects input that is
+	// not a URL at all; the string it would rebuild is never used. Like
+	// applyUTMParameters it repairs invalid escapes, never in the host.
+	parsedURL, err := trackingtoken.ParseRepaired(sourceURL)
 	if err != nil {
 		return sourceURL
 	}
@@ -533,37 +485,6 @@ func (t *TrackingSettings) applyIdentityParam(sourceURL string) string {
 	return appendToRawQuery(sourceURL, WebIdentifyQueryParam+"="+url.QueryEscape(t.IdentifyToken))
 }
 
-func (t *TrackingSettings) GetTrackingURL(sourceURL string) string {
-	// The explicit per-notification opt-out suppresses everything, including
-	// UTM rewriting (single-use auth URLs must never be modified).
-	if t.TrackingMode == TrackingModeDisabled {
-		return sourceURL
-	}
-
-	// Ignore if URL is empty, a placeholder, mailto:, tel:, or already tracked (basic check)
-	if sourceURL == "" || strings.Contains(sourceURL, "{{") || strings.Contains(sourceURL, "{%") || strings.HasPrefix(sourceURL, "mailto:") || strings.HasPrefix(sourceURL, "tel:") {
-		return sourceURL
-	}
-
-	// Append UTM parameters to the destination URL
-	destinationURL := t.applyUTMParameters(sourceURL)
-
-	if !t.EnableTracking {
-		return destinationURL
-	}
-
-	// parse endpoint and add the UTM-augmented destination URL to the query params
-	parsedEndpoint, err := url.Parse(t.Endpoint)
-	if err != nil {
-		return sourceURL
-	}
-	endpointParams := parsedEndpoint.Query()
-	endpointParams.Add("url", destinationURL)
-	parsedEndpoint.RawQuery = endpointParams.Encode()
-
-	return parsedEndpoint.String()
-}
-
 // CompileTemplateRequest represents the request for compiling a template
 type CompileTemplateRequest struct {
 	WorkspaceID            string           `json:"workspace_id"`
@@ -576,7 +497,18 @@ type CompileTemplateRequest struct {
 	TrackingSettings       TrackingSettings `json:"tracking_settings,omitempty"`
 	Channel                string           `json:"channel,omitempty"`                  // "email" or "web"
 	PreserveLiquid         bool             `json:"preserve_liquid,omitempty"`          // When true, skip Liquid template processing and preserve raw syntax
+	LiquidMarkers          bool             `json:"liquid_markers,omitempty"`           // With PreserveLiquid, marks mj-liquid blocks and display conditions for the MJML import
 	SubjectPreviewOverride *string          `json:"subject_preview_override,omitempty"` // Override mj-preview content before compilation
+	Text                   *string          `json:"text,omitempty"`                     // Source of a custom plain-text version, with Liquid; nil for the automatic version
+	// SubjectOnly renders the subject and the preview text alone, without the body: a caller
+	// that shows only the subject (the console's message detail) gets it without compiling
+	// the whole email. The body (visual_editor_tree / mjml_source) is then not required.
+	SubjectOnly bool `json:"subject_only,omitempty"`
+
+	// IncludeText asks for the automatic plain-text version in the response; a custom text
+	// that renders is returned without it. Only the preview endpoint sets it: a send
+	// generates the automatic text itself, once, in EmailService.SendEmail.
+	IncludeText bool `json:"-"`
 }
 
 // UnmarshalJSON implements custom JSON unmarshaling for CompileTemplateRequest
@@ -619,6 +551,17 @@ func (r *CompileTemplateRequest) Validate() error {
 		return fmt.Errorf("invalid compile template request: message_id is required")
 	}
 
+	// The custom text is capped as a saved template's is (the source, normalised, in bytes),
+	// whichever source the email comes from.
+	if text := NormalizeCustomText(r.Text); text != nil && len(*text) > MaxCustomTextSize {
+		return fmt.Errorf("invalid compile template request: text version must be at most %d bytes", MaxCustomTextSize)
+	}
+
+	// Only the subject is rendered: no body to validate.
+	if r.SubjectOnly {
+		return nil
+	}
+
 	// Accept either MjmlSource or VisualEditorTree
 	if r.MjmlSource != nil && *r.MjmlSource != "" {
 		// MjmlSource is provided, no need to validate VisualEditorTree
@@ -631,6 +574,10 @@ func (r *CompileTemplateRequest) Validate() error {
 	}
 	if r.VisualEditorTree.GetChildren() == nil {
 		return fmt.Errorf("invalid compile template request: visual_editor_tree root block must have children")
+	}
+	// An invalid display condition answers its own error, not the Liquid error it would cause.
+	if err := ValidateDisplayConditions(r.VisualEditorTree); err != nil {
+		return fmt.Errorf("invalid compile template request: %w", err)
 	}
 
 	return nil
@@ -645,13 +592,132 @@ type CompileTemplateResponse struct {
 	SubjectPreview *string     `json:"subject_preview,omitempty"` // Rendered email subject preview (Liquid processed); omit if not provided in request
 	Error          *mjml.Error `json:"error,omitempty"`           // Pointer, omit if nil
 	TemplateData   MapOfAny    `json:"test_data,omitempty"`       // Effective template data used for rendering (includes the injected workspace object); omit if empty
+	Text           *string     `json:"text,omitempty"`            // Plain-text version: the custom text rendered, or the automatic text when the request asked for it; omit otherwise
+	TextSource     string      `json:"text_source,omitempty"`     // TextSourceCustom or TextSourceAuto when Text is set
+	TextError      string      `json:"text_error,omitempty"`      // Why a custom text could not be used; the email then gets the automatic text
+}
+
+// Where the plain-text version of a compile comes from.
+const (
+	TextSourceAuto   = "auto"   // generated from the HTML
+	TextSourceCustom = "custom" // written by the user, rendered with Liquid
+)
+
+// MaxRenderedCustomTextSize caps a rendered custom text, in bytes. A loop can expand a
+// small source a lot; above the cap the email gets the automatic text.
+const MaxRenderedCustomTextSize = 256 * 1024
+
+// CustomText returns the rendered custom text, or "" when the email gets the automatic
+// text (none was written, it could not be rendered, or it rendered blank). Send paths put
+// it in TextContent; "" lets EmailService.SendEmail generate the automatic text from the
+// final HTML.
+func (r *CompileTemplateResponse) CustomText() string {
+	if r == nil || r.TextSource != TextSourceCustom || r.Text == nil {
+		return ""
+	}
+	return *r.Text
+}
+
+// MaxCustomTextSize caps the source of a custom plain-text version, in bytes, at save and in
+// a compile request.
+const MaxCustomTextSize = 64 * 1024
+
+// NormalizeCustomText returns a custom text with \n line endings, or nil when it holds
+// only whitespace, which means the automatic version.
+func NormalizeCustomText(text *string) *string {
+	if text == nil || strings.TrimSpace(*text) == "" {
+		return nil
+	}
+	normalized := strings.ReplaceAll(*text, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	return &normalized
+}
+
+// plainTextVersion decides the plain-text version of an email compile from its final
+// HTML. A custom text is rendered with the same rules as the subject; when that fails,
+// renders blank or too large, the email keeps the automatic text and TextError says why.
+// Blank sets TextError only when the request asks for the text, as the preview does: on a
+// send it is no error, a condition chose to say nothing. The automatic text is only
+// generated here when the request asked for it; a send leaves it to SendEmail.
+func plainTextVersion(budget *renderBudget, req CompileTemplateRequest, trackedHTML string) (text *string, source string, textErr string) {
+	if custom := NormalizeCustomText(req.Text); custom != nil {
+		rendered, err := renderCustomText(budget, *custom, req)
+		switch {
+		case err != nil:
+			textErr = err.Error()
+		case len(rendered) > MaxRenderedCustomTextSize:
+			textErr = fmt.Sprintf("the text version renders to more than %d bytes", MaxRenderedCustomTextSize)
+		case strings.TrimSpace(rendered) != "":
+			return &rendered, TextSourceCustom, ""
+		case req.IncludeText:
+			// Blank is what a send wants (a condition chose to say nothing), but the
+			// preview must say why it shows the automatic text.
+			textErr = "the custom text renders blank for this data"
+		}
+	}
+	if !req.IncludeText {
+		return nil, "", textErr
+	}
+	auto := plaintext.FromHTML(trackedHTML)
+	// With Liquid kept, the automatic text is the starting point of a custom text: a tag
+	// pair split by the HTML structure would be refused when saved, so say it now.
+	if req.PreserveLiquid && textErr == "" {
+		if err := ValidateLiquidSyntax(auto); err != nil {
+			textErr = err.Error()
+		} else if (req.MjmlSource == nil || *req.MjmlSource == "") && liquidAmongBlocks(req.VisualEditorTree) {
+			// The console (textVersionSeed.ts) tells this notice from refused markup by its start
+			textErr = "Liquid placed between the blocks of a section or a column may not land where it applies in the text version: check it before saving"
+		}
+	}
+	return &auto, TextSourceAuto, textErr
+}
+
+// liquidAmongBlocks reports whether a visual tree places Liquid tags in an mj-raw or an
+// mj-liquid block among the blocks of a section, a group or a column. Those blocks become
+// table rows and cells, and a tag written between them lands outside the content it wraps
+// in the starting point of a custom text.
+func liquidAmongBlocks(block EmailBlock) bool {
+	if isNilBlock(block) {
+		return false
+	}
+	switch block.GetType() {
+	case MJMLComponentMjSection, MJMLComponentMjGroup, MJMLComponentMjColumn:
+		for _, child := range block.GetChildren() {
+			if isNilBlock(child) {
+				continue
+			}
+			if t := child.GetType(); t == MJMLComponentMjRaw || t == MJMLComponentMjLiquid {
+				if content := child.GetContent(); content != nil && strings.Contains(*content, "{%") {
+					return true
+				}
+			}
+		}
+	}
+	for _, child := range block.GetChildren() {
+		if liquidAmongBlocks(child) {
+			return true
+		}
+	}
+	return false
+}
+
+// renderCustomText renders a custom text like the subject (see renderSubjectField); kept
+// raw when Liquid is preserved or there is no data, after a syntax check.
+func renderCustomText(budget *renderBudget, text string, req CompileTemplateRequest) (string, error) {
+	if req.PreserveLiquid || len(req.TemplateData) == 0 {
+		if err := ValidateLiquidSyntax(text); err != nil {
+			return "", err
+		}
+		return text, nil
+	}
+	return processLiquidWith(budget, liquidEngine, cleanLiquidTemplate, text, req.TemplateData, "email_text")
 }
 
 // renderSubjectField applies the same Liquid rules used for the body to a header
 // field such as Subject or SubjectPreview. Returns the rendered value (or the
 // original when Liquid processing is skipped) and any error wrapped as *mjml.Error
 // so the caller can surface it on the response.
-func renderSubjectField(value *string, data MapOfAny, channel string, preserveLiquid bool, contextLabel string) (*string, *mjml.Error) {
+func renderSubjectField(budget *renderBudget, value *string, data MapOfAny, channel string, preserveLiquid bool, contextLabel string) (*string, *mjml.Error) {
 	if value == nil || *value == "" {
 		return nil, nil
 	}
@@ -659,35 +725,40 @@ func renderSubjectField(value *string, data MapOfAny, channel string, preserveLi
 		v := *value
 		return &v, nil
 	}
-	rendered, err := ProcessLiquidTemplate(*value, data, contextLabel)
+	rendered, err := processLiquidWith(budget, liquidEngine, cleanLiquidTemplate, *value, data, contextLabel)
 	if err != nil {
 		return nil, &mjml.Error{Message: err.Error()}
 	}
 	return &rendered, nil
 }
 
-// GenerateEmailRedirectionEndpoint generates the email redirection endpoint URL
-// Uses encrypted path tokens (/r/{token}) to avoid pixel blocker detection.
-// Falls back to legacy query params (/visit?mid=...) if encryption fails.
-func GenerateEmailRedirectionEndpoint(workspaceID string, messageID string, apiEndpoint string, destinationURL string, sentTimestamp int64) string {
-	// Try encrypted format: /r/{token}
-	plaintext := fmt.Sprintf("%s\n%s\n%d\n%s", messageID, workspaceID, sentTimestamp, destinationURL)
-	token, err := crypto.EncryptTrackingToken(plaintext)
-	if err == nil {
-		return fmt.Sprintf("%s/r/%s", apiEndpoint, token)
+// GenerateEmailRedirectionEndpoint returns the tracked /r/{token} link to destinationURL.
+// With a signing key (see TrackingSettings.SigningKey) the token is signed and the click
+// route redirects straight to destinationURL; without one it is unsigned, still records
+// the click, and the route checks the destination first.
+// If the token cannot be built, the link is destinationURL itself: never an unsigned
+// /visit link, which anyone could forge.
+func GenerateEmailRedirectionEndpoint(signingKey []byte, workspaceID string, messageID string, apiEndpoint string, destinationURL string, sentTimestamp int64) string {
+	token, err := trackingtoken.MintClick(signingKey, messageID, workspaceID, sentTimestamp, destinationURL)
+	if err != nil {
+		return destinationURL
 	}
+	return fmt.Sprintf("%s/r/%s", apiEndpoint, token)
+}
 
-	// Fallback to legacy query params
-	encodedMID := url.QueryEscape(messageID)
-	encodedWID := url.QueryEscape(workspaceID)
-	encodedURL := url.QueryEscape(destinationURL)
-	return fmt.Sprintf("%s/visit?mid=%s&wid=%s&ts=%d&url=%s",
-		apiEndpoint, encodedMID, encodedWID, sentTimestamp, encodedURL)
+// GenerateOpenTrackingURL returns the /t/{token} open tracking URL, signed when
+// signingKey is set, or "" if the token cannot be built: never an /opens query URL.
+func GenerateOpenTrackingURL(signingKey []byte, workspaceID string, messageID string, apiEndpoint string, sentTimestamp int64) string {
+	token, err := trackingtoken.MintOpen(signingKey, messageID, workspaceID, sentTimestamp)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%s/t/%s", apiEndpoint, token)
 }
 
 // GenerateHTMLOpenTrackingPixel generates the HTML for the open tracking pixel.
-// Uses encrypted path tokens (/t/{token}) to avoid pixel blocker detection.
-// Falls back to legacy query params (/opens?mid=...) if encryption fails.
+// Uses encrypted path tokens (/t/{token}) to avoid pixel blocker detection, built by
+// GenerateOpenTrackingURL; when no token can be built, there is no pixel.
 //
 // The markup has to collapse to nothing, and that takes more than a small image.
 // An <img> is inline, so it sits on a text baseline and the cell holding it takes
@@ -709,19 +780,10 @@ func GenerateEmailRedirectionEndpoint(workspaceID string, messageID string, apiE
 //
 // The collapse stays in CSS because width/height attributes are the fingerprint
 // pixel blockers match on.
-func GenerateHTMLOpenTrackingPixel(workspaceID string, messageID string, apiEndpoint string, sentTimestamp int64) string {
-	// Try encrypted format: /t/{token}
-	plaintext := fmt.Sprintf("%s\n%s\n%d", messageID, workspaceID, sentTimestamp)
-	token, err := crypto.EncryptTrackingToken(plaintext)
-	var pixelURL string
-	if err == nil {
-		pixelURL = fmt.Sprintf("%s/t/%s", apiEndpoint, token)
-	} else {
-		// Fallback to legacy query params
-		encodedMID := url.QueryEscape(messageID)
-		encodedWID := url.QueryEscape(workspaceID)
-		pixelURL = fmt.Sprintf("%s/opens?mid=%s&wid=%s&ts=%d",
-			apiEndpoint, encodedMID, encodedWID, sentTimestamp)
+func GenerateHTMLOpenTrackingPixel(signingKey []byte, workspaceID string, messageID string, apiEndpoint string, sentTimestamp int64) string {
+	pixelURL := GenerateOpenTrackingURL(signingKey, workspaceID, messageID, apiEndpoint, sentTimestamp)
+	if pixelURL == "" {
+		return ""
 	}
 	return fmt.Sprintf(`<table border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%%"><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><img src="%s" alt="" style="border:0;display:block;outline:none;text-decoration:none;"></td></tr></table>`, pixelURL)
 }
@@ -729,28 +791,37 @@ func GenerateHTMLOpenTrackingPixel(workspaceID string, messageID string, apiEndp
 // CompileTemplate compiles a visual editor tree to MJML and HTML
 func CompileTemplate(req CompileTemplateRequest) (resp *CompileTemplateResponse, err error) {
 	var mjmlString string
+	// Every render of this email draws on one budget, so the number of blocks, attributes and
+	// conditions cannot multiply the limits of a single render.
+	budget := newRenderBudget()
 
 	// Render Subject and SubjectPreview through Liquid before any body work, so
 	// the rendered values can be returned even when the body fails to compile.
 	// A malformed Liquid expression in the subject short-circuits the response.
-	renderedSubject, subjectErr := renderSubjectField(req.Subject, req.TemplateData, req.Channel, req.PreserveLiquid, "email_subject")
+	renderedSubject, subjectErr := renderSubjectField(budget, req.Subject, req.TemplateData, req.Channel, req.PreserveLiquid, "email_subject")
 	if subjectErr != nil {
 		return &CompileTemplateResponse{Success: false, Error: subjectErr}, nil
 	}
-	renderedSubjectPreview, previewErr := renderSubjectField(req.SubjectPreview, req.TemplateData, req.Channel, req.PreserveLiquid, "email_subject_preview")
+	renderedSubjectPreview, previewErr := renderSubjectField(budget, req.SubjectPreview, req.TemplateData, req.Channel, req.PreserveLiquid, "email_subject_preview")
 	if previewErr != nil {
 		return &CompileTemplateResponse{Success: false, Subject: renderedSubject, Error: previewErr}, nil
 	}
+	if req.SubjectOnly {
+		return &CompileTemplateResponse{Success: true, Subject: renderedSubject, SubjectPreview: renderedSubjectPreview}, nil
+	}
 
-	// If MjmlSource is provided (code mode), use it directly.
+	// If MjmlSource is provided (code mode), use it directly; an empty one compiles the tree.
 	// Note: Channel filtering is not applied in code mode — code mode users
 	// control their own MJML structure directly.
-	if req.MjmlSource != nil && *req.MjmlSource != "" {
+	codeMode := req.MjmlSource != nil && *req.MjmlSource != ""
+	if codeMode {
 		mjmlString = *req.MjmlSource
 
 		// Process Liquid templates if template data is provided and PreserveLiquid is false
 		if !req.PreserveLiquid && len(req.TemplateData) > 0 {
-			processed, err := ProcessLiquidTemplate(mjmlString, req.TemplateData, "mjml-source")
+			// The exported code of a visual template holds its display conditions, whose
+			// variables a "__dc" key of the data would otherwise decide.
+			processed, err := processLiquidWith(budget, liquidHTMLEngine, cleanLiquidTemplateHTML, mjmlString, withoutConditionNames(req.TemplateData), "mjml-source")
 			if err != nil {
 				return &CompileTemplateResponse{
 					Success:        false,
@@ -772,7 +843,7 @@ func CompileTemplate(req CompileTemplateRequest) (resp *CompileTemplateResponse,
 		// pass to place the override, so it must also replace an existing mj-preview,
 		// which overrideMjPreviewInSource does.
 		if req.SubjectPreviewOverride != nil && *req.SubjectPreviewOverride != "" {
-			renderedOverride, overrideErr := renderSubjectField(req.SubjectPreviewOverride, req.TemplateData, req.Channel, req.PreserveLiquid, "email_subject_preview_override")
+			renderedOverride, overrideErr := renderSubjectField(budget, req.SubjectPreviewOverride, req.TemplateData, req.Channel, req.PreserveLiquid, "email_subject_preview_override")
 			if overrideErr != nil {
 				return &CompileTemplateResponse{
 					Success:        false,
@@ -799,7 +870,9 @@ func CompileTemplate(req CompileTemplateRequest) (resp *CompileTemplateResponse,
 
 		// If PreserveLiquid is true, skip all Liquid processing and return raw MJML
 		// This is used for MJML export where we want to preserve Liquid syntax like {{contact.external_id}}
-		if req.PreserveLiquid {
+		if req.PreserveLiquid && req.LiquidMarkers {
+			mjmlString = ConvertJSONToMJMLRawWithMarkers(tree)
+		} else if req.PreserveLiquid {
 			mjmlString = ConvertJSONToMJMLRaw(tree)
 		} else {
 			// Prepare template data JSON string
@@ -825,7 +898,7 @@ func CompileTemplate(req CompileTemplateRequest) (resp *CompileTemplateResponse,
 			// Compile tree to MJML using our pkg/mjml function with template data
 			if templateDataStr != "" {
 				var err error
-				mjmlString, err = ConvertJSONToMJMLWithDataProtected(tree, templateDataStr)
+				mjmlString, err = convertJSONToMJMLWithDataProtectedIn(budget, tree, templateDataStr)
 				if err != nil {
 					return &CompileTemplateResponse{
 						Success:        false,
@@ -847,8 +920,8 @@ func CompileTemplate(req CompileTemplateRequest) (resp *CompileTemplateResponse,
 	// Whole-string Liquid pass for visual editor mode.
 	// Processes raw Liquid from mj-liquid blocks. Existing block content was already
 	// Liquid-processed per-block during tree walk, so the second pass is a no-op for them.
-	if req.MjmlSource == nil && !req.PreserveLiquid && len(req.TemplateData) > 0 && req.Channel != "web" {
-		processed, liquidErr := ProcessLiquidTemplate(mjmlString, req.TemplateData, "visual-editor-whole")
+	if !codeMode && !req.PreserveLiquid && len(req.TemplateData) > 0 && req.Channel != "web" {
+		processed, liquidErr := processLiquidWith(budget, liquidHTMLEngine, cleanLiquidTemplateHTML, mjmlString, req.TemplateData, "visual-editor-whole")
 		if liquidErr != nil {
 			return &CompileTemplateResponse{
 				Success:        false,
@@ -872,9 +945,9 @@ func CompileTemplate(req CompileTemplateRequest) (resp *CompileTemplateResponse,
 	// <mj-preview /> means it did not — an mj-liquid block can emit a bare tag the
 	// walk never sees — so it falls through here and overrideMjPreviewInSource fills
 	// it rather than injecting a second element.
-	if req.MjmlSource == nil && req.SubjectPreviewOverride != nil && *req.SubjectPreviewOverride != "" {
+	if !codeMode && req.SubjectPreviewOverride != nil && *req.SubjectPreviewOverride != "" {
 		if !mjPreviewTagRegexp.MatchString(mjmlString) {
-			renderedOverride, overrideErr := renderSubjectField(req.SubjectPreviewOverride, req.TemplateData, req.Channel, req.PreserveLiquid, "email_subject_preview_override")
+			renderedOverride, overrideErr := renderSubjectField(budget, req.SubjectPreviewOverride, req.TemplateData, req.Channel, req.PreserveLiquid, "email_subject_preview_override")
 			if overrideErr != nil {
 				return &CompileTemplateResponse{
 					Success:        false,
@@ -887,17 +960,15 @@ func CompileTemplate(req CompileTemplateRequest) (resp *CompileTemplateResponse,
 		}
 	}
 
-	// Preprocess MJML to fix HTML vs XML incompatibilities
-	// gomjml uses a strict XML parser that doesn't accept HTML void tags (<br>) or HTML entities (&nbsp;)
 	// Restore the Liquid delimiters neutralized during the per-block render (see
 	// ConvertJSONToMJMLWithDataProtected). After this point data-borne Liquid is literal
 	// text; no-op when nothing was protected (code mode, no data).
 	mjmlString = restoreLiquidDelimiters(mjmlString)
 
-	preprocessedMjml := preprocessMjmlForXML(mjmlString)
-
-	// Compile MJML to HTML using gomjml library
-	htmlResult, err := mjml.Render(preprocessedMjml)
+	// Compile MJML to HTML with safe-mjml, which reads HTML void tags (<br>), HTML
+	// entities (&nbsp;) and the quotes of a URL as MJML does: the MJML is compiled
+	// as written.
+	htmlResult, err := mjml.Render(mjmlString)
 	if err != nil {
 		// Return the response struct with Success=false and the Error details
 		return &CompileTemplateResponse{
@@ -947,6 +1018,10 @@ func CompileTemplate(req CompileTemplateRequest) (resp *CompileTemplateResponse,
 		}, nil
 	}
 
+	// The automatic plain-text version is derived from the tracked HTML, as a send does,
+	// so the preview shows the links that go out.
+	text, textSource, textErr := plainTextVersion(budget, req, trackedHTML)
+
 	// Return successful response
 	return &CompileTemplateResponse{
 		Success:        true,
@@ -955,6 +1030,9 @@ func CompileTemplate(req CompileTemplateRequest) (resp *CompileTemplateResponse,
 		Subject:        renderedSubject,
 		SubjectPreview: renderedSubjectPreview,
 		Error:          nil,
+		Text:           text,
+		TextSource:     textSource,
+		TextError:      textErr,
 	}, nil
 }
 
@@ -965,28 +1043,98 @@ func CompileTemplate(req CompileTemplateRequest) (resp *CompileTemplateResponse,
 // as they are; TrackLinks decodes them in the hrefs it rewrites.
 // The MJML-to-HTML compiler doesn't always decode these entities properly in attributes,
 // which breaks URLs with query parameters (e.g., ?action=confirm&email=... becomes &amp;email=...)
+//
+// Only the attributes of real tags are decoded. Text is copied as it is: the
+// escaped Liquid output "src=" followed by a quote of the template is not an
+// attribute, and decoding the &lt; and &gt; of an escaped value there would
+// turn it back into markup. In a comment (Outlook's conditional comments, with
+// their VML), only &amp; is decoded, which can neither end the comment nor
+// start a tag.
 func decodeHTMLEntitiesInURLAttributes(html string) string {
-	// Pattern matches href="...", src="...", action="..." attributes; the
-	// double-quoted value is group 1, the single-quoted one group 2.
-	//
-	// Case-insensitive for the same reason the link rewriter is: an HREF= from
-	// pasted Word or Outlook markup is a perfectly valid attribute, and leaving
-	// it out here means its &amp; entities are never decoded, so the query
-	// string the recipient lands on is broken.
-	//
-	// Each quote style is matched on its own: a double-quoted value runs to the
-	// next ", a single-quoted one to the next '. A shared [^"'] class would end
-	// "…/what's-new" at the apostrophe.
-	//
-	// Decode in a single pass, so "&amp;quot;" becomes the entity "&quot;" and
-	// not a raw quote. The entity of the quote that delimits the value is never
-	// decoded: a raw " inside "…" closes the attribute and truncates the URL.
-	return replaceQuotedValues(html, urlAttrRegexp, func(value string, quote byte) string {
-		if quote == '\'' {
-			return urlAttrSingleQuotedDecoder.Replace(value)
+	if !strings.Contains(html, "&") {
+		return html
+	}
+	var b strings.Builder
+	b.Grow(len(html))
+	for i := 0; i < len(html); {
+		j := strings.IndexByte(html[i:], '<')
+		if j < 0 {
+			b.WriteString(html[i:])
+			break
 		}
-		return urlAttrDoubleQuotedDecoder.Replace(value)
+		b.WriteString(html[i : i+j])
+		i += j
+		switch {
+		case strings.HasPrefix(html[i:], "<!--"):
+			end := strings.Index(html[i+4:], "-->")
+			if end < 0 {
+				end = len(html) - i
+			} else {
+				end += 4 + len("-->")
+			}
+			b.WriteString(decodeURLAttributeValues(html[i:i+end], urlAttrAmpersandDecoder, urlAttrAmpersandDecoder))
+			i += end
+		case i+1 < len(html) && isASCIILetter(html[i+1]):
+			end := htmlTagEnd(html, i)
+			b.WriteString(decodeURLAttributeValues(html[i:end], urlAttrDoubleQuotedDecoder, urlAttrSingleQuotedDecoder))
+			i = end
+		default:
+			b.WriteByte('<')
+			i++
+		}
+	}
+	return b.String()
+}
+
+// decodeURLAttributeValues decodes the href, src and action values of s with
+// the decoder of their quote.
+//
+// Pattern matches href="...", src="...", action="..." attributes; the
+// double-quoted value is group 1, the single-quoted one group 2.
+//
+// Case-insensitive for the same reason the link rewriter is: an HREF= from
+// pasted Word or Outlook markup is a perfectly valid attribute, and leaving
+// it out here means its &amp; entities are never decoded, so the query
+// string the recipient lands on is broken.
+//
+// Each quote style is matched on its own: a double-quoted value runs to the
+// next ", a single-quoted one to the next '. A shared [^"'] class would end
+// "…/what's-new" at the apostrophe.
+//
+// Decode in a single pass, so "&amp;quot;" becomes the entity "&quot;" and
+// not a raw quote. The entity of the quote that delimits the value is never
+// decoded: a raw " inside "…" closes the attribute and truncates the URL.
+func decodeURLAttributeValues(s string, doubleQuoted, singleQuoted *strings.Replacer) string {
+	return replaceQuotedValues(s, urlAttrRegexp, func(value string, quote byte) string {
+		if quote == '\'' {
+			return singleQuoted.Replace(value)
+		}
+		return doubleQuoted.Replace(value)
 	})
+}
+
+// htmlTagEnd returns the index just after the > that ends the tag opening at
+// start, skipping the > of quoted attribute values, or len(s).
+func htmlTagEnd(s string, start int) int {
+	var quote byte
+	for i := start + 1; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '>':
+			return i + 1
+		}
+	}
+	return len(s)
+}
+
+func isASCIILetter(c byte) bool {
+	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'
 }
 
 // urlAttrRegexp matches an href, src or action attribute with a double- or
@@ -994,20 +1142,11 @@ func decodeHTMLEntitiesInURLAttributes(html string) string {
 // single-quoted one.
 var urlAttrRegexp = regexp.MustCompile(`(?i)(?:href|src|action)\s*=\s*(?:"([^"]*)"|'([^']*)')`)
 
-// doubleQuoteEntityRegexp matches the references to " that gomjml turns into a
-// raw quote before its XML parse (&quot;) or during it (&#34;, &#x22;), or that
-// its XML parser refuses (&#X22;).
-var doubleQuoteEntityRegexp = regexp.MustCompile(`&(?:quot|#0*34|#[xX]0*22);`)
-
-// upperCaseHexReferenceRegexp matches a hexadecimal character reference written
-// &#X…;, which gomjml's XML parser refuses; group 1 is its digits.
-var upperCaseHexReferenceRegexp = regexp.MustCompile(`&#X([0-9a-fA-F]+);`)
-
-var singleQuotedURLAttrForGomjml = strings.NewReplacer(`"`, "&amp;quot;", "&apos;", "&#39;")
-
 var (
 	urlAttrDoubleQuotedDecoder = strings.NewReplacer("&amp;", "&", "&#39;", "'", "&lt;", "<", "&gt;", ">")
 	urlAttrSingleQuotedDecoder = strings.NewReplacer("&amp;", "&", "&quot;", "\"", "&lt;", "<", "&gt;", ">")
+	// urlAttrAmpersandDecoder is the only decoding done inside a comment.
+	urlAttrAmpersandDecoder = strings.NewReplacer("&amp;", "&")
 )
 
 // replaceQuotedValues returns s with the value of each match of re replaced by
@@ -1113,7 +1252,7 @@ func TrackLinks(htmlString string, trackingSettings TrackingSettings) (updatedHT
 	// return the original HTML. An identity token counts: a workspace can run web
 	// analytics with click tracking off, and the recipient still has to be
 	// identified on landing.
-	if !trackingSettings.EnableTracking && trackingSettings.UTMSource == "" &&
+	if !trackingSettings.opensTracked() && !trackingSettings.clicksTracked() && trackingSettings.UTMSource == "" &&
 		trackingSettings.UTMMedium == "" && trackingSettings.UTMCampaign == "" &&
 		trackingSettings.UTMContent == "" && trackingSettings.UTMTerm == "" &&
 		trackingSettings.IdentifyToken == "" {
@@ -1139,13 +1278,26 @@ func TrackLinks(htmlString string, trackingSettings TrackingSettings) (updatedHT
 		// The URL the recipient lands on: the attribute value with its
 		// character references read back as the characters they stand for. It
 		// is escaped again when written back below.
-		originalURL := decodeHrefCharacterReferences(rawValue)
+		//
+		// It is also preprocessed as browsers do (leading and trailing spaces
+		// trimmed, tab and line breaks removed), the way the click route and
+		// recorder read it too. Read raw, "https://shop.com/sale " got its UTM
+		// parameters after the space and sent the recipient to /sale%20, a
+		// leading space kept a link from being tagged at all, and " mailto:"
+		// was wrapped in a tracking redirect.
+		originalURL := trackingtoken.Preprocess(decodeHrefCharacterReferences(rawValue))
 
 		// Skip tracking for empty hrefs and special protocol links (mailto,
 		// tel, sms, etc.). These should not be wrapped in a redirect as it
 		// breaks their functionality
 		if isNonTrackableURL(originalURL) {
 			return rawValue // Return original link unchanged
+		}
+
+		// The tracking preference and opt-out links reach the notification
+		// center exactly as written; see isTrackingPreferenceLink.
+		if trackingSettings.isTrackingPreferenceLink(originalURL) {
+			return rawValue
 		}
 
 		// Append UTM parameters to the destination URL
@@ -1158,9 +1310,10 @@ func TrackLinks(htmlString string, trackingSettings TrackingSettings) (updatedHT
 		//
 		// It buys no confidentiality, and none is claimed. With click tracking
 		// off there is no redirect at all and the token sits in the href as
-		// plain text; with it on, the /r/ token is obfuscation aimed at
-		// pixel-blockers, not a secret — crypto.EncryptTrackingToken uses a
-		// hardcoded key, so anyone with the source can read it back. The token
+		// plain text; with it on, the /r/ token's outer layer is obfuscation
+		// aimed at pixel-blockers, not a secret — crypto.EncryptTrackingToken
+		// uses a public key, so anyone can read the destination back. The
+		// signature inside only stops a link from being forged. The token
 		// is therefore readable by anyone who can read the email, which is
 		// acceptable because the email is addressed to that contact. The
 		// exposure that remains is forwarding: whoever receives the forward is
@@ -1169,24 +1322,24 @@ func TrackLinks(htmlString string, trackingSettings TrackingSettings) (updatedHT
 
 		trackedURL := destinationURL
 
-		if trackingSettings.EnableTracking {
+		if trackingSettings.clicksTracked() {
 			// Use current Unix timestamp (seconds) for bot detection.
 			// The UTM-augmented destination URL is what gets encrypted into the
 			// token, so the redirect target preserves the UTM parameters.
 			sentTimestamp := time.Now().Unix()
-			trackedURL = GenerateEmailRedirectionEndpoint(trackingSettings.WorkspaceID, trackingSettings.MessageID, trackingSettings.Endpoint, destinationURL, sentTimestamp)
+			trackedURL = GenerateEmailRedirectionEndpoint(trackingSettings.SigningKey, trackingSettings.WorkspaceID, trackingSettings.MessageID, trackingSettings.Endpoint, destinationURL, sentTimestamp)
 		}
 
 		// Return the updated href value
 		return escapeHrefForQuote(trackedURL, quote)
 	})
 
-	if trackingSettings.EnableTracking {
+	if trackingSettings.opensTracked() {
 		// Insert tracking pixel before </body>. The pixel is wrapped in a <table>
 		// by GenerateHTMLOpenTrackingPixel to look like a structural layout element
 		// rather than a standalone tracking pixel.
 		sentTimestamp := time.Now().Unix()
-		trackingPixel := GenerateHTMLOpenTrackingPixel(trackingSettings.WorkspaceID, trackingSettings.MessageID, trackingSettings.Endpoint, sentTimestamp)
+		trackingPixel := GenerateHTMLOpenTrackingPixel(trackingSettings.SigningKey, trackingSettings.WorkspaceID, trackingSettings.MessageID, trackingSettings.Endpoint, sentTimestamp)
 
 		bodyCloseRegex := regexp.MustCompile(`(?i)(<\/body>)`)
 		if bodyCloseRegex.MatchString(updatedHTML) {

@@ -2,6 +2,7 @@ import { Layout } from 'antd'
 import { useLingui } from '@lingui/react/macro'
 import { ReactNode } from 'react'
 import { withBannerOffset } from '../components/license/bannerOffset'
+import signinBackground from '../assets/signin-background.jpg'
 
 const { Content } = Layout
 
@@ -16,7 +17,7 @@ export function MainLayout({ children }: MainLayoutProps) {
     <Layout
       style={{
         minHeight: '100vh',
-        backgroundImage: 'url(/console/splash.jpg)',
+        backgroundImage: `url(${signinBackground})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center'
       }}
@@ -28,12 +29,12 @@ export function MainLayout({ children }: MainLayoutProps) {
       </Content>
       <div className="absolute bottom-4 left-4 bg-black/60 backdrop-blur-md px-2 py-1 rounded-sm text-[9px]">
         <a
-          href="https://unsplash.com/fr/@zetong"
+          href="https://unsplash.com/@oulashin"
           target="_blank"
           rel="noopener noreferrer"
           className="!text-gray-400 no-underline"
         >
-          {t`Photo by Zetong Li`}
+          {t`Photo by Sean Oulashin`}
         </a>
       </div>
     </Layout>
@@ -44,12 +45,14 @@ interface MainLayoutSidebarProps {
   children: ReactNode
   title: string
   extra: ReactNode
+  /** Pinned to the bottom of the panel, always in view: the content scrolls above it. Pages without one are laid out as before. */
+  footer?: ReactNode
 }
 
-export function MainLayoutSidebar({ children, title, extra }: MainLayoutSidebarProps) {
+export function MainLayoutSidebar({ children, title, extra, footer }: MainLayoutSidebarProps) {
   return (
     <div
-      className="fixed right-0 bottom-0 w-[400px] p-6 backdrop-blur-lg bg-white/90 border-l border-black/[0.06] overflow-y-auto"
+      className={`fixed right-0 bottom-0 w-[400px] p-6 backdrop-blur-lg bg-white/90 border-l border-black/[0.06] ${footer ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}
       style={{ top: withBannerOffset('0px') }}
     >
       <div
@@ -63,7 +66,15 @@ export function MainLayoutSidebar({ children, title, extra }: MainLayoutSidebarP
         <h3 style={{ margin: 0 }}>{title}</h3>
         {extra}
       </div>
-      {children}
+      {footer ? (
+        <>
+          {/* Only the content scrolls: the footer stays in view however long the list is. */}
+          <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+          <div className="shrink-0 pt-4">{footer}</div>
+        </>
+      ) : (
+        children
+      )}
     </div>
   )
 }

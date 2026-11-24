@@ -1,186 +1,204 @@
-import { useState } from 'react'
-import { Layout, Button, Empty, App } from 'antd'
+import { useState, type ReactNode } from 'react'
+import { App, Button, Empty, Tooltip } from 'antd'
 import { useParams, useNavigate, useSearch } from '@tanstack/react-router'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { PlusOutlined } from '@ant-design/icons'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { Plus } from 'lucide-react'
 import { useLingui } from '@lingui/react/macro'
 import { PostsTable } from '../components/blog/PostsTable'
 import { BlogSidebar } from '../components/blog/BlogSidebar'
 import { CategoryDrawer } from '../components/blog/CategoryDrawer'
 import { DeleteCategoryModal } from '../components/blog/DeleteCategoryModal'
 import { PostDrawer } from '../components/blog/PostDrawer'
-import { blogCategoriesApi, blogPostsApi, BlogCategory } from '../services/api/blog'
-import { useAuth } from '../contexts/AuthContext'
+import { blogCategoriesApi, blogPostsApi, type BlogCategory } from '../services/api/blog'
+import { useAuth, useWorkspacePermissions } from '../contexts/AuthContext'
+import type { BlogSearch } from '../lib/searchParams'
+import { RailCard } from '../components/layout'
 
-const { Sider, Content } = Layout
-
-interface BlogSearch {
-  category_id?: string
-}
+const ROUTE = '/console/workspace/$workspaceId/blog'
 
 export function BlogPage() {
   const { t } = useLingui()
-  const { workspaceId } = useParams({ from: '/console/workspace/$workspaceId/blog' })
-  const navigate = useNavigate({ from: '/console/workspace/$workspaceId/blog' })
-  const search = useSearch({ from: '/console/workspace/$workspaceId/blog' }) as BlogSearch
+  const { workspaceId } = useParams({ from: ROUTE })
+  const navigate = useNavigate({ from: ROUTE })
+  const search = useSearch({ from: ROUTE }) as BlogSearch
   const queryClient = useQueryClient()
   const { message } = App.useApp()
   const { workspaces } = useAuth()
+  const { permissions } = useWorkspacePermissions(workspaceId)
+  // Posts and categories follow blog write, as the server does
+  const canWritePosts = Boolean(permissions?.blog?.write)
+  const canManageCategories = Boolean(permissions?.blog?.write)
+  // A post's content is a template: the drawer reads it with Templates read and saves it with Templates write
+  const editRefusal =
+    permissions && !(permissions.templates?.read && permissions.templates?.write)
+      ? t`Writing or editing a post also needs Templates read and write: its content is a template.`
+      : undefined
 
-  // All hooks must be called before any conditional returns
-  const [categoryDrawerOpen, setCategoryDrawerOpen] = useState(false)
-  const [editingCategory, setEditingCategory] = useState<BlogCategory | null>(null)
-  const [deleteCategoryModalOpen, setDeleteCategoryModalOpen] = useState(false)
+  const [categoryDrawer, setCategoryDrawer] = useState<{ category: BlogCategory | null } | null>(
+    null
+  )
   const [categoryToDelete, setCategoryToDelete] = useState<BlogCategory | null>(null)
   const [postDrawerOpen, setPostDrawerOpen] = useState(false)
 
-  const { data: categoriesData } = useQuery({
+  const categoriesQuery = useQuery({
     queryKey: ['blog-categories', workspaceId],
     queryFn: () => blogCategoriesApi.list(workspaceId)
   })
+  const categories = categoriesQuery.data?.categories ?? []
+  const activeCategoryId = search.category_id ?? null
+  const titleSearch = search.q?.trim() || undefined
 
-  const categories = categoriesData?.categories ?? []
-  const hasCategories = categories.length > 0
-  const activeCategoryId = search.category_id || null
-
-  // Check if there are any posts (without filters) for empty state
-  const { data: allPostsData } = useQuery({
-    queryKey: ['blog-posts', workspaceId, 'all', undefined],
-    queryFn: () => blogPostsApi.list(workspaceId, { status: 'all', limit: 1 }),
-    enabled: hasCategories
+  // B1, under the posts' key so every post change refreshes it. The tabs count what they list, so
+  // the counts follow the search too; the rail's all_total and by_category never do.
+  const countsQuery = useQuery({
+    queryKey: ['blog-posts', workspaceId, 'counts', activeCategoryId, titleSearch ?? null],
+    queryFn: () => blogPostsApi.counts(workspaceId, activeCategoryId ?? undefined, titleSearch),
+    // The rail's counts do not change with the category: keep them while another category's
+    // load. The status tabs do, so the table gets none until they arrive.
+    placeholderData: keepPreviousData
   })
-
-  const hasPosts = allPostsData && allPostsData.total_count > 0
+  const counts = countsQuery.data
 
   const deleteCategoryMutation = useMutation({
     mutationFn: (id: string) => blogCategoriesApi.delete(workspaceId, { id }),
-    onSuccess: () => {
+    onSuccess: (_, id) => {
       message.success(t`Category deleted successfully`)
-      queryClient.invalidateQueries({ queryKey: ['blog-categories', workspaceId] })
-      setDeleteCategoryModalOpen(false)
+      void queryClient.invalidateQueries({ queryKey: ['blog-categories', workspaceId] })
+      void queryClient.invalidateQueries({ queryKey: ['blog-posts', workspaceId] })
       setCategoryToDelete(null)
-      // Navigate to all posts if the deleted category was active
-      if (activeCategoryId === categoryToDelete?.id) {
-        navigate({
-          search: (prev) => ({ ...prev, category_id: undefined })
-        })
+      // Deleted from its own drawer: nothing is left to edit.
+      setCategoryDrawer((open) => (open?.category?.id === id ? null : open))
+      if (activeCategoryId === id) {
+        navigate({ search: (prev: BlogSearch) => ({ ...prev, category_id: undefined }) })
       }
     },
     onError: (error: unknown) => {
-      const errorMsg = error instanceof Error ? error.message : t`Failed to delete category`
-      message.error(errorMsg)
+      message.error(error instanceof Error ? error.message : t`Failed to delete category`)
     }
   })
 
-  // Get the current workspace - conditional check AFTER all hooks
   const workspace = workspaces.find((w) => w.id === workspaceId)
-
   if (!workspace) {
-    return null // Or handle the case where workspace is not found
+    return null
   }
 
-  const handleCategoryChange = (categoryId: string | null) => {
-    navigate({
-      search: (prev) => ({ ...prev, category_id: categoryId || undefined })
-    })
-  }
+  const showViews =
+    Boolean(workspace.settings?.web_analytics?.enabled) && Boolean(permissions?.web_analytics?.read)
 
-  const handleNewCategory = () => {
-    setEditingCategory(null)
-    setCategoryDrawerOpen(true)
-  }
+  const rail = (
+    <RailCard ariaLabel={t`Blog`}>
+      <BlogSidebar
+        workspaceId={workspaceId}
+        activeCategoryId={activeCategoryId}
+        counts={counts}
+        canManageCategories={canManageCategories}
+        onCategoryChange={(categoryId) =>
+          navigate({
+            search: (prev: BlogSearch) => ({ ...prev, category_id: categoryId ?? undefined })
+          })
+        }
+        onNewCategory={() => setCategoryDrawer({ category: null })}
+        onEditCategory={(category) => setCategoryDrawer({ category })}
+        onDeleteCategory={setCategoryToDelete}
+      />
+    </RailCard>
+  )
 
-  const handleEditCategory = (category: BlogCategory) => {
-    setEditingCategory(category)
-    setCategoryDrawerOpen(true)
-  }
+  // An empty state sits beside the card, where the table would be.
+  const besideRail = (content: ReactNode) => (
+    <div className="flex items-start gap-3">
+      {rail}
+      <div className="min-w-0 flex-1">{content}</div>
+    </div>
+  )
 
-  const handleDeleteCategory = (category: BlogCategory) => {
-    setCategoryToDelete(category)
-    setDeleteCategoryModalOpen(true)
-  }
-
-  const handleCategoryDrawerClose = () => {
-    setCategoryDrawerOpen(false)
-    setEditingCategory(null)
-  }
-
-  const handleCreatePost = () => {
-    setPostDrawerOpen(true)
-  }
-
-  const handlePostDrawerClose = () => {
-    setPostDrawerOpen(false)
-  }
-
-  return (
-    <Layout style={{ minHeight: 'calc(100vh - 48px)' }}>
-      <Sider
-        width={250}
-        style={{
-          borderRight: '1px solid #f0f0f0',
-          overflow: 'auto'
-        }}
-      >
-        <BlogSidebar
-          workspaceId={workspaceId}
-          activeCategoryId={activeCategoryId}
-          onCategoryChange={handleCategoryChange}
-          onNewCategory={handleNewCategory}
-          onEditCategory={handleEditCategory}
-          onDeleteCategory={handleDeleteCategory}
-        />
-      </Sider>
-      <Layout>
-        <Content>
-          <div style={{ padding: '24px' }}>
-            {!hasCategories ? (
-              <Empty description={t`No categories yet`} style={{ marginTop: '100px' }}>
-                <Button type="primary" icon={<PlusOutlined />} onClick={handleNewCategory}>
-                  {t`Create Your First Category`}
-                </Button>
-              </Empty>
-            ) : !hasPosts && !activeCategoryId ? (
-              <Empty
-                description={t`Create your first blog post to get started`}
-                style={{ marginTop: '100px' }}
+  const renderMain = () => {
+    if (categoriesQuery.isSuccess && categories.length === 0) {
+      return besideRail(
+        <div className="mt-24">
+          <Empty description={t`No categories yet`}>
+            {canManageCategories ? (
+              <Button
+                type="primary"
+                icon={<Plus size={14} aria-hidden="true" />}
+                onClick={() => setCategoryDrawer({ category: null })}
               >
-                <Button type="primary" icon={<PlusOutlined />} onClick={handleCreatePost}>
+                {t`Create Your First Category`}
+              </Button>
+            ) : null}
+          </Empty>
+        </div>
+      )
+    }
+    if (counts && counts.all_total === 0 && !activeCategoryId) {
+      return besideRail(
+        <div className="mt-24">
+          <Empty description={t`Create your first blog post to get started`}>
+            <Tooltip title={canWritePosts ? editRefusal : undefined}>
+              <span className="inline-block">
+                <Button
+                  type="primary"
+                  icon={<Plus size={14} aria-hidden="true" />}
+                  disabled={!canWritePosts || !!editRefusal}
+                  onClick={() => setPostDrawerOpen(true)}
+                >
                   {t`Create Your First Post`}
                 </Button>
-              </Empty>
-            ) : (
-              <PostsTable />
-            )}
-          </div>
-        </Content>
-      </Layout>
+              </span>
+            </Tooltip>
+          </Empty>
+        </div>
+      )
+    }
+    return (
+      <PostsTable
+        workspace={workspace}
+        categories={categories}
+        counts={countsQuery.isPlaceholderData ? undefined : counts}
+        canWritePosts={canWritePosts}
+        editRefusal={editRefusal}
+        showViews={showViews}
+        rail={rail}
+      />
+    )
+  }
+
+  // The page route declares the rail layout, so the chrome adds no margin: this column carries the
+  // page margins, as on the Contacts page.
+  return (
+    <div data-rail-content className="flex min-w-0 flex-col gap-3 px-5 pt-4 pb-6">
+      {renderMain()}
 
       <CategoryDrawer
-        open={categoryDrawerOpen}
-        onClose={handleCategoryDrawerClose}
-        category={editingCategory}
-        workspaceId={workspaceId}
+        open={categoryDrawer !== null}
+        onClose={() => setCategoryDrawer(null)}
+        category={categoryDrawer?.category ?? null}
+        workspace={workspace}
+        postCount={
+          categoryDrawer?.category && counts ? (counts.by_category?.[categoryDrawer.category.id] ?? 0) : undefined
+        }
+        onDelete={setCategoryToDelete}
+        // The new category opens, so its first post is one click away.
+        onCreated={(category) =>
+          navigate({ search: (prev: BlogSearch) => ({ ...prev, category_id: category.id }) })
+        }
       />
 
       <DeleteCategoryModal
-        open={deleteCategoryModalOpen}
+        open={categoryToDelete !== null}
         category={categoryToDelete}
         onConfirm={() => categoryToDelete && deleteCategoryMutation.mutate(categoryToDelete.id)}
-        onCancel={() => {
-          setDeleteCategoryModalOpen(false)
-          setCategoryToDelete(null)
-        }}
+        onCancel={() => setCategoryToDelete(null)}
         loading={deleteCategoryMutation.isPending}
       />
 
       <PostDrawer
         open={postDrawerOpen}
-        onClose={handlePostDrawerClose}
+        onClose={() => setPostDrawerOpen(false)}
         post={null}
         workspace={workspace}
         initialCategoryId={activeCategoryId}
       />
-    </Layout>
+    </div>
   )
 }

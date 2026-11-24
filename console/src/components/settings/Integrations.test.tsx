@@ -1,5 +1,5 @@
 import type React from 'react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { afterAll, describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from 'antd'
@@ -10,7 +10,18 @@ import { LicenseContext, UNKNOWN_LICENSE } from '../../contexts/licenseState'
 import type { Entitlements } from '../../types/license'
 import type { Integration, Workspace } from '../../services/api/types'
 import { workspaceService } from '../../services/api/workspace'
+import { activateDayjsLocale } from '../../i18n/dayjsLocales'
 import { getWebhookStatus, registerWebhook } from '../../services/api/webhook_registration'
+
+// The dates here are read on the browser's clock. Pinned to UTC so the day the tests expect is the
+// day shown on any runner, including one east of UTC+11 or west of UTC-10. Restored after the
+// file: a worker can go on to run other files.
+const runnerTimeZone = process.env.TZ
+process.env.TZ = 'UTC'
+afterAll(() => {
+  if (runnerTimeZone === undefined) delete process.env.TZ
+  else process.env.TZ = runnerTimeZone
+})
 
 i18n.loadAndActivate({ locale: 'en', messages: {} })
 
@@ -131,35 +142,55 @@ beforeEach(() => {
   })
 })
 
-// openSESDrawer walks the path an operator takes: pick Amazon SES from the available providers.
+// The one way in: "Add integration" (the page's, first; an empty block repeats it), then the
+// catalogue entry.
+const openFromCatalogue = async (user: ReturnType<typeof userEvent.setup>, entry: string) => {
+  await user.click((await screen.findAllByRole('button', { name: /Add integration/ }))[0])
+  const catalogue = await screen.findByRole('dialog', { name: 'Add integration' })
+  await user.click(within(catalogue).getByRole('button', { name: new RegExp(`^${entry}`) }))
+}
+
+// openSESDrawer walks the path an operator takes: pick Amazon SES from the catalogue.
 // The tenant fields only exist once that drawer is open, so every test starts here.
 const openSESDrawer = async (options: RenderOptions = {}) => {
   const user = userEvent.setup()
   renderIntegrations(options)
-  await user.click(await screen.findByText('Amazon SES'))
-  await waitFor(() => expect(screen.getByText('SES tenant isolation')).toBeInTheDocument())
+  await openFromCatalogue(user, 'Amazon SES')
+  await waitFor(() => expect(screen.getByText('Tenant isolation')).toBeInTheDocument())
   return user
 }
 
 const sesTenantField = () => screen.getByLabelText('SES tenant')
-const isolationSwitch = () =>
-  within(screen.getByText('SES tenant isolation').closest('.ant-form-item') as HTMLElement).getByRole(
-    'switch'
-  )
+const isolationSwitch = () => screen.getByRole('switch', { name: 'Tenant isolation' })
 
 describe('Integrations — marketing rate limit', () => {
   // The queue now sends at this rate, so the field has to say what it governs and what it
-  // must stay under: a limit above the provider's leads to throttling, which pauses broadcasts.
+  // must stay under: a limit above the provider's leads to throttling, which slows sending down.
   it('says what the rate applies to and what it must stay under', async () => {
     await openSESDrawer()
 
-    const field = screen.getByLabelText('Rate limit for marketing emails (emails per minute)')
-    const item = field.closest('.ant-form-item') as HTMLElement
+    const field = screen.getByLabelText('Rate for marketing')
+    expect(field).toHaveValue('25')
+    const row = field.closest('[data-settings-row]') as HTMLElement
+    expect(within(row).getByText('Broadcasts and automation emails go out at up to this rate')).toBeInTheDocument()
     expect(
-      within(item).getByText(
-        "Broadcasts and automation emails are sent at up to this rate. Keep it at or below your provider's sending limit, minus your transactional traffic."
-      )
+      within(row).getByText("Keep it at or below your provider's limit, minus your transactional traffic.")
     ).toBeInTheDocument()
+  })
+})
+
+describe('Integrations — marketing rate limit in the console language', () => {
+  afterEach(() => {
+    i18n.activate('en')
+  })
+
+  it('writes the hourly and daily volume with the separators of the console language', async () => {
+    i18n.load('fr', {})
+    i18n.activate('fr')
+    await openSESDrawer()
+
+    // 25 per minute by default. French groups thousands with a narrow no-break space.
+    expect(screen.getByText(/^≈ 1\s500 per hour · ≈ 36\s000 per day$/)).toBeInTheDocument()
   })
 })
 
@@ -184,13 +215,14 @@ describe('Integrations — SES tenant isolation', () => {
   })
 
   it('shows the tenant fields without expanding anything', async () => {
-    // They used to live behind an "Advanced" collapse; the collapse is gone, so both must be on
-    // screen as soon as the SES form is.
+    // They used to live behind an "Advanced" collapse. The Advanced panel is a plain panel, not a
+    // collapse: both must be on screen as soon as the SES form is.
     await openSESDrawer()
 
     expect(screen.getByLabelText('Configuration set')).toBeVisible()
     expect(sesTenantField()).toBeVisible()
-    expect(screen.queryByText('Advanced')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Inbound topic ARN')).toBeVisible()
+    expect(document.querySelector('.ant-collapse')).toBeNull()
   })
 
   it('reveals the IAM permissions only once isolation is switched on', async () => {
@@ -266,21 +298,22 @@ describe('Integrations — SES tenant isolation', () => {
 })
 
 describe('Integrations — Zapier', () => {
-  it('offers Zapier in the empty-state catalogue', async () => {
-    // The Add Integration dropdown is hidden until the workspace has at least one integration,
-    // so on a fresh workspace the catalogue is the only way in.
+  it('offers Zapier in the catalogue of a fresh workspace', async () => {
+    const user = userEvent.setup()
     renderIntegrations()
 
-    expect(await screen.findByText('Zapier')).toBeInTheDocument()
+    await user.click((await screen.findAllByRole('button', { name: /Add integration/ }))[0])
+
+    expect(await screen.findByRole('button', { name: /^Zapier/ })).toBeInTheDocument()
   })
 
-  it('offers Zapier in the Add Integration dropdown once an integration exists', async () => {
+  it('still offers Zapier once a connection exists: several are allowed', async () => {
     const user = userEvent.setup()
     renderIntegrations({ integrations: [zapierIntegration] })
 
-    await user.click(screen.getByRole('button', { name: /Add Integration/ }))
+    await user.click(screen.getAllByRole('button', { name: /Add integration/ })[0])
 
-    expect(await screen.findByRole('menuitem', { name: /Zapier/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /^Zapier/ })).toBeEnabled()
   })
 
   it('renders a connected Zapier card with its label and key address', async () => {
@@ -296,15 +329,22 @@ describe('Integrations — Zapier', () => {
     const settingsless = { ...zapierIntegration, zapier_settings: undefined }
     renderIntegrations({ integrations: [settingsless] })
 
-    expect(await screen.findByText('Type: zapier')).toBeInTheDocument()
+    // Named as a reader knows it, not by its raw type
+    expect(await screen.findByText('Type: Zapier')).toBeInTheDocument()
     expect(screen.queryByText(ZAPIER_KEY_EMAIL)).not.toBeInTheDocument()
+  })
+
+  it('names the type of an integration that has no card of its own', async () => {
+    renderIntegrations({ integrations: [{ ...zapierIntegration, id: 'sms-1', name: 'Texts', type: 'sms' }] })
+
+    expect(await screen.findByText('Type: SMS')).toBeInTheDocument()
   })
 
   it('connects Zapier and refreshes the workspace without closing the token panel', async () => {
     const user = userEvent.setup()
     const { onSave } = renderIntegrations()
 
-    await user.click(await screen.findByText('Zapier'))
+    await openFromCatalogue(user, 'Zapier')
     const label = await screen.findByLabelText('Label')
     await user.clear(label)
     await user.type(label, 'Marketing')
@@ -323,25 +363,26 @@ describe('Integrations — Zapier', () => {
     expect(screen.getByLabelText('API key token')).toHaveValue('tok_secret_value')
   })
 
-  it('shows a member the Zapier card without Edit or Delete', async () => {
-    const { container } = renderIntegrations({
+  it('shows a member the Zapier card without Edit nor its menu', async () => {
+    renderIntegrations({
       integrations: [zapierIntegration],
       isOwner: false
     })
 
     expect(await screen.findByText(ZAPIER_KEY_EMAIL)).toBeInTheDocument()
-    expect(container.querySelector('[data-icon="pen-to-square"]')).toBeNull()
-    expect(container.querySelector('[data-icon="trash-can"]')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Add integration/ })).toBeNull()
   })
 
-  it('warns that deleting a Zapier connection revokes its key', async () => {
+  it('warns that disconnecting Zapier revokes its key', async () => {
     const user = userEvent.setup()
-    const { container } = renderIntegrations({ integrations: [zapierIntegration] })
+    renderIntegrations({ integrations: [zapierIntegration] })
 
-    await user.click(
-      container.querySelector('[data-icon="trash-can"]')?.closest('button') as HTMLElement
-    )
+    await user.click(screen.getByRole('button', { name: 'More actions' }))
+    await user.click(await screen.findByText('Disconnect'))
 
+    expect((await screen.findAllByText('Delete this connection?')).length).toBeGreaterThan(0)
     const warning = await screen.findByText(/revokes the API key/)
     expect(warning).toHaveTextContent(/stops working/)
   })
@@ -373,7 +414,9 @@ describe('Integrations — webhook registration', () => {
     renderIntegrations({ integrations: [mailjetIntegration] })
     await waitFor(() => expect(getWebhookStatus).toHaveBeenCalledTimes(1))
 
-    await user.click(await screen.findByRole('button', { name: 'Register Webhooks' }))
+    await user.click(await screen.findByRole('button', { name: 'More actions' }))
+    // Not registered yet: the first registration asks nothing, as before.
+    await user.click(await screen.findByText('Register webhooks'))
 
     await waitFor(() => expect(registerWebhook).toHaveBeenCalledTimes(1))
     expect(vi.mocked(registerWebhook).mock.calls[0][0]).toEqual({
@@ -381,5 +424,97 @@ describe('Integrations — webhook registration', () => {
       integration_id: 'int_mailjet_1',
       base_url: expect.any(String)
     })
+  })
+})
+
+describe('Integrations — blocks', () => {
+  it('opens every integration from one catalogue, grouped by use', async () => {
+    const user = userEvent.setup()
+    renderIntegrations()
+
+    await user.click((await screen.findAllByRole('button', { name: /Add integration/ }))[0])
+    const catalogue = await screen.findByRole('dialog', { name: 'Add integration' })
+
+    expect(within(catalogue).getByText('Email sending')).toBeInTheDocument()
+    expect(within(catalogue).getByText('AI assistant')).toBeInTheDocument()
+    expect(within(catalogue).getByText('Connected apps')).toBeInTheDocument()
+    // The 7 email providers, the 3 AI models, Firecrawl, Supabase and Zapier.
+    expect(catalogue.querySelectorAll('[data-catalogue-entry]')).toHaveLength(14)
+    // The server refuses Mailjet for marketing: the catalogue says so before it is picked.
+    expect(within(catalogue).getByRole('button', { name: /^Mailjet/ })).toHaveTextContent('Transactional only')
+  })
+
+  it('marks SparkPost and Mailjet deprecated in the catalogue, and says why', async () => {
+    const user = userEvent.setup()
+    renderIntegrations()
+
+    await user.click((await screen.findAllByRole('button', { name: /Add integration/ }))[0])
+    const catalogue = await screen.findByRole('dialog', { name: 'Add integration' })
+    const entry = (name: RegExp) => within(catalogue).getByRole('button', { name })
+
+    expect(entry(/^Postmark/)).not.toHaveTextContent('Deprecated')
+    expect(entry(/^Mailjet/)).toHaveTextContent('Deprecated')
+    await user.hover(within(entry(/^SparkPost/)).getByText('Deprecated'))
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'This integration will be removed soon: SparkPost no longer accepts new customers.'
+    )
+  })
+
+  it('shows a member no way to add an integration', async () => {
+    renderIntegrations({ isOwner: false })
+
+    expect(await screen.findByText('No email provider yet')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Add integration/ })).toBeNull()
+    expect(screen.getByRole('combobox', { name: 'Marketing emails' })).toBeDisabled()
+  })
+
+  it('says which role has no provider in its own row, without the blue box', async () => {
+    renderIntegrations({ integrations: [mailjetIntegration] })
+
+    const marketing = (await screen.findByText('Marketing emails')).closest('[data-settings-row]') as HTMLElement
+    expect(within(marketing).getByText('Not set')).toBeInTheDocument()
+    expect(screen.queryByText('Email Provider Configuration Needed')).toBeNull()
+  })
+
+  it('invites to add an email provider when only other integrations exist', async () => {
+    renderIntegrations({ integrations: [zapierIntegration] })
+
+    expect(await screen.findByText('No email provider yet')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /Add integration/ }).length).toBeGreaterThan(1)
+    expect(screen.getByText('Connected apps')).toBeInTheDocument()
+  })
+})
+
+describe('Integrations — dates', () => {
+  afterEach(() => {
+    activateDayjsLocale('en')
+  })
+
+  it('writes the day a Zapier card was connected in the console language', async () => {
+    activateDayjsLocale('fr')
+    renderIntegrations({ integrations: [zapierIntegration] })
+
+    expect(await screen.findByText('1 août 2026')).toBeInTheDocument()
+  })
+})
+
+describe('Integrations — drawer titles', () => {
+  const drawerTitle = () => document.querySelector('[data-drawer-title]')?.textContent
+
+  it.each([
+    ['Mailgun', 'Add Mailgun integration'],
+    ['Amazon SES', 'Add Amazon SES integration'],
+    ['Supabase', 'Add Supabase integration'],
+    ['OpenAI', 'Add OpenAI integration'],
+    ['Firecrawl', 'Add Firecrawl integration'],
+    ['Zapier', 'Connect Zapier']
+  ])('names %s in the title of its drawer', async (item, title) => {
+    const user = userEvent.setup()
+    renderIntegrations({ integrations: [zapierIntegration] })
+    await openFromCatalogue(user, item)
+
+    await waitFor(() => expect(drawerTitle()).toBe(title))
+    // The bar's way back names the page it returns to.
+    expect(screen.getByRole('button', { name: /Integrations/ })).toBeInTheDocument()
   })
 })

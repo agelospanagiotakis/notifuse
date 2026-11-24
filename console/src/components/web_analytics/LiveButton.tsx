@@ -1,14 +1,16 @@
 import { Link } from '@tanstack/react-router'
 import { useLingui } from '@lingui/react/macro'
-import { useWebAnalytics } from './context'
+import { useWebAnalytics } from './useWebAnalytics'
 import { useMinuteTick } from './lib/useMinuteTick'
 import { readTotals, useWebQuery } from './lib/query'
+import { useNumberFormat } from '../layout'
 import { AnalyticsQuery } from '../../services/api/analytics'
 
 const REFRESH_MS = 15_000
 
 export function LiveButton() {
   const { t } = useLingui()
+  const { int } = useNumberFormat()
   const { workspaceId } = useWebAnalytics()
 
   // Sessions still active, i.e. last seen in the past 30 minutes. The window
@@ -37,14 +39,14 @@ export function LiveButton() {
     <Link
       to="/console/workspace/$workspaceId/web-analytics/live"
       params={{ workspaceId }}
-      className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-600 hover:border-[var(--primary)]"
+      className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1 text-xs text-ink-2 hover:border-primary-500"
     >
       <span className="relative flex h-2 w-2">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-        <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success-fg opacity-50" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-success-fg" />
       </span>
       <span>{t`Live`}</span>
-      <span className="font-semibold text-gray-800">{sessions}</span>
+      <span className="font-semibold text-ink">{int(sessions)}</span>
     </Link>
   )
 }

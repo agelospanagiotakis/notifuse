@@ -18,6 +18,8 @@ export interface VariationMetrics {
   bounced: number
   complained: number
   unsubscribed: number
+  opens_tracked?: number
+  clicks_tracked?: number
 }
 
 // Define the EmailTemplate interface
@@ -54,6 +56,9 @@ export interface Template {
 export interface BroadcastVariation {
   variation_name: string
   template_id: string
+  // One of the marketing integration's senders, in place of the template's. Absent: the
+  // template's sender.
+  sender_id?: string
   metrics?: VariationMetrics
   template?: Template // Template joined from server when with_templates is true
 }
@@ -140,6 +145,8 @@ export interface Broadcast {
   winner_sent_at?: string
   test_phase_recipient_count: number
   winner_phase_recipient_count: number
+  /** Seconds an A/B test waiting for its winner spent paused; left out of its test duration. */
+  test_paused_seconds?: number
   created_at: string
   updated_at: string
   started_at?: string
@@ -149,7 +156,12 @@ export interface Broadcast {
   pause_reason?: string
   // Data feed settings (consolidated)
   data_feed?: DataFeedSettings
+  // Absent follows the workspace and each contact's consent; 'no_tracking'
+  // drops the open pixel and click redirect for every recipient, keeping UTM.
+  tracking_mode?: BroadcastTrackingMode
 }
+
+export type BroadcastTrackingMode = 'inherit' | 'no_tracking'
 
 export interface CreateBroadcastRequest {
   workspace_id: string
@@ -160,6 +172,7 @@ export interface CreateBroadcastRequest {
   utm_parameters?: UTMParameters
   metadata?: Record<string, unknown>
   data_feed?: DataFeedSettings
+  tracking_mode?: BroadcastTrackingMode
 }
 
 // broadcasts.update is a patch: a key this request does not carry leaves the stored value
@@ -179,6 +192,7 @@ export interface UpdateBroadcastRequest {
   utm_parameters?: UTMParameters
   metadata?: Record<string, unknown>
   data_feed?: DataFeedSettings
+  tracking_mode?: BroadcastTrackingMode
 }
 
 export interface ListBroadcastsRequest {
@@ -188,12 +202,16 @@ export interface ListBroadcastsRequest {
   limit?: number
   offset?: number
   with_templates?: boolean
+  /** Adds `status_counts`, counted under every filter but the status one. */
+  with_status_counts?: boolean
+  /** An ISO instant: the broadcasts that started at or after it. */
+  started_after?: string
 }
 
 // Status filter groups shown in the broadcasts list Segmented control. Each
 // group maps to one or more underlying broadcast statuses. 'all' (no filter)
 // is intentionally not part of this map.
-export type BroadcastStatusGroup = 'all' | 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed'
+export type BroadcastStatusGroup = 'all' | 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed' | 'cancelled'
 
 export const BROADCAST_STATUS_GROUPS: Record<
   Exclude<BroadcastStatusGroup, 'all'>,
@@ -203,7 +221,9 @@ export const BROADCAST_STATUS_GROUPS: Record<
   scheduled: ['scheduled'],
   sending: ['processing', 'paused', 'testing', 'winner_selected'],
   sent: ['processed', 'test_completed'],
-  failed: ['failed', 'cancelled']
+  failed: ['failed'],
+  // Stopped on purpose: not a failure.
+  cancelled: ['cancelled']
 }
 
 // getStatusesForGroup resolves a Segmented group value to the list of statuses
@@ -216,6 +236,17 @@ export const getStatusesForGroup = (group: string | undefined): BroadcastStatus[
 export interface ListBroadcastsResponse {
   broadcasts: Broadcast[]
   total_count: number
+  /** With `with_status_counts`: the count of each status; a status absent counts 0. */
+  status_counts?: Partial<Record<BroadcastStatus, number>>
+}
+
+export interface EstimateAudienceRequest {
+  workspace_id: string
+  audience: AudienceSettings
+}
+
+export interface EstimateAudienceResponse {
+  count: number
 }
 
 export interface GetBroadcastRequest {
@@ -253,6 +284,11 @@ export interface CancelBroadcastRequest {
   id: string
 }
 
+export interface UnscheduleBroadcastRequest {
+  workspace_id: string
+  id: string
+}
+
 export interface SendToIndividualRequest {
   workspace_id: string
   broadcast_id: string
@@ -283,8 +319,11 @@ export interface VariationResult {
   delivered: number
   opens: number
   clicks: number
-  open_rate: number
-  click_rate: number
+  open_rate: number // opens / opens_tracked
+  click_rate: number // clicks / clicks_tracked
+  // Emails of the variation that carried the open pixel / tracked links
+  opens_tracked?: number
+  clicks_tracked?: number
 }
 
 export interface TestResultsResponse {
@@ -327,6 +366,18 @@ export interface TestRecipientFeedResponse {
   contact_email?: string
 }
 
+/**
+ * The mailing list a broadcast's test email is sent for: the broadcast's audience list, without
+ * the List-Unsubscribe header when the broadcast also goes to the list's unsubscribed contacts,
+ * as its real emails are sent.
+ */
+export const testEmailListProps = (
+  broadcast: Broadcast
+): { defaultListId?: string; omitListUnsubscribeHeader: boolean } => ({
+  defaultListId: broadcast.audience.list || undefined,
+  omitListUnsubscribeHeader: !broadcast.audience.exclude_unsubscribed
+})
+
 export const broadcastApi = {
   list: async (params: ListBroadcastsRequest): Promise<ListBroadcastsResponse> => {
     const searchParams = new URLSearchParams()
@@ -338,6 +389,8 @@ export const broadcastApi = {
     if (params.offset) searchParams.append('offset', params.offset.toString())
     if (params.with_templates !== undefined)
       searchParams.append('with_templates', params.with_templates.toString())
+    if (params.with_status_counts) searchParams.append('with_status_counts', 'true')
+    if (params.started_after) searchParams.append('started_after', params.started_after)
 
     return api.get<ListBroadcastsResponse>(`/api/broadcasts.list?${searchParams.toString()}`)
   },
@@ -377,6 +430,14 @@ export const broadcastApi = {
   },
 
   /**
+   * Sends a scheduled broadcast back to draft, keeping its date. Refused (400) once its sending
+   * has started: it can then only be cancelled.
+   */
+  unschedule: async (params: UnscheduleBroadcastRequest): Promise<{ success: boolean }> => {
+    return api.post<{ success: boolean }>('/api/broadcasts.unschedule', params)
+  },
+
+  /**
    * Requeues the recipients this broadcast gave up on, and reports how many.
    * Only accepted once the broadcast has finished sending.
    */
@@ -409,6 +470,11 @@ export const broadcastApi = {
 
   refreshGlobalFeed: async (params: RefreshGlobalFeedRequest): Promise<RefreshGlobalFeedResponse> => {
     return api.post<RefreshGlobalFeedResponse>('/api/broadcasts.refreshGlobalFeed', params)
+  },
+
+  /** The contacts a broadcast with this audience would be sent to now. */
+  estimateAudience: async (params: EstimateAudienceRequest): Promise<EstimateAudienceResponse> => {
+    return api.post<EstimateAudienceResponse>('/api/broadcasts.estimateAudience', params)
   },
 
   testRecipientFeed: async (params: TestRecipientFeedRequest): Promise<TestRecipientFeedResponse> => {

@@ -105,6 +105,8 @@ type BaseBlock struct {
 	Children   []EmailBlock           `json:"children,omitempty"`
 	Attributes map[string]interface{} `json:"attributes,omitempty"`
 	Content    *string                `json:"content,omitempty"`
+	// DisplayCondition shows the block only when rules on the template data hold
+	DisplayCondition *DisplayCondition `json:"display_condition,omitempty"`
 }
 
 // Specific attribute types for complex blocks
@@ -113,6 +115,7 @@ type MJBodyAttributes struct {
 	CommonAttributes
 	Width           *string `json:"width,omitempty"`
 	BackgroundColor *string `json:"backgroundColor,omitempty"`
+	ID              *string `json:"id,omitempty"` // written on <body>, MJML 5
 }
 
 type MJWrapperAttributes struct {
@@ -132,6 +135,7 @@ type MJSectionAttributes struct {
 	CommonAttributes
 	Direction *string `json:"direction,omitempty"` // ltr, rtl
 	FullWidth *string `json:"fullWidth,omitempty"` // full-width
+	Gutter    *string `json:"gutter,omitempty"`    // space between the columns, px or %, MJML 5
 	TextAlign *string `json:"textAlign,omitempty"` // left, right, center, justify
 }
 
@@ -216,7 +220,8 @@ type MJSocialAttributes struct {
 	PaddingAttributes
 	ContainerAttributes
 	CommonAttributes
-	Align        *string `json:"align,omitempty"` // left, right, center
+	Align        *string `json:"align,omitempty"`  // left, right, center
+	Border       *string `json:"border,omitempty"` // of every icon, passed to the elements, MJML 5
 	BorderRadius *string `json:"borderRadius,omitempty"`
 	IconHeight   *string `json:"iconHeight,omitempty"`
 	IconSize     *string `json:"iconSize,omitempty"`
@@ -234,6 +239,7 @@ type MJSocialElementAttributes struct {
 	// Icon properties
 	Alt             *string `json:"alt,omitempty"`
 	BackgroundColor *string `json:"backgroundColor,omitempty"`
+	Border          *string `json:"border,omitempty"` // the icon's border, MJML 5
 	BorderRadius    *string `json:"borderRadius,omitempty"`
 	IconHeight      *string `json:"iconHeight,omitempty"`
 	IconSize        *string `json:"iconSize,omitempty"`
@@ -474,6 +480,7 @@ type EmailBlock interface {
 	SetAttributes(map[string]interface{})
 	GetContent() *string
 	SetContent(*string)
+	GetDisplayCondition() *DisplayCondition
 }
 
 // Helper methods for EmailBlock interface implementation
@@ -536,6 +543,13 @@ func (b *BaseBlock) SetContent(content *string) {
 	}
 }
 
+func (b *BaseBlock) GetDisplayCondition() *DisplayCondition {
+	if b == nil {
+		return nil
+	}
+	return b.DisplayCondition
+}
+
 // EmailBlockJSON is used for JSON marshaling/unmarshaling with type information
 type EmailBlockJSON struct {
 	ID         string                 `json:"id"`
@@ -543,6 +557,8 @@ type EmailBlockJSON struct {
 	Children   []json.RawMessage      `json:"children,omitempty"`
 	Attributes map[string]interface{} `json:"attributes,omitempty"`
 	Content    *string                `json:"content,omitempty"`
+	// DisplayCondition shows the block only when rules on the template data hold
+	DisplayCondition *DisplayCondition `json:"display_condition,omitempty"`
 }
 
 // MarshalJSON implements custom JSON marshaling for EmailBlock interface
@@ -584,6 +600,9 @@ func UnmarshalEmailBlock(data []byte) (EmailBlock, error) {
 		Children:   children,
 		Attributes: attrs,
 		Content:    blockJSON.Content,
+		// a condition is kept on every block type, so validation can refuse it where
+		// it does not belong instead of the tree silently dropping it
+		DisplayCondition: blockJSON.DisplayCondition,
 	}
 
 	// Return typed wrapper based on component type
@@ -718,14 +737,14 @@ var ValidChildrenMap = map[MJMLComponentType][]MJMLComponentType{
 		MJMLComponentMjRaw,
 	},
 	// Leaf components (no children allowed)
-	MJMLComponentMjText:           {},
-	MJMLComponentMjButton:         {},
-	MJMLComponentMjImage:          {},
-	MJMLComponentMjDivider:        {},
-	MJMLComponentMjSpacer:         {},
-	MJMLComponentMjSocialElement:  {},
-	MJMLComponentMjRaw:            {},
-	MJMLComponentMjLiquid:         {},
+	MJMLComponentMjText:          {},
+	MJMLComponentMjButton:        {},
+	MJMLComponentMjImage:         {},
+	MJMLComponentMjDivider:       {},
+	MJMLComponentMjSpacer:        {},
+	MJMLComponentMjSocialElement: {},
+	MJMLComponentMjRaw:           {},
+	MJMLComponentMjLiquid:        {},
 	MJMLComponentMjAttributes: {
 		MJMLComponentMjAll, MJMLComponentMjClass,
 		MJMLComponentMjText, MJMLComponentMjButton, MJMLComponentMjImage,

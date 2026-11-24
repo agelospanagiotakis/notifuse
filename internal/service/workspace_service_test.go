@@ -358,7 +358,7 @@ func TestWorkspaceService_CreateWorkspace(t *testing.T) {
 
 		mockAuthService.EXPECT().AuthenticateUserFromContext(ctx).Return(expectedUser, nil)
 		mockRepo.EXPECT().GetByID(ctx, workspaceID).Return(nil, nil)
-		mockRepo.EXPECT().Create(ctx, gomock.Any()).DoAndReturn(func(ctx context.Context, workspace *domain.Workspace) error {
+		mockRepo.EXPECT().Create(liveCtx(), gomock.Any()).DoAndReturn(func(ctx context.Context, workspace *domain.Workspace) error {
 			// Instead of expecting an exact value, verify it's not empty and has expected format
 			assert.NotEmpty(t, workspace.Settings.SecretKey, "Secret key should not be empty")
 			assert.Equal(t, 64, len(workspace.Settings.SecretKey), "Secret key should be 64 hex characters (32 bytes)")
@@ -367,12 +367,12 @@ func TestWorkspaceService_CreateWorkspace(t *testing.T) {
 			assert.NoError(t, err, "Secret key should be valid hex")
 			return nil
 		})
-		mockRepo.EXPECT().AddUserToWorkspace(ctx, gomock.Any()).Return(nil)
-		mockUserService.EXPECT().GetUserByID(ctx, expectedUser.ID).Return(expectedUser, nil)
-		mockContactService.EXPECT().UpsertContact(ctx, workspaceID, gomock.Any()).Return(domain.UpsertContactOperation{Action: domain.UpsertContactOperationCreate})
+		mockRepo.EXPECT().AddUserToWorkspace(detachedCtx(), gomock.Any()).Return(nil)
+		mockUserService.EXPECT().GetUserByID(detachedCtx(), expectedUser.ID).Return(expectedUser, nil)
+		mockContactService.EXPECT().UpsertContact(detachedCtx(), workspaceID, gomock.Any()).Return(domain.UpsertContactOperation{Action: domain.UpsertContactOperationCreate})
 
-		mockListService.EXPECT().CreateList(ctx, workspaceID, gomock.Any()).Return(nil)
-		mockListService.EXPECT().SubscribeToLists(ctx, &domain.SubscribeToListsRequest{
+		mockListService.EXPECT().CreateList(detachedCtx(), workspaceID, gomock.Any()).Return(nil)
+		mockListService.EXPECT().SubscribeToLists(detachedCtx(), &domain.SubscribeToListsRequest{
 			WorkspaceID: workspaceID,
 			Contact: domain.Contact{
 				Email: expectedUser.Email,
@@ -381,8 +381,8 @@ func TestWorkspaceService_CreateWorkspace(t *testing.T) {
 		}, true).Return(nil)
 
 		// Expect EnsureContactSegmentQueueProcessingTask to be called
-		mockTaskRepo.EXPECT().List(ctx, workspaceID, gomock.Any()).Return([]*domain.Task{}, 0, nil).AnyTimes()
-		mockTaskRepo.EXPECT().Create(ctx, workspaceID, gomock.Any()).Return(nil).AnyTimes()
+		mockTaskRepo.EXPECT().List(detachedCtx(), workspaceID, gomock.Any()).Return([]*domain.Task{}, 0, nil).AnyTimes()
+		mockTaskRepo.EXPECT().Create(detachedCtx(), workspaceID, gomock.Any()).Return(nil).AnyTimes()
 
 		workspace, err := service.CreateWorkspace(ctx, workspaceID, "Test Workspace", "https://example.com", "https://example.com/logo.png", "https://example.com/cover.png", "UTC", domain.FileManagerSettings{
 			Endpoint:  "https://s3.amazonaws.com",
@@ -440,7 +440,7 @@ func TestWorkspaceService_CreateWorkspace(t *testing.T) {
 
 		mockAuthService.EXPECT().AuthenticateUserFromContext(ctx).Return(expectedUser, nil)
 		mockRepo.EXPECT().GetByID(ctx, workspaceID).Return(nil, nil)
-		mockRepo.EXPECT().Create(ctx, gomock.Any()).Return(assert.AnError)
+		mockRepo.EXPECT().Create(liveCtx(), gomock.Any()).Return(assert.AnError)
 
 		workspace, err := service.CreateWorkspace(ctx, workspaceID, "Test Workspace", "https://example.com", "https://example.com/logo.png", "https://example.com/cover.png", "UTC", domain.FileManagerSettings{
 			Endpoint:  "https://s3.amazonaws.com",
@@ -461,8 +461,8 @@ func TestWorkspaceService_CreateWorkspace(t *testing.T) {
 
 		mockAuthService.EXPECT().AuthenticateUserFromContext(ctx).Return(expectedUser, nil)
 		mockRepo.EXPECT().GetByID(ctx, workspaceID).Return(nil, nil)
-		mockRepo.EXPECT().Create(ctx, gomock.Any()).Return(nil)
-		mockRepo.EXPECT().AddUserToWorkspace(ctx, gomock.Any()).Return(assert.AnError)
+		mockRepo.EXPECT().Create(liveCtx(), gomock.Any()).Return(nil)
+		mockRepo.EXPECT().AddUserToWorkspace(detachedCtx(), gomock.Any()).Return(assert.AnError)
 
 		workspace, err := service.CreateWorkspace(ctx, workspaceID, "Test Workspace", "https://example.com", "https://example.com/logo.png", "https://example.com/cover.png", "UTC", domain.FileManagerSettings{
 			Endpoint:  "https://s3.amazonaws.com",
@@ -483,9 +483,9 @@ func TestWorkspaceService_CreateWorkspace(t *testing.T) {
 
 		mockAuthService.EXPECT().AuthenticateUserFromContext(ctx).Return(expectedUser, nil)
 		mockRepo.EXPECT().GetByID(ctx, workspaceID).Return(nil, nil)
-		mockRepo.EXPECT().Create(ctx, gomock.Any()).Return(nil)
-		mockRepo.EXPECT().AddUserToWorkspace(ctx, gomock.Any()).Return(nil)
-		mockUserService.EXPECT().GetUserByID(ctx, expectedUser.ID).Return(nil, assert.AnError)
+		mockRepo.EXPECT().Create(liveCtx(), gomock.Any()).Return(nil)
+		mockRepo.EXPECT().AddUserToWorkspace(detachedCtx(), gomock.Any()).Return(nil)
+		mockUserService.EXPECT().GetUserByID(detachedCtx(), expectedUser.ID).Return(nil, assert.AnError)
 
 		workspace, err := service.CreateWorkspace(ctx, workspaceID, "Test Workspace", "https://example.com", "https://example.com/logo.png", "https://example.com/cover.png", "UTC", domain.FileManagerSettings{
 			Endpoint:  "https://s3.amazonaws.com",
@@ -506,10 +506,10 @@ func TestWorkspaceService_CreateWorkspace(t *testing.T) {
 
 		mockAuthService.EXPECT().AuthenticateUserFromContext(ctx).Return(expectedUser, nil)
 		mockRepo.EXPECT().GetByID(ctx, workspaceID).Return(nil, nil)
-		mockRepo.EXPECT().Create(ctx, gomock.Any()).Return(nil)
-		mockRepo.EXPECT().AddUserToWorkspace(ctx, gomock.Any()).Return(nil)
-		mockUserService.EXPECT().GetUserByID(ctx, expectedUser.ID).Return(expectedUser, nil)
-		mockContactService.EXPECT().UpsertContact(ctx, workspaceID, gomock.Any()).Return(domain.UpsertContactOperation{
+		mockRepo.EXPECT().Create(liveCtx(), gomock.Any()).Return(nil)
+		mockRepo.EXPECT().AddUserToWorkspace(detachedCtx(), gomock.Any()).Return(nil)
+		mockUserService.EXPECT().GetUserByID(detachedCtx(), expectedUser.ID).Return(expectedUser, nil)
+		mockContactService.EXPECT().UpsertContact(detachedCtx(), workspaceID, gomock.Any()).Return(domain.UpsertContactOperation{
 			Action: domain.UpsertContactOperationError,
 			Error:  "failed to upsert contact",
 		})
@@ -533,16 +533,16 @@ func TestWorkspaceService_CreateWorkspace(t *testing.T) {
 
 		mockAuthService.EXPECT().AuthenticateUserFromContext(ctx).Return(expectedUser, nil)
 		mockRepo.EXPECT().GetByID(ctx, workspaceID).Return(nil, nil)
-		mockRepo.EXPECT().Create(ctx, gomock.Any()).Return(nil)
-		mockRepo.EXPECT().AddUserToWorkspace(ctx, gomock.Any()).Return(nil)
-		mockUserService.EXPECT().GetUserByID(ctx, expectedUser.ID).Return(expectedUser, nil)
-		mockContactService.EXPECT().UpsertContact(ctx, workspaceID, gomock.Any()).Return(domain.UpsertContactOperation{Action: domain.UpsertContactOperationCreate})
+		mockRepo.EXPECT().Create(liveCtx(), gomock.Any()).Return(nil)
+		mockRepo.EXPECT().AddUserToWorkspace(detachedCtx(), gomock.Any()).Return(nil)
+		mockUserService.EXPECT().GetUserByID(detachedCtx(), expectedUser.ID).Return(expectedUser, nil)
+		mockContactService.EXPECT().UpsertContact(detachedCtx(), workspaceID, gomock.Any()).Return(domain.UpsertContactOperation{Action: domain.UpsertContactOperationCreate})
 
 		// Simulate template creation error for all four templates
 		mockTemplateService.EXPECT().CreateTemplate(ctx, workspaceID, gomock.Any()).Return(errors.New("template creation failed")).AnyTimes()
 
-		mockListService.EXPECT().CreateList(ctx, workspaceID, gomock.Any()).Return(nil)
-		mockListService.EXPECT().SubscribeToLists(ctx, &domain.SubscribeToListsRequest{
+		mockListService.EXPECT().CreateList(detachedCtx(), workspaceID, gomock.Any()).Return(nil)
+		mockListService.EXPECT().SubscribeToLists(detachedCtx(), &domain.SubscribeToListsRequest{
 			WorkspaceID: workspaceID,
 			Contact: domain.Contact{
 				Email: expectedUser.Email,
@@ -639,14 +639,14 @@ func TestWorkspaceService_CreateWorkspace_MultipleRootEmails(t *testing.T) {
 
 		mockAuthService.EXPECT().AuthenticateUserFromContext(ctx).Return(secondRoot, nil)
 		mockRepo.EXPECT().GetByID(ctx, workspaceID).Return(nil, nil)
-		mockRepo.EXPECT().Create(ctx, gomock.Any()).Return(nil)
-		mockRepo.EXPECT().AddUserToWorkspace(ctx, gomock.Any()).Return(nil)
-		mockUserService.EXPECT().GetUserByID(ctx, secondRoot.ID).Return(secondRoot, nil)
-		mockContactService.EXPECT().UpsertContact(ctx, workspaceID, gomock.Any()).Return(domain.UpsertContactOperation{Action: domain.UpsertContactOperationCreate})
-		mockListService.EXPECT().CreateList(ctx, workspaceID, gomock.Any()).Return(nil)
-		mockListService.EXPECT().SubscribeToLists(ctx, gomock.Any(), true).Return(nil)
-		mockTaskRepo.EXPECT().List(ctx, workspaceID, gomock.Any()).Return([]*domain.Task{}, 0, nil).AnyTimes()
-		mockTaskRepo.EXPECT().Create(ctx, workspaceID, gomock.Any()).Return(nil).AnyTimes()
+		mockRepo.EXPECT().Create(liveCtx(), gomock.Any()).Return(nil)
+		mockRepo.EXPECT().AddUserToWorkspace(detachedCtx(), gomock.Any()).Return(nil)
+		mockUserService.EXPECT().GetUserByID(detachedCtx(), secondRoot.ID).Return(secondRoot, nil)
+		mockContactService.EXPECT().UpsertContact(detachedCtx(), workspaceID, gomock.Any()).Return(domain.UpsertContactOperation{Action: domain.UpsertContactOperationCreate})
+		mockListService.EXPECT().CreateList(detachedCtx(), workspaceID, gomock.Any()).Return(nil)
+		mockListService.EXPECT().SubscribeToLists(detachedCtx(), gomock.Any(), true).Return(nil)
+		mockTaskRepo.EXPECT().List(detachedCtx(), workspaceID, gomock.Any()).Return([]*domain.Task{}, 0, nil).AnyTimes()
+		mockTaskRepo.EXPECT().Create(detachedCtx(), workspaceID, gomock.Any()).Return(nil).AnyTimes()
 
 		workspace, err := service.CreateWorkspace(ctx, workspaceID, "Second Root Workspace", "https://example.com", "https://example.com/logo.png", "https://example.com/cover.png", "UTC", domain.FileManagerSettings{
 			Endpoint:  "https://s3.amazonaws.com",
@@ -746,18 +746,20 @@ func TestWorkspaceService_CreateWorkspace_CustomLanguageSettings(t *testing.T) {
 
 	mockAuthService.EXPECT().AuthenticateUserFromContext(ctx).Return(expectedUser, nil)
 	mockRepo.EXPECT().GetByID(ctx, workspaceID).Return(nil, nil)
-	mockRepo.EXPECT().Create(ctx, gomock.Any()).DoAndReturn(func(ctx context.Context, workspace *domain.Workspace) error {
+	mockRepo.EXPECT().Create(liveCtx(), gomock.Any()).DoAndReturn(func(ctx context.Context, workspace *domain.Workspace) error {
 		assert.Equal(t, "fr", workspace.Settings.DefaultLanguage)
 		assert.Equal(t, []string{"fr", "en"}, workspace.Settings.Languages)
+		assert.Equal(t, domain.DefaultEmailTrackingSettings(), workspace.Settings.EmailTracking,
+			"a new workspace tracks opens and clicks and tracks unknown contacts")
 		return nil
 	})
-	mockRepo.EXPECT().AddUserToWorkspace(ctx, gomock.Any()).Return(nil)
-	mockUserService.EXPECT().GetUserByID(ctx, expectedUser.ID).Return(expectedUser, nil)
-	mockContactService.EXPECT().UpsertContact(ctx, workspaceID, gomock.Any()).Return(domain.UpsertContactOperation{Action: domain.UpsertContactOperationCreate})
-	mockListService.EXPECT().CreateList(ctx, workspaceID, gomock.Any()).Return(nil)
-	mockListService.EXPECT().SubscribeToLists(ctx, gomock.Any(), true).Return(nil)
-	mockTaskRepo.EXPECT().List(ctx, workspaceID, gomock.Any()).Return([]*domain.Task{}, 0, nil).AnyTimes()
-	mockTaskRepo.EXPECT().Create(ctx, workspaceID, gomock.Any()).Return(nil).AnyTimes()
+	mockRepo.EXPECT().AddUserToWorkspace(detachedCtx(), gomock.Any()).Return(nil)
+	mockUserService.EXPECT().GetUserByID(detachedCtx(), expectedUser.ID).Return(expectedUser, nil)
+	mockContactService.EXPECT().UpsertContact(detachedCtx(), workspaceID, gomock.Any()).Return(domain.UpsertContactOperation{Action: domain.UpsertContactOperationCreate})
+	mockListService.EXPECT().CreateList(detachedCtx(), workspaceID, gomock.Any()).Return(nil)
+	mockListService.EXPECT().SubscribeToLists(detachedCtx(), gomock.Any(), true).Return(nil)
+	mockTaskRepo.EXPECT().List(detachedCtx(), workspaceID, gomock.Any()).Return([]*domain.Task{}, 0, nil).AnyTimes()
+	mockTaskRepo.EXPECT().Create(detachedCtx(), workspaceID, gomock.Any()).Return(nil).AnyTimes()
 
 	workspace, err := service.CreateWorkspace(ctx, workspaceID, "Test Workspace", "https://example.com", "https://example.com/logo.png", "https://example.com/cover.png", "UTC", domain.FileManagerSettings{
 		Endpoint:  "https://s3.amazonaws.com",
@@ -4421,7 +4423,7 @@ func TestWorkspaceService_deleteSupabaseIntegrationResources(t *testing.T) {
 		mockRepo,
 		nil, // emailService
 		mockContactService,
-		mockListService,
+		mocks.NewMockListRepository(ctrl),
 		mockContactListRepo,
 		mockTemplateRepo,
 		mockTemplateService,
@@ -5935,6 +5937,33 @@ func TestUpdateWorkspace_OmittedSettingsKeepStoredValues(t *testing.T) {
 		assert.Equal(t, "provider-marketing", saved.Settings.MarketingEmailProviderID,
 			"the sibling the body did not name is untouched")
 	})
+
+	t.Run("email_tracking is saved and email_tracking_enabled follows it", func(t *testing.T) {
+		saved := run(t, `{
+			"id": "testworkspace",
+			"name": "Renamed",
+			"settings": {
+				"timezone": "UTC", "default_language": "en", "languages": ["en"],
+				"email_tracking_enabled": true,
+				"email_tracking": {"opens_enabled": false, "clicks_enabled": false, "unknown_consent": "no_track"}
+			}
+		}`)
+
+		require.NotNil(t, saved.Settings.EmailTracking)
+		assert.Equal(t, domain.EmailTrackingSettings{OpensEnabled: false, ClicksEnabled: false, UnknownConsent: domain.UnknownConsentNoTrack}, *saved.Settings.EmailTracking)
+		assert.False(t, saved.Settings.EmailTrackingEnabled)
+	})
+
+	t.Run("an older client flipping the single switch splits it into both", func(t *testing.T) {
+		saved := run(t, `{
+			"id": "testworkspace",
+			"name": "Renamed",
+			"settings": {"timezone": "UTC", "default_language": "en", "languages": ["en"], "email_tracking_enabled": false}
+		}`)
+
+		require.NotNil(t, saved.Settings.EmailTracking)
+		assert.Equal(t, domain.EmailTrackingSettings{OpensEnabled: false, ClicksEnabled: false, UnknownConsent: domain.UnknownConsentTrack}, *saved.Settings.EmailTracking)
+	})
 }
 
 // setBlogSettings writes both fields on every call, so a body that says nothing
@@ -6460,7 +6489,25 @@ func TestWorkspaceService_RBACLicenceGate(t *testing.T) {
 		assert.NotEmpty(t, notLicensed.Message)
 	}
 
-	t.Run("SetUserPermissions is refused outright without the licence", func(t *testing.T) {
+	// expectWrite stubs the write path of SetUserPermissions for memberID and returns where the
+	// stored map lands, so a subtest can assert what was written rather than only that no error
+	// came back.
+	expectWrite := func(deps licenceGateDeps) *domain.UserPermissions {
+		var written domain.UserPermissions
+		deps.repo.EXPECT().
+			GetUserWorkspace(gomock.Any(), memberID, workspaceID).
+			Return(&domain.UserWorkspace{UserID: memberID, WorkspaceID: workspaceID, Role: "member", Permissions: restrictedPermissions()}, nil)
+		deps.repo.EXPECT().
+			UpdateUserWorkspacePermissions(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, userWorkspace *domain.UserWorkspace) error {
+				written = userWorkspace.Permissions
+				return nil
+			})
+		deps.userRepo.EXPECT().GetSessionsByUserID(gomock.Any(), memberID).Return(nil, nil)
+		return &written
+	}
+
+	t.Run("SetUserPermissions refuses a restricted set without the licence", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 		service, deps := newLicenceGatedWorkspaceService(t, ctrl, baseConfig(), unlicensed(ctrl))
@@ -6473,18 +6520,101 @@ func TestWorkspaceService_RBACLicenceGate(t *testing.T) {
 		assertRBACRefusal(t, err)
 	})
 
-	t.Run("SetUserPermissions is refused even when the map is full", func(t *testing.T) {
+	// An empty map denies every verb once stored, so on this path it is a restricted set like
+	// any other. CreateAPIKey's "nil means full access" is that method's own contract.
+	t.Run("SetUserPermissions refuses an empty set without the licence", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 		service, deps := newLicenceGatedWorkspaceService(t, ctrl, baseConfig(), unlicensed(ctrl))
 
-		// The permission editor exists to hand out a narrower grant; without the licence there
-		// is nothing for it to do, so it refuses rather than silently accepting the one map it
-		// could still write.
 		deps.expectOwner(workspaceID, ownerID, 1)
 
-		err := service.SetUserPermissions(context.Background(), workspaceID, memberID, domain.NewFullPermissions())
+		err := service.SetUserPermissions(context.Background(), workspaceID, memberID, domain.UserPermissions{})
 		assertRBACRefusal(t, err)
+	})
+
+	// The product rule: a full grant is never what the licence sells. This is the path that puts
+	// a member or an API key holding restricted permissions back on full access once the key has
+	// lapsed, and it used to be refused like a narrowing.
+	t.Run("SetUserPermissions accepts full access without the licence", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		service, deps := newLicenceGatedWorkspaceService(t, ctrl, baseConfig(), unlicensed(ctrl))
+
+		deps.expectOwner(workspaceID, ownerID, 1)
+		written := expectWrite(deps)
+
+		err := service.SetUserPermissions(context.Background(), workspaceID, memberID, domain.NewFullPermissions())
+		require.NoError(t, err)
+		assert.Equal(t, domain.NewFullPermissions(), *written)
+	})
+
+	// Audit logs is an opt-in resource, never part of "full", so adding it to a full grant
+	// leaves the grant full — the same answer InviteMember and CreateAPIKey give.
+	t.Run("SetUserPermissions accepts full access plus the opt-in audit logs grant without the licence", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		service, deps := newLicenceGatedWorkspaceService(t, ctrl, baseConfig(), unlicensed(ctrl))
+
+		deps.expectOwner(workspaceID, ownerID, 1)
+		written := expectWrite(deps)
+
+		permissions := domain.NewFullPermissions()
+		permissions[domain.PermissionResourceAuditLogs] = domain.ResourcePermissions{Read: true}
+
+		err := service.SetUserPermissions(context.Background(), workspaceID, memberID, permissions)
+		require.NoError(t, err)
+		assert.Equal(t, permissions, *written)
+	})
+
+	// The gate sits after the owner check, so somebody who may not edit permissions is told
+	// that, and never learns the licence state of the deployment through a 402.
+	t.Run("SetUserPermissions answers a non-owner with ErrUnauthorized, not the licence refusal", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		service, deps := newLicenceGatedWorkspaceService(t, ctrl, baseConfig(), unlicensed(ctrl))
+
+		deps.auth.EXPECT().
+			AuthenticateUserForWorkspace(gomock.Any(), workspaceID).
+			Return(context.Background(), &domain.User{ID: memberID}, &domain.UserWorkspace{UserID: memberID, WorkspaceID: workspaceID, Role: "member"}, nil)
+
+		err := service.SetUserPermissions(context.Background(), workspaceID, "member-2", restrictedPermissions())
+		require.Error(t, err)
+		var unauthorized *domain.ErrUnauthorized
+		assert.True(t, errors.As(err, &unauthorized), "expected ErrUnauthorized, got %v", err)
+		var notLicensed *domain.ErrFeatureNotLicensed
+		assert.False(t, errors.As(err, &notLicensed))
+	})
+
+	// Validate runs before the gate: a malformed map is a malformed request, not something a
+	// licence would fix.
+	t.Run("SetUserPermissions rejects an unknown resource before consulting the licence", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		service, deps := newLicenceGatedWorkspaceService(t, ctrl, baseConfig(), unlicensed(ctrl))
+
+		deps.expectOwner(workspaceID, ownerID, 1)
+
+		permissions := restrictedPermissions()
+		permissions["not_a_resource"] = domain.ResourcePermissions{Read: true}
+
+		err := service.SetUserPermissions(context.Background(), workspaceID, memberID, permissions)
+		require.Error(t, err)
+		var notLicensed *domain.ErrFeatureNotLicensed
+		assert.False(t, errors.As(err, &notLicensed), "a malformed map must not answer 402, got %v", err)
+	})
+
+	t.Run("SetUserPermissions writes full access when licensed", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		service, deps := newLicenceGatedWorkspaceService(t, ctrl, baseConfig(), withRBAC(ctrl))
+
+		deps.expectOwner(workspaceID, ownerID, 1)
+		written := expectWrite(deps)
+
+		err := service.SetUserPermissions(context.Background(), workspaceID, memberID, domain.NewFullPermissions())
+		require.NoError(t, err)
+		assert.Equal(t, domain.NewFullPermissions(), *written)
 	})
 
 	t.Run("SetUserPermissions writes the grant when licensed", func(t *testing.T) {
@@ -6985,5 +7115,66 @@ func TestWorkspaceService_RBACLicenceGate_NilPermissions(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, written)
 		assert.True(t, grantsFullPermissions(written.Permissions))
+	})
+}
+
+func TestWorkspaceService_UserOwnsAWorkspace(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockRepo := mocks.NewMockWorkspaceRepository(ctrl)
+	service := NewWorkspaceService(
+		mockRepo,
+		mocks.NewMockUserRepository(ctrl),
+		mocks.NewMockTaskRepository(ctrl),
+		pkgmocks.NewMockLogger(ctrl),
+		mocks.NewMockUserServiceInterface(ctrl),
+		mocks.NewMockAuthService(ctrl),
+		pkgmocks.NewMockMailer(ctrl),
+		&config.Config{RootEmail: "root@example.com"},
+		mocks.NewMockContactService(ctrl),
+		mocks.NewMockListService(ctrl),
+		mocks.NewMockContactListService(ctrl),
+		mocks.NewMockTemplateService(ctrl),
+		mocks.NewMockWebhookRegistrationService(ctrl),
+		"secret_key",
+		&SupabaseService{},
+		&DNSVerificationService{},
+		&BlogService{},
+		fullyLicensedProvider(ctrl),
+	)
+	ctx := context.Background()
+
+	t.Run("owner of one workspace among several", func(t *testing.T) {
+		mockRepo.EXPECT().GetUserWorkspaces(ctx, "u1").Return([]*domain.UserWorkspace{
+			{WorkspaceID: "a", Role: "member"},
+			{WorkspaceID: "b", Role: "owner"},
+		}, nil)
+		owns, err := service.UserOwnsAWorkspace(ctx, "u1")
+		require.NoError(t, err)
+		assert.True(t, owns)
+	})
+
+	t.Run("member everywhere", func(t *testing.T) {
+		mockRepo.EXPECT().GetUserWorkspaces(ctx, "u2").Return([]*domain.UserWorkspace{
+			{WorkspaceID: "a", Role: "member"},
+		}, nil)
+		owns, err := service.UserOwnsAWorkspace(ctx, "u2")
+		require.NoError(t, err)
+		assert.False(t, owns)
+	})
+
+	t.Run("no membership", func(t *testing.T) {
+		mockRepo.EXPECT().GetUserWorkspaces(ctx, "u3").Return(nil, nil)
+		owns, err := service.UserOwnsAWorkspace(ctx, "u3")
+		require.NoError(t, err)
+		assert.False(t, owns)
+	})
+
+	t.Run("repository error is returned", func(t *testing.T) {
+		mockRepo.EXPECT().GetUserWorkspaces(ctx, "u4").Return(nil, errors.New("db down"))
+		owns, err := service.UserOwnsAWorkspace(ctx, "u4")
+		require.Error(t, err)
+		assert.False(t, owns)
 	})
 }

@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -25,12 +27,56 @@ type ContactTimelineEntry struct {
 	DBCreatedAt time.Time              `json:"db_created_at"`         // Timestamp when record was inserted into database
 }
 
+// Entity types of contact_timeline entries.
+const (
+	TimelineEntityContact             = "contact"
+	TimelineEntityContactList         = "contact_list"
+	TimelineEntityContactSegment      = "contact_segment"
+	TimelineEntityMessageHistory      = "message_history"
+	TimelineEntityCustomEvent         = "custom_event"
+	TimelineEntityInboundWebhookEvent = "inbound_webhook_event"
+	// TimelineEntityWebhookEvent is legacy: before v19 inbound webhook events were written
+	// under this name, and v19 renamed the existing entries. It stays accepted.
+	TimelineEntityWebhookEvent = "webhook_event"
+	TimelineEntityAutomation   = "automation"
+	TimelineEntityWebSession   = "web_session"
+	TimelineEntityWebPage      = "web_page"
+)
+
+// TimelineEntityTypes lists every entity type timeline.list can filter on.
+var TimelineEntityTypes = []string{
+	TimelineEntityContact,
+	TimelineEntityContactList,
+	TimelineEntityContactSegment,
+	TimelineEntityMessageHistory,
+	TimelineEntityCustomEvent,
+	TimelineEntityInboundWebhookEvent,
+	TimelineEntityWebhookEvent,
+	TimelineEntityAutomation,
+	TimelineEntityWebSession,
+	TimelineEntityWebPage,
+}
+
+// TimelineEntityTypeFilter restricts the entries a timeline query returns: Only keeps
+// those entity types, Except drops them. Both empty returns every entry.
+type TimelineEntityTypeFilter struct {
+	Only   []string
+	Except []string
+}
+
+// TimelineSecretKeyLoader returns the workspace key that decrypts message_history entries'
+// message_data. The repository calls it at most once per List, and only when an entry carries
+// encrypted data, so a timeline without messages never loads the workspace.
+type TimelineSecretKeyLoader func(ctx context.Context) (string, error)
+
 // TimelineListRequest represents the request parameters for listing timeline entries
 type TimelineListRequest struct {
 	WorkspaceID string
 	Email       string
 	Limit       int
 	Cursor      *string
+	// EntityTypes keeps only these entity types; empty keeps all.
+	EntityTypes []string
 }
 
 // TimelineListResponse represents the response for listing timeline entries
@@ -52,6 +98,11 @@ func (r *TimelineListRequest) Validate() error {
 	}
 	if r.Limit > 100 {
 		return fmt.Errorf("limit cannot exceed 100")
+	}
+	for _, t := range r.EntityTypes {
+		if !slices.Contains(TimelineEntityTypes, t) {
+			return fmt.Errorf("invalid entity_types: unknown entity type %q", t)
+		}
 	}
 	return nil
 }
@@ -76,6 +127,13 @@ func (r *TimelineListRequest) FromQuery(query url.Values) error {
 		r.Cursor = &cursorStr
 	}
 
+	r.EntityTypes = nil
+	for _, t := range strings.Split(query.Get("entity_types"), ",") {
+		if t = strings.TrimSpace(t); t != "" && !slices.Contains(r.EntityTypes, t) {
+			r.EntityTypes = append(r.EntityTypes, t)
+		}
+	}
+
 	return r.Validate()
 }
 
@@ -83,14 +141,17 @@ func (r *TimelineListRequest) FromQuery(query url.Values) error {
 type ContactTimelineRepository interface {
 	// Create inserts a new timeline entry
 	Create(ctx context.Context, workspaceID string, entry *ContactTimelineEntry) error
-	// List retrieves timeline entries for a contact
-	List(ctx context.Context, workspaceID string, email string, limit int, cursor *string) ([]*ContactTimelineEntry, *string, error)
+	// List retrieves timeline entries for a contact, restricted by filter. loadSecretKey gives the
+	// key that decrypts the message_data a message_history entry carries, as message history's own
+	// reads do; nil when no such entry can be returned.
+	List(ctx context.Context, workspaceID string, loadSecretKey TimelineSecretKeyLoader, email string, limit int, cursor *string, filter TimelineEntityTypeFilter) ([]*ContactTimelineEntry, *string, error)
 	// DeleteForEmail deletes all timeline entries for a contact
 	DeleteForEmail(ctx context.Context, workspaceID string, email string) error
 }
 
 // ContactTimelineService defines business logic for contact timeline
 type ContactTimelineService interface {
-	// List retrieves timeline entries for a contact with pagination
-	List(ctx context.Context, workspaceID string, email string, limit int, cursor *string) ([]*ContactTimelineEntry, *string, error)
+	// List retrieves timeline entries for a contact with pagination. A non-empty entityTypes
+	// keeps only those types; entries the caller may not read are dropped either way.
+	List(ctx context.Context, workspaceID string, email string, limit int, cursor *string, entityTypes []string) ([]*ContactTimelineEntry, *string, error)
 }

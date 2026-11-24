@@ -1,0 +1,324 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { Button, Input, Segmented, Tooltip } from 'antd'
+import { useLingui } from '@lingui/react/macro'
+import type { EmailBlock, MJMLComponentType, SavedBlock } from '../types'
+import { EmailBlockClass } from '../EmailBlockClass'
+import { EmailBlockFactory } from '../blocks/EmailBlockFactory'
+import { SavedBlockCard, type CardActions } from '../ui/SavedBlockCard'
+import { resolveInsertTarget } from '../utils/insertTarget'
+import {
+  headKeyOf,
+  savedBlockTime,
+  typeLabelOf,
+  useInsertRefusal,
+  useLibraryDraggable,
+  type LibraryItem
+} from '../utils/library'
+
+type Filter = 'all' | 'sections' | 'content'
+
+const SECTION_TYPES: MJMLComponentType[] = ['mj-section', 'mj-wrapper']
+
+// The block types a body or a column offers, layout first
+const BASIC_TYPES: MJMLComponentType[] = [
+  'mj-section',
+  'mj-wrapper',
+  'mj-text',
+  'mj-image',
+  'mj-button',
+  'mj-divider',
+  'mj-spacer',
+  'mj-social',
+  'mj-raw',
+  'mj-liquid'
+]
+
+// The search shows once the library holds more saved blocks than this
+const SEARCH_ABOVE = 10
+
+// Case and accents do not count in a search
+const searchable = (value: string) => value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+
+interface BasicTileProps {
+  item: LibraryItem
+  icon: React.ReactNode
+  refusal: string | null
+  onInsert: (item: LibraryItem) => void
+}
+
+// A basic block: a click inserts it, a drag carries it onto the email. It stays draggable when "Insert" cannot place
+// it, since a drag does not depend on the selection.
+const BasicTile: React.FC<BasicTileProps> = ({ item, icon, refusal, onInsert }) => {
+  const { t } = useLingui()
+  const { attributes, listeners, setNodeRef, isDragging } = useLibraryDraggable(item)
+  return (
+    // The tooltip sits on a wrapper: it sets the aria-describedby of its child, which would drop
+    // dnd-kit's instructions from the button
+    <Tooltip title={refusal ?? t`Insert, or drag into the email`} mouseEnterDelay={0.4}>
+      <span className="flex">
+      <button
+        ref={setNodeRef}
+        type="button"
+        // dnd-kit's attributes link its screen reader instructions; the tile's own refusal wins
+        {...attributes}
+        {...listeners}
+        data-library-tile={item.block.type}
+        aria-disabled={refusal ? true : undefined}
+        onClick={() => {
+          if (!refusal) onInsert(item)
+        }}
+        className={`flex w-full cursor-grab select-none flex-col items-center gap-1 rounded border border-gray-200 bg-white px-1 py-2 text-[11px] text-gray-700 hover:border-primary-500 ${
+          refusal ? 'text-gray-400' : ''
+        }`}
+        style={{ opacity: isDragging ? 0.4 : 1, touchAction: 'none' }}
+      >
+        <span className="text-sm">{icon}</span>
+        <span className="truncate max-w-full">{item.name}</span>
+      </button>
+      </span>
+    </Tooltip>
+  )
+}
+
+// A saved block just created ("new") or just changed ("updated") from this editor
+export interface LibraryHighlight {
+  id: string
+  kind: 'new' | 'updated'
+}
+
+// What a member who may change the library can do with its saved blocks
+export interface LibraryManage {
+  // A library change is running
+  busy: boolean
+  onRename?: (saved: SavedBlock, name: string) => Promise<void>
+  onReplace: (saved: SavedBlock) => void
+  onDuplicate: (saved: SavedBlock) => void
+  onDelete?: (saved: SavedBlock) => void
+}
+
+interface LibraryPanelProps {
+  emailTree: EmailBlock
+  savedBlocks: SavedBlock[]
+  selectedBlockId: string | null
+  highlight?: LibraryHighlight | null
+  onInsert: (item: LibraryItem) => void
+  onOpenSaveDialog?: (blockId: string) => void
+  // Rename, replace, duplicate and delete on each card; none when absent
+  manage?: LibraryManage
+}
+
+export const LibraryPanel: React.FC<LibraryPanelProps> = ({
+  emailTree,
+  savedBlocks,
+  selectedBlockId,
+  highlight,
+  onInsert,
+  onOpenSaveDialog,
+  manage
+}) => {
+  const { t, i18n } = useLingui()
+  const refusalText = useInsertRefusal()
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState<Filter>('all')
+  // A short library needs no search; a search under way stays until it is cleared
+  const searchShown = savedBlocks.length > SEARCH_ABOVE || search !== ''
+  const headKey = useMemo(() => headKeyOf(emailTree), [emailTree])
+
+  // A card just changed stays listed, highlighted, until the search or the filter changes, so a
+  // rename out of the search does not make it vanish
+  const [kept, setKept] = useState<{ id: string; search: string; filter: Filter } | null>(null)
+  const [seenHighlight, setSeenHighlight] = useState(highlight)
+  if (highlight !== seenHighlight) {
+    setSeenHighlight(highlight)
+    setKept(highlight ? { id: highlight.id, search, filter } : null)
+  }
+  const keptId = kept && kept.search === search && kept.filter === filter ? kept.id : null
+
+  const items = useMemo(() => {
+    const query = searchable(search.trim())
+    return [...savedBlocks]
+      .filter((saved) => {
+        if (saved.id === keptId) return true
+        const isSection = SECTION_TYPES.includes(saved.block.type)
+        if (filter === 'sections' && !isSection) return false
+        if (filter === 'content' && isSection) return false
+        return !query || searchable(saved.name).includes(query)
+      })
+      .sort((a, b) => savedBlockTime(b) - savedBlockTime(a))
+  }, [savedBlocks, search, filter, keptId])
+
+  const basics = useMemo(
+    () =>
+      BASIC_TYPES.filter((type) => EmailBlockFactory.hasBlockType(type)).map((type) => {
+        const block = { id: `basic-${type}`, type, attributes: {} } as unknown as EmailBlock
+        const instance = EmailBlockFactory.createBlock(block)
+        return {
+          item: {
+            kind: 'basic',
+            key: `basic-${type}`,
+            name: instance.getLabel(),
+            block
+          } as LibraryItem,
+          icon: instance.getIcon()
+        }
+      }),
+    []
+  )
+
+  const refusalFor = (block: EmailBlock) =>
+    refusalText(resolveInsertTarget(emailTree, selectedBlockId, block))
+
+  const selected = selectedBlockId
+    ? EmailBlockClass.findBlockById(emailTree, selectedBlockId)
+    : null
+  const selectedInBody =
+    !!selected &&
+    selected.type !== 'mj-body' &&
+    EmailBlockClass.isChildOf(emailTree, selected.id, 'mj-body')
+  const canSaveSelected = !!onOpenSaveDialog && selectedInBody
+
+  // Only a block of the email's body, of the saved block's type, can replace it
+  const replaceRefusal = (saved: SavedBlock) => {
+    if (!selectedInBody) return t`Select a block in the email`
+    if (selected!.type !== saved.block.type) return t`Select a block of the same type`
+    return null
+  }
+
+  // After a delete, the focus goes to the next card's menu button, else to the previous one, else to
+  // the list. Whether the block is gone is read from the library itself, not from the cards shown: a
+  // search or a filter that hides the card is not a delete.
+  const focusAfterDelete = useRef<{ deleted: string; next: string | null } | null>(null)
+  useEffect(() => {
+    const pending = focusAfterDelete.current
+    if (!pending) return
+    if (savedBlocks.some((saved) => saved.id === pending.deleted)) {
+      // Still in the library once the change is over: not deleted (cancelled or failed)
+      if (!manage?.busy) focusAfterDelete.current = null
+      return
+    }
+    focusAfterDelete.current = null
+    const next = pending.next
+      ? rootRef.current?.querySelector<HTMLElement>(`[data-library-card=${JSON.stringify(pending.next)}] [data-library-more]`)
+      : null
+    ;(next ?? rootRef.current?.querySelector<HTMLElement>('[data-testid="library-saved-blocks"]'))?.focus()
+  }, [savedBlocks, manage?.busy])
+
+  // A delete cancelled in its confirmation changes neither the library nor busy: the pending focus is
+  // dropped when the cards shown change for another reason.
+  useEffect(() => {
+    focusAfterDelete.current = null
+  }, [search, filter])
+
+  const actionsFor = (saved: SavedBlock): CardActions | undefined =>
+    manage && {
+      busy: manage.busy,
+      replaceRefusal: replaceRefusal(saved),
+      onRename: manage.onRename && ((name: string) => manage.onRename!(saved, name)),
+      onReplace: () => manage.onReplace(saved),
+      onDuplicate: () => manage.onDuplicate(saved),
+      onDelete:
+        manage.onDelete &&
+        (() => {
+          const at = items.findIndex((item) => item.id === saved.id)
+          const next = items[at + 1] ?? items[at - 1]
+          focusAfterDelete.current = { deleted: saved.id, next: next?.id ?? null }
+          manage.onDelete!(saved)
+        })
+    }
+
+  // A changed block moves to the top of the list, sorted by modification date: it is brought into view
+  // once, as soon as it shows: a later change of the list does not scroll back to it
+  const rootRef = useRef<HTMLDivElement>(null)
+  const scrolledTo = useRef<LibraryHighlight | null>(null)
+  useEffect(() => {
+    if (!highlight || scrolledTo.current === highlight) return
+    const card = rootRef.current?.querySelector(
+      `[data-library-card=${JSON.stringify(highlight.id)}]`
+    )
+    if (!card) return
+    scrolledTo.current = highlight
+    if (typeof card.scrollIntoView === 'function') card.scrollIntoView({ block: 'nearest' })
+  }, [highlight, items])
+
+  return (
+    <div ref={rootRef} className="px-4 pb-8" data-testid="library-panel">
+      {savedBlocks.length > 0 ? (
+        <>
+          {searchShown && (
+            <Input
+              allowClear
+              size="small"
+              className="!mb-3"
+              placeholder={t`Search saved blocks`}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          )}
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-sm font-bold text-gray-900">
+              {t`Saved blocks`} <span className="font-normal text-gray-500">({items.length})</span>
+            </div>
+            <Segmented
+              size="small"
+              value={filter}
+              onChange={(value) => setFilter(value as Filter)}
+              options={[
+                { label: t`All`, value: 'all' },
+                { label: t`Sections`, value: 'sections' },
+                { label: t`Content`, value: 'content' }
+              ]}
+            />
+          </div>
+          <div className="flex flex-col gap-2" data-testid="library-saved-blocks" tabIndex={-1}>
+            {items.map((saved) => (
+              <SavedBlockCard
+                key={saved.id}
+                item={{ kind: 'saved', key: saved.id, name: saved.name, block: saved.block }}
+                typeLabel={typeLabelOf(saved.block)}
+                date={saved.updated || saved.created}
+                locale={i18n.locale}
+                emailTree={emailTree}
+                headKey={headKey}
+                refusal={refusalFor(saved.block)}
+                highlight={saved.id === highlight?.id ? highlight.kind : null}
+                onInsert={onInsert}
+                actions={actionsFor(saved)}
+              />
+            ))}
+            {items.length === 0 && (
+              <div className="py-4 text-center text-xs text-gray-500">{t`No saved block matches.`}</div>
+            )}
+          </div>
+        </>
+      ) : (
+        <div
+          className="rounded border border-dashed border-gray-300 bg-white p-4 text-xs text-gray-600"
+          data-testid="library-empty"
+        >
+          <div className="mb-1 text-sm font-bold text-gray-900">{t`No saved blocks yet`}</div>
+          <p className="mb-3">
+            {t`Select a block in the email, then use the save button in its toolbar. Saved blocks can be used in every template of the workspace.`}
+          </p>
+          {canSaveSelected && (
+            <Button size="small" type="primary" onClick={() => onOpenSaveDialog!(selected!.id)}>
+              {t`Save the selected block`}
+            </Button>
+          )}
+        </div>
+      )}
+
+      <div className="mb-2 mt-6 text-sm font-bold text-gray-900">{t`Basic blocks`}</div>
+      <div className="grid grid-cols-3 gap-1.5" data-testid="library-basic-blocks">
+        {basics.map(({ item, icon }) => (
+          <BasicTile
+            key={item.key}
+            item={item}
+            icon={icon}
+            refusal={refusalFor(item.block)}
+            onInsert={onInsert}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}

@@ -61,7 +61,7 @@ export const ALL_PERMISSION_RESOURCES: PermissionResource[] = [
 
 // Mirrors domain.OptInPermissionResources: resources a member holds only when an owner grants
 // them on purpose. Deliberately absent from ALL_PERMISSION_RESOURCES, which is what "full
-// access" means — createFullPermissions builds it, the Full Access tag counts it — so that an
+// access" means — createFullPermissions builds it, the Full Access tag checks it — so that an
 // existing full-access member is neither widened nor narrowed by a resource added later.
 export const OPT_IN_PERMISSION_RESOURCES: PermissionResource[] = ["audit_logs"];
 
@@ -332,6 +332,10 @@ export const PERMISSION_DESCRIPTORS: Record<
           endpoint: "/api/contactLists.getListsByContact",
           action: msg`List everything one contact is subscribed to (also needs Contacts read)`,
         },
+        {
+          endpoint: "/api/transactional.testTemplate",
+          action: msg`Send a test email for a list, with that list's working unsubscribe links (also needs Transactional write)`,
+        },
       ],
     },
     write: {
@@ -376,6 +380,10 @@ export const PERMISSION_DESCRIPTORS: Record<
           action: msg`Read one template, at any stored version`,
         },
         {
+          endpoint: "/api/templates.usage",
+          action: msg`Count the broadcasts, transactional notifications, automations and lists using each template, among those the member may read`,
+        },
+        {
           endpoint: "/api/templates.compile",
           action: msg`Compile MJML to HTML with test data`,
         },
@@ -386,6 +394,22 @@ export const PERMISSION_DESCRIPTORS: Record<
         {
           endpoint: "/api/templateBlocks.get",
           action: msg`Read one reusable template block`,
+        },
+        {
+          endpoint: "/api/transactional.testTemplate",
+          action: msg`Read the template a test email is sent from (also needs Transactional write)`,
+        },
+        {
+          endpoint: "/api/transactional.create",
+          action: msg`Read the template of a transactional notification when creating it, or when editing it with its channels, which the console sends unless an integration manages the notification (also needs Transactional write)`,
+        },
+        {
+          endpoint: "/api/transactional.update",
+          action: msg`Read the template of a transactional notification when creating it, or when editing it with its channels, which the console sends unless an integration manages the notification (also needs Transactional write)`,
+        },
+        {
+          endpoint: "/api/broadcasts.sendToIndividual",
+          action: msg`Read the template a broadcast sends to one named address (also needs Broadcasts write)`,
         },
       ],
     },
@@ -433,6 +457,10 @@ export const PERMISSION_DESCRIPTORS: Record<
         {
           endpoint: "/api/blogPosts.get",
           action: msg`Read one post, including unpublished drafts`,
+        },
+        {
+          endpoint: "/api/blogPosts.counts",
+          action: msg`Count posts by status and by category`,
         },
         {
           endpoint: "/api/blogThemes.list",
@@ -511,6 +539,10 @@ export const PERMISSION_DESCRIPTORS: Record<
           action: msg`Read A/B test results for a broadcast`,
         },
         {
+          endpoint: "/api/broadcasts.estimateAudience",
+          action: msg`Count the contacts an audience would reach (lists and, for segments, segments read too)`,
+        },
+        {
           endpoint: "/api/analytics.query",
           action: msg`Run aggregate queries over the \`broadcasts\` schema`,
         },
@@ -553,6 +585,10 @@ export const PERMISSION_DESCRIPTORS: Record<
         {
           endpoint: "/api/broadcasts.cancel",
           action: msg`Cancel a broadcast`,
+        },
+        {
+          endpoint: "/api/broadcasts.unschedule",
+          action: msg`Send a scheduled broadcast back to draft, before it starts sending`,
         },
         {
           endpoint: "/api/broadcasts.delete",
@@ -606,11 +642,11 @@ export const PERMISSION_DESCRIPTORS: Record<
       endpoints: [
         {
           endpoint: "/api/transactional.create",
-          action: msg`Create a transactional notification`,
+          action: msg`Create a transactional notification (choosing its template also needs Templates read)`,
         },
         {
           endpoint: "/api/transactional.update",
-          action: msg`Edit a transactional notification`,
+          action: msg`Edit a transactional notification (an edit that sends its channels, which the console does unless an integration manages the notification, also needs Templates read)`,
         },
         {
           endpoint: "/api/transactional.delete",
@@ -622,11 +658,7 @@ export const PERMISSION_DESCRIPTORS: Record<
         },
         {
           endpoint: "/api/transactional.testTemplate",
-          action: msg`Send a real test email through a chosen integration and sender; cc or bcc additionally needs Contacts read`,
-        },
-        {
-          endpoint: "/api/email.testProvider",
-          action: msg`Send a real test email through the workspace's stored provider credentials`,
+          action: msg`Send a real test email through a chosen integration and sender; it also needs Templates read, cc or bcc additionally needs Contacts read, and sending it for a list additionally needs Lists read`,
         },
         {
           endpoint: "SMTP bridge (SMTP submission, not an HTTP route)",
@@ -634,7 +666,7 @@ export const PERMISSION_DESCRIPTORS: Record<
         },
       ],
     },
-    caveat: msg`A send-only key really is send-only, and this is new in 39.0: /api/transactional.send still creates the recipient contact, but without Contacts write it stores nothing beyond the email address, and without Contacts read it refuses cc and bcc outright — the subject line is rendered against each recipient's whole record. The SMTP bridge is a second front door to the same switch, so this is also exactly what the SMTP username can do. Note that the write verb sends real mail from three separate endpoints, including one that only claims to "test" a provider.`,
+    caveat: msg`A send-only key really is send-only, and this is new in 39.0: /api/transactional.send still creates the recipient contact, but without Contacts write it stores nothing beyond the email address, and without Contacts read it refuses cc and bcc outright — the subject line is rendered against each recipient's whole record. The SMTP bridge is a second front door to the same switch, so this is also exactly what the SMTP username can do. Note that the write verb sends real mail from two endpoints, /api/transactional.send and /api/transactional.testTemplate, as well as the SMTP bridge. Testing an email provider (/api/email.testProvider) is owner-only and consults no permission.`,
   },
 
   automations: {
@@ -652,6 +684,10 @@ export const PERMISSION_DESCRIPTORS: Record<
         {
           endpoint: "/api/automations.nodeExecutions",
           action: msg`Read one named contact's journey through an automation, node by node`,
+        },
+        {
+          endpoint: "/api/automations.nodeStats",
+          action: msg`Read the results of each step of an automation; its email figures also need Message history read`,
         },
         {
           endpoint: "/api/analytics.query",
@@ -697,6 +733,10 @@ export const PERMISSION_DESCRIPTORS: Record<
         {
           endpoint: "/api/messages.list",
           action: msg`List sent messages with their recipient address, delivery and engagement timestamps, and the data each was rendered with`,
+        },
+        {
+          endpoint: "/api/messages.count",
+          action: msg`Count the messages of the same filters, in total and by delivery and engagement status`,
         },
         {
           endpoint: "/api/messages.broadcastStats",
@@ -962,7 +1002,7 @@ export const PERMISSION_DESCRIPTORS: Record<
         },
       ],
     },
-    caveat: msg`Workspace write is far narrower than its name: the only workspace endpoint it gates is /api/workspaces.setCustomFieldLabels. Renaming or deleting the workspace, and creating, updating or deleting an integration, are owner-only and consult no permission at all — granting this does not confer them, and an owner has them without it. /api/workspaces.list is not gated either: it returns the workspaces you belong to whatever this switch says. Two settings endpoints that look like workspace configuration answer elsewhere — /api/workspaces.setBlogSettings to Blog write, and /api/workspaces.setWebAnalyticsSettings to Web Analytics write.`,
+    caveat: msg`Workspace write is far narrower than its name: the only workspace endpoint it gates is /api/workspaces.setCustomFieldLabels. Renaming or deleting the workspace, creating, updating or deleting an integration, and testing an email provider, are owner-only and consult no permission at all — granting this does not confer them, and an owner has them without it. /api/workspaces.list is not gated either: it returns the workspaces you belong to whatever this switch says. Two settings endpoints that look like workspace configuration answer elsewhere — /api/workspaces.setBlogSettings to Blog write, and /api/workspaces.setWebAnalyticsSettings to Web Analytics write.`,
   },
 };
 
@@ -985,6 +1025,44 @@ export function createEmptyPermissions(): UserPermissions {
   return buildPermissions(false);
 }
 
+/**
+ * Every verb that gates something, over the canonical and opt-in resources the matrix offers. The
+ * members list counts against this: an unenforced verb is always granted and gates nothing, so
+ * counting it would only shift both sides of the badge.
+ */
+export const ENFORCED_PERMISSION_VERBS: ReadonlyArray<
+  readonly [PermissionResource, PermissionType]
+> = [...ALL_PERMISSION_RESOURCES, ...OPT_IN_PERMISSION_RESOURCES].flatMap((resource) =>
+  (["read", "write"] as const)
+    .filter((verb) => isPermissionEnforced(resource, verb))
+    .map((verb) => [resource, verb] as const),
+);
+
+/** How many of ENFORCED_PERMISSION_VERBS a set grants. A missing resource grants nothing. */
+export function countEnforcedGrants(
+  permissions: StoredPermissions | null | undefined,
+): number {
+  return ENFORCED_PERMISSION_VERBS.filter(
+    ([resource, verb]) => permissions?.[resource]?.[verb] === true,
+  ).length;
+}
+
+/**
+ * Whether a set grants read and write on every canonical resource — what the server calls full
+ * access (grantsFullPermissions in internal/service/permissions_predicate.go), and the one set it
+ * accepts without a licence covering rbac. Opt-in resources are ignored: they are never part of
+ * full access, so granting one on top narrows nothing. A missing resource is denied, so a partial,
+ * empty or null map is not full.
+ */
+export function grantsFullPermissions(
+  permissions: StoredPermissions | null | undefined,
+): boolean {
+  return ALL_PERMISSION_RESOURCES.every((resource) => {
+    const granted = permissions?.[resource];
+    return Boolean(granted?.read && granted?.write);
+  });
+}
+
 // Applied to any set the console is about to send, so an unenforceable verb never persists as a
 // `false` that no future backfill would widen.
 export function grantUnenforcedPermissions(
@@ -1003,4 +1081,44 @@ function buildPermissions(granted: boolean): UserPermissions {
     permissions[resource] = { read: granted, write: granted };
   }
   return permissions;
+}
+
+/**
+ * Whether a set lets a member send a test email (transactional.testTemplate): the endpoint checks
+ * Transactional write, then reads the template with the member's own permissions. Its contact
+ * upsert runs system-scoped, so no contacts permission is needed; cc, bcc and a list need more,
+ * which the test dialog gates field by field.
+ */
+export function canSendTestEmail(
+  permissions: StoredPermissions | null | undefined,
+): boolean {
+  return Boolean(permissions?.templates?.read && permissions?.transactional?.write);
+}
+
+/**
+ * Whether a set lets a member create a transactional notification (transactional.create): the
+ * endpoint checks Transactional write, then reads the chosen template with the member's own
+ * permissions.
+ */
+export function canCreateTransactionalNotification(
+  permissions: StoredPermissions | null | undefined,
+): boolean {
+  return Boolean(permissions?.transactional?.write && permissions?.templates?.read);
+}
+
+/**
+ * Whether a set lets a member save the console's edit of a transactional notification
+ * (transactional.update): the endpoint checks Transactional write, and reads the template with the
+ * member's own permissions when the edit carries channels. The console's drawer sends them unless an
+ * integration manages the notification, whose channels cannot change; an empty integration id is not
+ * managed, as in the drawer and the server.
+ */
+export function canEditTransactionalNotification(
+  permissions: StoredPermissions | null | undefined,
+  notification: { integration_id?: string | null },
+): boolean {
+  if (!permissions?.transactional?.write) {
+    return false;
+  }
+  return Boolean(notification.integration_id) || Boolean(permissions.templates?.read);
 }

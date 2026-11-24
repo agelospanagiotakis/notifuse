@@ -89,7 +89,10 @@ export function MessageColumnsSelector({
       }}
     >
       <Tooltip title={t`Select columns`} placement="left">
-        <Button size="small" icon={<Columns2 size={16} />} />
+        {/* A wrapper takes the tooltip's aria-describedby: the button's name already says it */}
+        <span className="inline-flex">
+          <Button type="text" aria-label={t`Select columns`} icon={<Columns2 size={14} />} />
+        </span>
       </Tooltip>
     </Popover>
   )

@@ -4,6 +4,13 @@ import type { TestTemplateRequest, TestTemplateResponse, TrackingSettings } from
 export type TransactionalChannel = 'email'
 // Add other channels in the future (sms, push, etc.)
 
+// The mailing list a test email is sent for
+export interface TestTemplateListOptions {
+  listId?: string
+  // Keep the list's links but leave out the List-Unsubscribe header
+  omitListUnsubscribeHeader?: boolean
+}
+
 export interface ChannelTemplate {
   template_id: string
   settings?: Record<string, unknown>
@@ -39,10 +46,18 @@ export interface EmailOptions {
   subject?: string
   subject_preview?: string
   reply_to?: string
+  // One of the transactional integration's senders, in place of the template's.
+  sender_id?: string
   cc?: string[]
   bcc?: string[]
   attachments?: Attachment[]
 }
+
+/**
+ * Tracking settings as a request writes them: `enable_tracking` may be left out, the server works it
+ * out for each send from the workspace, the contact and the tracking mode.
+ */
+export type TrackingSettingsInput = Omit<TrackingSettings, 'enable_tracking'> & { enable_tracking?: boolean }
 
 export interface CreateTransactionalNotificationRequest {
   workspace_id: string
@@ -51,7 +66,7 @@ export interface CreateTransactionalNotificationRequest {
     name: string
     description?: string
     channels: ChannelTemplates
-    tracking_settings: TrackingSettings
+    tracking_settings: TrackingSettingsInput
     metadata?: Record<string, unknown>
   }
 }
@@ -61,9 +76,10 @@ export interface UpdateTransactionalNotificationRequest {
   id: string
   updates: {
     name?: string
+    // An empty string clears it; leaving it out keeps it.
     description?: string
     channels?: ChannelTemplates
-    tracking_settings?: TrackingSettings
+    tracking_settings?: TrackingSettingsInput
     metadata?: Record<string, unknown>
   }
 }
@@ -173,6 +189,8 @@ export const transactionalNotificationsApi = {
    * @param integrationId The ID of the integration to use
    * @param recipientEmail The email address to send the test email to
    * @param email_options Optional email options
+   * @param listOptions Optional mailing list the test is sent for, and whether to leave out its
+   *   List-Unsubscribe header
    * @returns A response indicating success or failure
    */
   testTemplate: (
@@ -182,7 +200,8 @@ export const transactionalNotificationsApi = {
     senderId: string,
     recipientEmail: string,
     language?: string,
-    email_options?: EmailOptions
+    email_options?: EmailOptions,
+    listOptions?: TestTemplateListOptions
   ): Promise<TestTemplateResponse> => {
     const request: TestTemplateRequest = {
       workspace_id: workspaceId,
@@ -192,6 +211,12 @@ export const transactionalNotificationsApi = {
       recipient_email: recipientEmail,
       language: language || undefined,
       email_options: email_options
+    }
+    if (listOptions?.listId) {
+      request.list_id = listOptions.listId
+      if (listOptions.omitListUnsubscribeHeader) {
+        request.omit_list_unsubscribe_header = true
+      }
     }
     return api.post<TestTemplateResponse>('/api/transactional.testTemplate', request)
   }

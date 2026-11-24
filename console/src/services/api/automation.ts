@@ -1,5 +1,4 @@
 import { api } from './client'
-import { analyticsService } from './analytics'
 import { TreeNode } from './segment'
 import type { EmailProviderKind } from './workspace'
 
@@ -97,6 +96,8 @@ export const VALID_EVENT_KINDS = [
   'email.bounced',
   'email.complained',
   'email.unsubscribed',
+  // A link clicked for the first time in an email (optional link_url, broadcast_id, template_id)
+  'email.link_clicked',
   // Custom events (require custom_event_name)
   'custom_event'
 ] as const
@@ -110,6 +111,9 @@ export interface TimelineTriggerConfig {
   segment_id?: string // Required for segment.* events
   custom_event_name?: string // Required for custom_event
   updated_fields?: string[] // For contact.updated: only trigger on these field changes
+  link_url?: string // For email.link_clicked: the clicked URL contains this (case-insensitive)
+  broadcast_id?: string // For email.link_clicked: the email was sent by this broadcast
+  template_id?: string // For email.link_clicked: the email was sent with this template
   conditions?: TreeNode
   frequency: TriggerFrequency
 }
@@ -280,11 +284,25 @@ export interface ListAutomationsRequest {
   list_id?: string
   limit?: number
   offset?: number
+  /** Adds the journey counts of each listed automation, exact, since its creation. */
+  with_journey_counts?: boolean
+}
+
+/** The journeys of an automation by status, since its creation. */
+export interface JourneyCounts {
+  active: number
+  completed: number
+  exited: number
+  failed: number
+  /** Every journey, one in a status not listed above included. */
+  total: number
 }
 
 export interface ListAutomationsResponse {
   automations: Automation[]
   total: number
+  /** By automation id, when asked with with_journey_counts. */
+  journey_counts?: Record<string, JourneyCounts>
 }
 
 export interface GetAutomationRequest {
@@ -332,23 +350,63 @@ export interface GetNodeExecutionsResponse {
   node_executions: NodeExecution[]
 }
 
-// Node stats for flow viewer
-export interface AutomationNodeStats {
-  node_id: string
-  node_type: NodeType
-  entered: number
-  completed: number
+/** The email counters of an email step, from its executions joined to the messages they sent. */
+export interface NodeEmailStats {
+  /** Completed executions that produced a message to send. */
+  executions: number
+  /** Emails still in the queue, without a message yet. */
+  queued: number
+  /** Executions with neither a message nor a queued email (a send cancelled by an exit on reply). */
+  not_sent: number
+  sent: number
+  delivered: number
+  opened: number
+  opens_tracked: number
+  clicked: number
+  clicks_tracked: number
   failed: number
-  skipped: number
+  bounced: number
+  complained: number
+  unsubscribed: number
 }
 
-export interface GetNodeStatsRequest {
+/** The results of one step of an automation (automations.nodeStats). */
+export interface NodeStats {
+  node_type: NodeType
+  /** Each time a journey reached the step: a loop counts each time round, a retry is the same visit. */
+  visits: number
+  completed: number
+  /** Each failed attempt, retries included. */
+  failed_attempts: number
+  skipped: number
+  skip_reasons: Record<string, number>
+  /** Completed executions that recorded an error (a list step whose list was missing). */
+  errors: number
+  /** Journeys that ended failed on this step; the period bounds their entry in the automation. */
+  failed_journeys: number
+  /** Journeys on the step now, whatever the period. */
+  in_progress: number
+  waiting: number
+  retrying: number
+  /** Completed executions by path: yes/no, a list status key, a variant id, a path id, default, none. */
+  branches: Record<string, number>
+  /** Only when the member may read the message history. */
+  email?: NodeEmailStats
+}
+
+export interface NodeStatsRequest {
   workspace_id: string
   automation_id: string
+  /** RFC 3339 instants, together or absent (all time). */
+  since?: string
+  until?: string
 }
 
-export interface GetNodeStatsResponse {
-  node_stats: Record<string, AutomationNodeStats>
+export interface NodeStatsResponse {
+  automation_id: string
+  since?: string
+  until?: string
+  nodes: Record<string, NodeStats>
 }
 
 // API client
@@ -362,6 +420,7 @@ export const automationApi = {
     if (params.list_id) searchParams.append('list_id', params.list_id)
     if (params.limit) searchParams.append('limit', params.limit.toString())
     if (params.offset) searchParams.append('offset', params.offset.toString())
+    if (params.with_journey_counts) searchParams.append('with_journey_counts', 'true')
 
     return api.get<ListAutomationsResponse>(`/api/automations.list?${searchParams.toString()}`)
   },
@@ -386,12 +445,13 @@ export const automationApi = {
     return api.post<{ success: boolean }>('/api/automations.delete', params)
   },
 
-  activate: async (params: ActivateAutomationRequest): Promise<GetAutomationResponse> => {
-    return api.post<GetAutomationResponse>('/api/automations.activate', params)
+  // Both answer { success: true }, without the automation.
+  activate: async (params: ActivateAutomationRequest): Promise<{ success: boolean }> => {
+    return api.post<{ success: boolean }>('/api/automations.activate', params)
   },
 
-  pause: async (params: PauseAutomationRequest): Promise<GetAutomationResponse> => {
-    return api.post<GetAutomationResponse>('/api/automations.pause', params)
+  pause: async (params: PauseAutomationRequest): Promise<{ success: boolean }> => {
+    return api.post<{ success: boolean }>('/api/automations.pause', params)
   },
 
   getNodeExecutions: async (params: GetNodeExecutionsRequest): Promise<GetNodeExecutionsResponse> => {
@@ -403,36 +463,14 @@ export const automationApi = {
     return api.get<GetNodeExecutionsResponse>(`/api/automations.nodeExecutions?${searchParams.toString()}`)
   },
 
-  getNodeStats: async (params: GetNodeStatsRequest): Promise<GetNodeStatsResponse> => {
-    const response = await analyticsService.query(
-      {
-        schema: 'automation_node_executions',
-        measures: ['count_entered', 'count_completed', 'count_failed', 'count_skipped'],
-        dimensions: ['node_id', 'node_type'],
-        filters: [
-          {
-            member: 'automation_id',
-            operator: 'equals',
-            values: [params.automation_id]
-          }
-        ]
-      },
-      params.workspace_id
-    )
-
-    // Transform analytics response (array) to map format expected by components
-    const node_stats: Record<string, AutomationNodeStats> = {}
-    for (const row of response.data) {
-      const nodeId = row.node_id as string
-      node_stats[nodeId] = {
-        node_id: nodeId,
-        node_type: row.node_type as NodeType,
-        entered: (row.count_entered as number) || 0,
-        completed: (row.count_completed as number) || 0,
-        failed: (row.count_failed as number) || 0,
-        skipped: (row.count_skipped as number) || 0
-      }
+  nodeStats: async (params: NodeStatsRequest): Promise<NodeStatsResponse> => {
+    const searchParams = new URLSearchParams()
+    searchParams.append('workspace_id', params.workspace_id)
+    searchParams.append('automation_id', params.automation_id)
+    if (params.since && params.until) {
+      searchParams.append('since', params.since)
+      searchParams.append('until', params.until)
     }
-    return { node_stats }
+    return api.get<NodeStatsResponse>(`/api/automations.nodeStats?${searchParams.toString()}`)
   }
 }

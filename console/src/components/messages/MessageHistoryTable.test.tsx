@@ -1,8 +1,10 @@
 import '../../__tests__/resizeObserverMock'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { templatesApi } from '../../services/api/template'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { App, ConfigProvider } from 'antd'
+import dayjs from '../../lib/dayjs'
 import { MessageHistoryTable } from './MessageHistoryTable'
 import type { MessageHistory, MessageData } from '../../services/api/messages_history'
 import type { Workspace } from '../../services/api/types'
@@ -11,6 +13,10 @@ import type { Workspace } from '../../services/api/types'
 // asserts on it, and letting it run would put an unmocked request in every test.
 vi.mock('../../services/api/template', () => ({
   templatesApi: { get: vi.fn().mockResolvedValue({ template: null }) }
+}))
+const access = vi.hoisted(() => ({ templatesRead: true }))
+vi.mock('../../contexts/AuthContext', () => ({
+  useWorkspacePermissions: () => ({ permissions: { templates: { read: access.templatesRead } }, loading: false })
 }))
 
 const workspace = {
@@ -34,7 +40,11 @@ const message = (id: string, messageData: Partial<MessageData>): MessageHistory 
     updated_at: '2026-08-01T10:00:00Z'
   }) as MessageHistory
 
-const renderTable = (messages: MessageHistory[], visibleColumns?: Record<string, boolean>) => {
+const renderTable = (
+  messages: MessageHistory[],
+  visibleColumns?: Record<string, boolean>,
+  tableWorkspace: Workspace = workspace
+) => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
@@ -45,7 +55,7 @@ const renderTable = (messages: MessageHistory[], visibleColumns?: Record<string,
             loading={false}
             isLoadingMore={false}
             onLoadMore={() => {}}
-            workspace={workspace}
+            workspace={tableWorkspace}
             visibleColumns={visibleColumns}
           />
         </App>
@@ -129,7 +139,7 @@ describe('MessageHistoryTable metadata column', () => {
   })
 
   it('shows the column when no visibility map is supplied', () => {
-    // ContactDetailsDrawer and FailedMessagesTable pass none. The Logs page does pass one,
+    // ContactDetailsDrawer passes none. The Logs page does pass one,
     // but leaves `metadata` out of it, so the column reads as visible there too.
     renderTable([message('m1', { data: {}, metadata: { order_id: '9912' } })])
 
@@ -176,5 +186,67 @@ describe('MessageHistoryTable error column', () => {
     renderTable([failed('m1', undefined)])
 
     expect(screen.queryByText(/rejected with code/)).not.toBeInTheDocument()
+  })
+})
+
+describe('MessageHistoryTable dates', () => {
+  // A browser clock other than Tokyo's, so a label read on it would show another hour
+  const browserZone = process.env.TZ
+  beforeEach(() => {
+    process.env.TZ = 'America/Los_Angeles'
+  })
+  afterEach(() => {
+    // An unset TZ must stay unset: assigning undefined stores the string "undefined"
+    if (browserZone === undefined) delete process.env.TZ
+    else process.env.TZ = browserZone
+  })
+
+  it('reads the date in UTC, and says so, when the browser does not know the workspace timezone', async () => {
+    const unknown = { ...workspace, settings: { timezone: 'Mars/Olympus_Mons' } } as unknown as Workspace
+    renderTable([message('m1', { data: {} })], undefined, unknown)
+
+    fireEvent.mouseEnter(screen.getByText(dayjs('2026-08-01T10:00:00Z').fromNow()))
+
+    expect(await screen.findByText('Aug 1, 2026 10:00 AM in UTC')).toBeInTheDocument()
+  })
+
+  it('gives the full date on the clock of the workspace timezone it names', async () => {
+    const tokyo = { ...workspace, settings: { timezone: 'Asia/Tokyo' } } as unknown as Workspace
+    renderTable([message('m1', { data: {} })], undefined, tokyo)
+
+    fireEvent.mouseEnter(screen.getByText(dayjs('2026-08-01T10:00:00Z').fromNow()))
+
+    // 10:00 UTC is 19:00 in Tokyo; the browser's clock, which the old label used, says 3:00 AM.
+    expect(await screen.findByText('Aug 1, 2026 7:00 PM in Asia/Tokyo')).toBeInTheDocument()
+  })
+
+  it('falls back to UTC when the workspace has no timezone', async () => {
+    const unset = { ...workspace, settings: { timezone: '' } } as unknown as Workspace
+    renderTable([message('m1', { data: {} })], undefined, unset)
+
+    fireEvent.mouseEnter(screen.getByText(dayjs('2026-08-01T10:00:00Z').fromNow()))
+
+    expect(await screen.findByText('Aug 1, 2026 10:00 AM in UTC')).toBeInTheDocument()
+  })
+})
+
+describe('MessageHistoryTable template preview and Templates read', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("requests no template without Templates read, the row showing the template's ID", async () => {
+    access.templatesRead = false
+    renderTable([message('m1', { data: {} })])
+    expect(await screen.findByText('tpl-1')).toBeInTheDocument()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(templatesApi.get).not.toHaveBeenCalled()
+    access.templatesRead = true
+  })
+
+  it('requests the template to preview with Templates read', async () => {
+    access.templatesRead = true
+    renderTable([message('m1', { data: {} })])
+    await waitFor(() => expect(templatesApi.get).toHaveBeenCalledWith({ workspace_id: 'ws-1', id: 'tpl-1', version: 1 }))
   })
 })

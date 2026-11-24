@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -108,6 +107,46 @@ type TaskHandler struct {
 	// that now answers immediately cannot be used to spawn unbounded
 	// background runs.
 	cronRunning atomic.Bool
+	// cronTaskCeiling caps the max_tasks of one /api/cron run; 0 means
+	// defaultCronTaskCeiling. See SetCronTaskCeiling.
+	cronTaskCeiling int
+	// runs starts the runs of /api/cron and tasks.execute so that the app's stop cancels
+	// and waits for them (SetRunStarter). Unset, they run detached from the request only.
+	runs runStarter
+}
+
+// runStarter starts a task run that a caller giving up does not cut, but the app's stop
+// cancels and waits for. The task service implements it (BeginRun).
+type runStarter interface {
+	BeginRun(parent context.Context) (context.Context, func(), bool)
+}
+
+// SetRunStarter makes /api/cron and tasks.execute runs stop with the app. Without it, a cron run
+// cut by the exit could lose the cursor of a broadcast batch it had just queued, and the next run
+// would queue that batch again.
+func (h *TaskHandler) SetRunStarter(runs runStarter) {
+	h.runs = runs
+}
+
+// beginRun returns the context of a run the request starts, detached from the request, and
+// reports false once the app is stopping.
+func (h *TaskHandler) beginRun(r *http.Request) (context.Context, func(), bool) {
+	if h.runs == nil {
+		return context.WithoutCancel(r.Context()), func() {}, true
+	}
+	return h.runs.BeginRun(r.Context())
+}
+
+// defaultCronTaskCeiling is the default ceiling of the tasks one /api/cron run executes
+// (SetCronTaskCeiling can raise it), and the number it executes when max_tasks is missing,
+// zero or negative.
+const defaultCronTaskCeiling = 100
+
+// SetCronTaskCeiling sets the most tasks one /api/cron run executes, never below
+// defaultCronTaskCeiling. The endpoint is public: a larger max_tasks is clamped rather
+// than refused, so a crontab asking for more keeps working.
+func (h *TaskHandler) SetCronTaskCeiling(n int) {
+	h.cronTaskCeiling = max(n, defaultCronTaskCeiling)
 }
 
 // NewTaskHandler creates a new task handler
@@ -197,7 +236,7 @@ func (h *TaskHandler) GetTask(w http.ResponseWriter, r *http.Request) {
 
 	task, err := h.taskService.GetTask(ctx, getRequest.WorkspaceID, getRequest.ID)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, domain.ErrTaskNotFound) {
 			WriteJSONError(w, "Task not found", http.StatusNotFound)
 		} else {
 			h.logger.WithField("error", err.Error()).Error("Failed to get task")
@@ -239,6 +278,17 @@ func (h *TaskHandler) authorizeWorkspace(w http.ResponseWriter, r *http.Request,
 	return ctx, userWorkspace, true
 }
 
+// logTaskFailure logs a request's failure at Error, or at Debug when the client cancelled the
+// request: its context is done, or the error is the cancellation (a statement the driver
+// cancelled, a transaction that ended with it). Nothing is broken then, and the client is gone.
+func (h *TaskHandler) logTaskFailure(ctx context.Context, err error, fields map[string]interface{}, message string) {
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+		h.logger.WithFields(fields).Debug(message + " (request cancelled)")
+		return
+	}
+	h.logger.WithFields(fields).Error(message)
+}
+
 // authorizeExistingTask checks write on the resource that owns the task being
 // mutated, writing the response and reporting false when it did.
 //
@@ -249,15 +299,15 @@ func (h *TaskHandler) authorizeWorkspace(w http.ResponseWriter, r *http.Request,
 func (h *TaskHandler) authorizeExistingTask(w http.ResponseWriter, ctx context.Context, userWorkspace *domain.UserWorkspace, workspaceID, taskID, fallback string) bool {
 	task, err := h.taskService.GetTask(ctx, workspaceID, taskID)
 	if err != nil {
-		if errors.Is(err, domain.ErrTaskNotFound) || strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, domain.ErrTaskNotFound) {
 			WriteJSONError(w, "Task not found", http.StatusNotFound)
 			return false
 		}
-		h.logger.WithFields(map[string]interface{}{
+		h.logTaskFailure(ctx, err, map[string]interface{}{
 			"task_id":      taskID,
 			"workspace_id": workspaceID,
 			"error":        err.Error(),
-		}).Error("Failed to load task for authorization")
+		}, "Failed to load task for authorization")
 		WriteJSONError(w, fallback, http.StatusInternalServerError)
 		return false
 	}
@@ -348,7 +398,7 @@ func (h *TaskHandler) DeleteTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.taskService.DeleteTask(ctx, deleteRequest.WorkspaceID, deleteRequest.ID); err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, domain.ErrTaskNotFound) {
 			WriteJSONError(w, "Task not found", http.StatusNotFound)
 		} else {
 			h.logger.WithField("error", err.Error()).Error("Failed to delete task")
@@ -395,11 +445,23 @@ func (h *TaskHandler) ExecutePendingTasks(w http.ResponseWriter, r *http.Request
 	// Detach from the request: with in-process execution the tasks run right
 	// here, so a caller that gives up (a cron client's timeout, a proxy's
 	// read timeout) would otherwise cancel every task it just started, mid
-	// database transaction. Answer immediately and let the work finish.
-	execCtx := context.WithoutCancel(r.Context())
+	// database transaction. Answer immediately and let the work finish. The
+	// app's stop still cancels the run, and waits for it.
+	execCtx, runDone, ok := h.beginRun(r)
+	if !ok {
+		h.cronRunning.Store(false)
+		WriteJSONError(w, "The server is stopping", http.StatusServiceUnavailable)
+		return
+	}
 	maxTasks := executeRequest.MaxTasks
+	ceiling := max(h.cronTaskCeiling, defaultCronTaskCeiling)
+	if maxTasks <= 0 {
+		maxTasks = defaultCronTaskCeiling
+	}
+	maxTasks = min(maxTasks, ceiling)
 
 	go func() {
+		defer runDone()
 		defer h.cronRunning.Store(false)
 		defer func() {
 			if rec := recover(); rec != nil {
@@ -529,14 +591,28 @@ func (h *TaskHandler) ExecuteTask(w http.ResponseWriter, r *http.Request) {
 	// task's own timeout+grace deadline, applied in ExecuteTask; tying it to
 	// the caller's connection instead meant the dispatcher's HTTP client
 	// timeout cancelled a running task mid-batch — aborting the enqueue
-	// transaction and stranding the recipients it was writing. The 60s
-	// graceful-shutdown window covers an in-flight run.
-	execCtx := context.WithoutCancel(r.Context())
+	// transaction and stranding the recipients it was writing. The app's stop
+	// cancels the run and waits for it.
+	execCtx, runDone, ok := h.beginRun(r)
+	if !ok {
+		WriteJSONError(w, "The server is stopping", http.StatusServiceUnavailable)
+		return
+	}
+	defer runDone()
 
 	// Get the task to calculate timeout
 	task, err := h.taskService.GetTask(execCtx, executeRequest.WorkspaceID, executeRequest.ID)
 	if err != nil {
-		WriteJSONError(w, err.Error(), http.StatusNotFound)
+		if errors.Is(err, domain.ErrTaskNotFound) {
+			WriteJSONError(w, "Task not found", http.StatusNotFound)
+			return
+		}
+		h.logger.WithFields(map[string]interface{}{
+			"task_id":      executeRequest.ID,
+			"workspace_id": executeRequest.WorkspaceID,
+			"error":        err.Error(),
+		}).Error("Failed to get task for execution")
+		WriteJSONError(w, "Failed to get task", http.StatusInternalServerError)
 		return
 	}
 
@@ -552,6 +628,10 @@ func (h *TaskHandler) ExecuteTask(w http.ResponseWriter, r *http.Request) {
 		// Handle different error types with appropriate status codes
 		switch e := err.(type) {
 		case *domain.ErrNotFound:
+			h.logger.WithFields(map[string]interface{}{
+				"task_id":      executeRequest.ID,
+				"workspace_id": executeRequest.WorkspaceID,
+			}).Warn("Task to execute not found")
 			WriteJSONError(w, e.Error(), http.StatusNotFound)
 		case *domain.ErrTaskAlreadyRunning:
 			// Task is already being executed by another worker - this is expected in concurrent scenarios
@@ -680,12 +760,17 @@ func (h *TaskHandler) ResetTask(w http.ResponseWriter, r *http.Request) {
 			WriteJSONError(w, "Task not found", http.StatusNotFound)
 			return
 		}
-		h.logger.WithFields(map[string]interface{}{
+		// A refusal of the task's state is the caller's to fix; anything else is a
+		// failure on our side, whose text stays in the logs.
+		if writeValidationError(w, err) {
+			return
+		}
+		h.logTaskFailure(ctx, err, map[string]interface{}{
 			"task_id":      req.ID,
 			"workspace_id": req.WorkspaceID,
 			"error":        err.Error(),
-		}).Error("Failed to reset task")
-		WriteJSONError(w, err.Error(), http.StatusBadRequest)
+		}, "Failed to reset task")
+		WriteJSONError(w, "Failed to reset task", http.StatusInternalServerError)
 		return
 	}
 
@@ -729,12 +814,15 @@ func (h *TaskHandler) TriggerTask(w http.ResponseWriter, r *http.Request) {
 			WriteJSONError(w, "Task is already running", http.StatusConflict)
 			return
 		}
-		h.logger.WithFields(map[string]interface{}{
+		if writeValidationError(w, err) {
+			return
+		}
+		h.logTaskFailure(ctx, err, map[string]interface{}{
 			"task_id":      req.ID,
 			"workspace_id": req.WorkspaceID,
 			"error":        err.Error(),
-		}).Error("Failed to trigger task")
-		WriteJSONError(w, err.Error(), http.StatusBadRequest)
+		}, "Failed to trigger task")
+		WriteJSONError(w, "Failed to trigger task", http.StatusInternalServerError)
 		return
 	}
 

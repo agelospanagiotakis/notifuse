@@ -3,9 +3,12 @@ package service
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/Notifuse/notifuse/internal/database"
 	"github.com/Notifuse/notifuse/internal/domain"
 	"github.com/Notifuse/notifuse/pkg/logger"
 	"github.com/lib/pq"
@@ -46,6 +49,12 @@ func (p *SegmentBuildProcessor) CanProcess(taskType string) bool {
 	return taskType == "build_segment"
 }
 
+// finalStepsBudget is the time a slice must have left to run the end-of-build steps after it
+// processed batches. RemoveOldMemberships can delete many rows at once, each firing the membership
+// triggers; with less time left the steps are put off to the next slice, which starts with a full
+// budget.
+const finalStepsBudget = 60 * time.Second
+
 // Process executes or continues a segment building task
 func (p *SegmentBuildProcessor) Process(ctx context.Context, task *domain.Task, timeoutAt time.Time) (completed bool, err error) {
 	p.logger.WithFields(map[string]interface{}{
@@ -70,11 +79,30 @@ func (p *SegmentBuildProcessor) Process(ctx context.Context, task *domain.Task, 
 	}
 
 	if state.StartedAt == "" {
-		state.StartedAt = time.Now().UTC().Format(time.RFC3339)
+		// To the nanosecond: rescheduleRecompute compares it with a mark that may be set in the
+		// same second.
+		state.StartedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	}
 
+	// A build that fails with no retry left must not leave the segment building: the contact
+	// queue and the daily check skip building segments, and the daily check may have marked it
+	// building before this task ever ran.
+	//
+	// An attempt cut short by cancellation (a shutdown) is not one: the task service re-queues it
+	// without using a retry, and the resumed build needs the segment still building.
+	var segment *domain.Segment
+	defer func() {
+		if err == nil || task.HasRetriesLeft() {
+			return
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+			return
+		}
+		p.releaseAfterFinalFailure(ctx, task, state, segment, err)
+	}()
+
 	// Fetch the segment
-	segment, err := p.segmentRepo.GetSegmentByID(ctx, task.WorkspaceID, state.SegmentID)
+	segment, err = p.segmentRepo.GetSegmentByID(ctx, task.WorkspaceID, state.SegmentID)
 	if err != nil {
 		return false, fmt.Errorf("failed to fetch segment: %w", err)
 	}
@@ -84,22 +112,41 @@ func (p *SegmentBuildProcessor) Process(ctx context.Context, task *domain.Task, 
 		state.Version = segment.Version
 	}
 
+	// A segment deleted after this task was queued stays deleted.
+	if segment.Status == string(domain.SegmentStatusDeleted) {
+		p.logger.WithField("segment_id", state.SegmentID).Info("Segment was deleted, dropping its build task")
+		return true, nil
+	}
+
 	// Check if this task is already outdated before touching the segment status
 	if segment.Version > state.Version {
 		p.logger.WithFields(map[string]interface{}{
 			"task_version":    state.Version,
 			"current_version": segment.Version,
-			"segment_id":     state.SegmentID,
+			"segment_id":      state.SegmentID,
 		}).Info("Segment was updated before task started, aborting outdated task")
 
 		return true, nil
 	}
 
-	// Update segment status to "building" if not already
+	// The daily rebuild creates its task before it moves the segment to the version the task
+	// writes. Until that bump lands, writing would leave every member at a version the segment
+	// does not have, so write nothing and let the retry find it landed.
+	if segment.Version < state.Version {
+		return false, errSegmentBehindBuild(segment.Version, state.Version)
+	}
+
+	// Update segment status to "building" if not already. Only the status is written, and only
+	// while the segment is still at this version and not deleted, so an edit made since the read
+	// above is never overwritten.
 	if segment.Status != string(domain.SegmentStatusBuilding) {
-		segment.Status = string(domain.SegmentStatusBuilding)
-		if err := p.segmentRepo.UpdateSegment(ctx, task.WorkspaceID, segment); err != nil {
+		updated, err := p.segmentRepo.UpdateSegmentStatus(ctx, task.WorkspaceID, state.SegmentID, state.Version, string(domain.SegmentStatusBuilding))
+		if err != nil {
 			return false, fmt.Errorf("failed to update segment status: %w", err)
+		}
+		if !updated {
+			p.logger.WithField("segment_id", state.SegmentID).Info("Segment changed before its build started, dropping the build task")
+			return true, nil
 		}
 	}
 
@@ -109,6 +156,17 @@ func (p *SegmentBuildProcessor) Process(ctx context.Context, task *domain.Task, 
 		return false, fmt.Errorf("segment has no generated SQL - segment may not have been properly initialized")
 	}
 
+	return p.build(ctx, task, state, segment, timeoutAt)
+}
+
+// errSegmentBehindBuild is returned when the segment is at a lower version than the build.
+func errSegmentBehindBuild(segmentVersion, buildVersion int64) error {
+	return fmt.Errorf("segment is at version %d, behind the version %d this build writes", segmentVersion, buildVersion)
+}
+
+// build scans the contacts, writes the matching ones and runs the end-of-build steps. It runs
+// once the segment is marked building at state.Version.
+func (p *SegmentBuildProcessor) build(ctx context.Context, task *domain.Task, state *domain.BuildSegmentState, segment *domain.Segment, timeoutAt time.Time) (bool, error) {
 	sqlQuery := *segment.GeneratedSQL
 	args := []interface{}(segment.GeneratedArgs)
 
@@ -120,6 +178,8 @@ func (p *SegmentBuildProcessor) Process(ctx context.Context, task *domain.Task, 
 		}
 		state.TotalContacts = totalCount
 	}
+
+	processedBatch := false
 
 	// Process contacts in batches
 	for {
@@ -137,6 +197,11 @@ func (p *SegmentBuildProcessor) Process(ctx context.Context, task *domain.Task, 
 		currentSegment, err := p.segmentRepo.GetSegmentByID(ctx, task.WorkspaceID, state.SegmentID)
 		if err != nil {
 			return false, fmt.Errorf("failed to refetch segment: %w", err)
+		}
+
+		if currentSegment.Status == string(domain.SegmentStatusDeleted) {
+			p.logger.WithField("segment_id", state.SegmentID).Info("Segment was deleted during its build, stopping")
+			return true, nil
 		}
 
 		// If segment version has changed, this task is outdated
@@ -168,8 +233,13 @@ func (p *SegmentBuildProcessor) Process(ctx context.Context, task *domain.Task, 
 			return true, nil
 		}
 
-		// Get next batch of emails (optimized - only fetches email addresses)
-		emails, err := p.contactRepo.GetBatchForSegment(ctx, task.WorkspaceID, state.ContactOffset, p.batchSize)
+		// A whole-row write from a snapshot read before this build's version bump put the
+		// segment back a version: stop writing at a version the segment does not have.
+		if currentSegment.Version < state.Version {
+			return false, errSegmentBehindBuild(currentSegment.Version, state.Version)
+		}
+
+		emails, err := p.nextBatch(ctx, task.WorkspaceID, state)
 		if err != nil {
 			return false, fmt.Errorf("failed to fetch email batch: %w", err)
 		}
@@ -179,14 +249,22 @@ func (p *SegmentBuildProcessor) Process(ctx context.Context, task *domain.Task, 
 			break
 		}
 
-		// Process this batch
+		// Process this batch. A failed write fails the task: its retry resumes after the last
+		// batch saved, so the contact is written instead of being skipped. A contact value the
+		// query cannot convert ends the build instead: every retry would meet it again.
 		if err := p.processBatch(ctx, task.WorkspaceID, sqlQuery, args, emails, state); err != nil {
+			var dataErr *segmentQueryDataError
+			if errors.As(err, &dataErr) {
+				return p.endBuildOnDataError(ctx, task, state, segment, emails, dataErr.err)
+			}
 			return false, fmt.Errorf("failed to process batch: %w", err)
 		}
+		processedBatch = true
 
-		// Update offset for next batch
+		// Move the cursor past this batch
 		state.ContactOffset += int64(len(emails))
 		state.ProcessedCount += len(emails)
+		state.LastEmail = emails[len(emails)-1]
 
 		// Update progress
 		if state.TotalContacts > 0 {
@@ -199,57 +277,36 @@ func (p *SegmentBuildProcessor) Process(ctx context.Context, task *domain.Task, 
 		}
 	}
 
-	// If no contacts matched, skip the segment building
-	if state.MatchedCount == 0 {
-		p.logger.WithFields(map[string]interface{}{
-			"segment_id":     state.SegmentID,
-			"version":        state.Version,
-			"total_contacts": state.TotalContacts,
-		}).Info("Segment build skipped: no contacts matched the criteria")
-
-		// Update segment status to "active" but with no members
-		segment.Status = string(domain.SegmentStatusActive)
-		if err := p.segmentRepo.UpdateSegment(ctx, task.WorkspaceID, segment); err != nil {
-			return false, fmt.Errorf("failed to update segment status to active: %w", err)
+	// The end-of-build steps need room: after a slice spent on batches, leave them to the next
+	// slice when little time is left. A slice that only has them left runs them whatever its
+	// budget, so they are never put off forever.
+	if processedBatch && time.Now().Add(finalStepsBudget).After(timeoutAt) {
+		p.logger.Info("Little time left after the last batch, finishing segment build in the next run")
+		if err := p.saveProgress(ctx, task, state); err != nil {
+			return false, fmt.Errorf("failed to save progress: %w", err)
 		}
-
-		return true, nil
+		return false, nil
 	}
 
-	// Remove old memberships from previous versions
+	// Remove the memberships this build did not rewrite, whatever the number of matches: a build
+	// that matches nobody must still drop the members of the previous version.
 	if err := p.segmentRepo.RemoveOldMemberships(ctx, task.WorkspaceID, state.SegmentID, state.Version); err != nil {
 		return false, fmt.Errorf("failed to remove old memberships: %w", err)
 	}
 
-	// Update segment status to "active"
-	segment.Status = string(domain.SegmentStatusActive)
-	if err := p.segmentRepo.UpdateSegment(ctx, task.WorkspaceID, segment); err != nil {
+	// Update segment status to "active", clearing the error a previous computation recorded: this
+	// build evaluated every contact.
+	updated, err := p.segmentRepo.ReleaseSegmentWithError(ctx, task.WorkspaceID, state.SegmentID, state.Version, nil)
+	if err != nil {
 		return false, fmt.Errorf("failed to update segment status to active: %w", err)
+	}
+	if !updated {
+		p.logger.WithField("segment_id", state.SegmentID).Info("Segment changed during its build, leaving it to the newer build")
+		return true, nil
 	}
 
 	// If segment has recompute_after set, reschedule it for next 5AM
-	if segment.RecomputeAfter != nil {
-		next5AM, err := calculateNext5AMInTimezone(segment.Timezone)
-		if err != nil {
-			p.logger.WithFields(map[string]interface{}{
-				"error":      err.Error(),
-				"segment_id": state.SegmentID,
-				"timezone":   segment.Timezone,
-			}).Warn("Failed to calculate next 5AM for recompute rescheduling (non-fatal)")
-		} else {
-			if err := p.segmentRepo.UpdateRecomputeAfter(ctx, task.WorkspaceID, state.SegmentID, &next5AM); err != nil {
-				p.logger.WithFields(map[string]interface{}{
-					"error":      err.Error(),
-					"segment_id": state.SegmentID,
-				}).Warn("Failed to update recompute_after for segment (non-fatal)")
-			} else {
-				p.logger.WithFields(map[string]interface{}{
-					"segment_id":      state.SegmentID,
-					"recompute_after": next5AM.Format(time.RFC3339),
-				}).Info("Rescheduled segment for next daily recomputation")
-			}
-		}
-	}
+	p.rescheduleRecompute(ctx, task.WorkspaceID, segment, state.StartedAt, true)
 
 	p.logger.WithFields(map[string]interface{}{
 		"segment_id":     state.SegmentID,
@@ -259,6 +316,179 @@ func (p *SegmentBuildProcessor) Process(ctx context.Context, task *domain.Task, 
 	}).Info("Segment build completed")
 
 	return true, nil
+}
+
+// nextBatch returns the next contacts to evaluate, after the last email of the last batch. A
+// state saved before the last email was recorded resumes once by offset.
+func (p *SegmentBuildProcessor) nextBatch(ctx context.Context, workspaceID string, state *domain.BuildSegmentState) ([]string, error) {
+	if state.LastEmail == "" && state.ContactOffset > 0 {
+		return p.contactRepo.GetBatchForSegment(ctx, workspaceID, state.ContactOffset, p.batchSize)
+	}
+	return p.contactRepo.GetBatchForSegmentAfter(ctx, workspaceID, state.LastEmail, p.batchSize)
+}
+
+// rescheduleRecompute moves the next daily rebuild of a segment with relative dates to the next
+// 5 AM in its timezone. After a build that completed, it clears the mark of a segment without
+// them, which a migration sets to have it rebuilt once: re-arming it would rebuild that segment
+// every day for ever. After a build that failed for good, the mark moves to the next 5 AM instead,
+// so the rebuild is tried again. Failures are logged: the segment is then rebuilt at the next check.
+//
+// A mark set after this build started is left alone. A build re-reads the segment on each run, so
+// one that was running when the stored query changed may have used both, and only the build the
+// mark asks for evaluates every contact with the new one. buildStartedAt is the build's
+// BuildSegmentState.StartedAt (RFC 3339, to the nanosecond since 44.0); a value that does not parse
+// disables that check.
+func (p *SegmentBuildProcessor) rescheduleRecompute(ctx context.Context, workspaceID string, segment *domain.Segment, buildStartedAt string, completed bool) {
+	if segment.RecomputeAfter == nil {
+		return
+	}
+	if startedAt, err := time.Parse(time.RFC3339, buildStartedAt); err == nil && segment.RecomputeAfter.After(startedAt) {
+		return
+	}
+
+	if completed && (segment.Tree == nil || !segment.Tree.HasRelativeDates()) {
+		if err := p.segmentRepo.UpdateRecomputeAfter(ctx, workspaceID, segment.ID, nil); err != nil {
+			p.logger.WithFields(map[string]interface{}{
+				"error":      err.Error(),
+				"segment_id": segment.ID,
+			}).Warn("Failed to clear recompute_after for segment (non-fatal)")
+		}
+		return
+	}
+
+	next5AM, err := calculateNext5AMInTimezone(segment.Timezone)
+	if err != nil {
+		p.logger.WithFields(map[string]interface{}{
+			"error":      err.Error(),
+			"segment_id": segment.ID,
+			"timezone":   segment.Timezone,
+		}).Warn("Failed to calculate next 5AM for recompute rescheduling (non-fatal)")
+		return
+	}
+
+	if err := p.segmentRepo.UpdateRecomputeAfter(ctx, workspaceID, segment.ID, &next5AM); err != nil {
+		p.logger.WithFields(map[string]interface{}{
+			"error":      err.Error(),
+			"segment_id": segment.ID,
+		}).Warn("Failed to update recompute_after for segment (non-fatal)")
+		return
+	}
+
+	p.logger.WithFields(map[string]interface{}{
+		"segment_id":      segment.ID,
+		"recompute_after": next5AM.Format(time.RFC3339),
+	}).Info("Rescheduled segment for next daily recomputation")
+}
+
+// releaseSegmentTimeout bounds the writes of releaseAfterFinalFailure, which run on a context
+// detached from the task's.
+const releaseSegmentTimeout = 10 * time.Second
+
+// releaseAfterFinalFailure runs when a build fails with no retry left. Left building, the segment
+// would be skipped by the contact queue and by the daily rebuild for good, so it goes back to
+// active (with the members written so far), with buildErr recorded on it as its last error, and,
+// for a segment with relative dates, its next rebuild moves to the next day rather than to every
+// scheduler tick. The write is conditional on the task's version, so it never touches a segment
+// that moved on. It runs on a context detached from the task's, which is past its deadline when
+// the last attempt ran out of time. segment is nil when the last attempt could not read it;
+// nothing is rescheduled then.
+func (p *SegmentBuildProcessor) releaseAfterFinalFailure(ctx context.Context, task *domain.Task, state *domain.BuildSegmentState, segment *domain.Segment, buildErr error) {
+	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), releaseSegmentTimeout)
+	defer cancel()
+
+	lastErr := domain.NewOtherSegmentLastError(domain.SegmentLastErrorSourceBuild, buildErr.Error())
+	updated, err := p.segmentRepo.ReleaseSegmentWithError(releaseCtx, task.WorkspaceID, state.SegmentID, state.Version, lastErr)
+	if err != nil {
+		p.logger.WithFields(map[string]interface{}{
+			"error":      err.Error(),
+			"segment_id": state.SegmentID,
+		}).Error("Failed to reactivate segment after its build failed for good")
+		return
+	}
+	if !updated {
+		return
+	}
+
+	p.logger.WithField("segment_id", state.SegmentID).Warn("Segment build failed with no retry left, segment set back to active")
+	if segment != nil {
+		p.rescheduleRecompute(releaseCtx, task.WorkspaceID, segment, state.StartedAt, false)
+	}
+}
+
+// segmentQueryDataError is a segment query that failed on a value it could not convert
+// (database.IsDataConversionError), as opposed to a failed write.
+type segmentQueryDataError struct {
+	err error
+}
+
+func (e *segmentQueryDataError) Error() string { return e.err.Error() }
+func (e *segmentQueryDataError) Unwrap() error { return e.err }
+
+// endBuildOnDataError ends a build whose query met a value it cannot convert in the batch emails:
+// retrying would meet the same value. The value is looked for within the batch; the segment goes
+// back to active (with the members written so far) with the error recorded on it, in one write
+// conditional on the build's version, and its daily rebuild, if it has one, moves to the next day.
+// The task completes; when the release matched a row, its message names the field and the type,
+// never the contact nor the value (see buildValueErrorTaskMessage). Both run on a context detached
+// from the task's, which may be past its deadline.
+//
+// A failed write of the error leaves the segment building, so the task fails and is retried.
+func (p *SegmentBuildProcessor) endBuildOnDataError(ctx context.Context, task *domain.Task, state *domain.BuildSegmentState, segment *domain.Segment, emails []string, queryErr error) (bool, error) {
+	detached := context.WithoutCancel(ctx)
+
+	var valueErr *domain.SegmentValueError
+	var cause *pq.Error
+	if errors.As(queryErr, &cause) {
+		if workspaceDB, err := p.workspaceRepo.GetConnection(detached, task.WorkspaceID); err == nil {
+			diagCtx, cancel := context.WithTimeout(detached, segmentDiagnosisTimeout)
+			valueErr = diagnoseSegmentValue(diagCtx, workspaceDB, segment.Tree, cause, emails)
+			cancel()
+		}
+	}
+
+	var lastErr *domain.SegmentLastError
+	if valueErr != nil {
+		lastErr = valueErr.LastError(domain.SegmentLastErrorSourceBuild)
+	} else {
+		causeText := queryErr.Error()
+		if cause != nil {
+			causeText = cause.Message
+		}
+		lastErr = domain.NewOtherSegmentLastError(domain.SegmentLastErrorSourceBuild, causeText)
+	}
+
+	releaseCtx, cancel := context.WithTimeout(detached, releaseSegmentTimeout)
+	defer cancel()
+	updated, err := p.segmentRepo.ReleaseSegmentWithError(releaseCtx, task.WorkspaceID, state.SegmentID, state.Version, lastErr)
+	if err != nil {
+		return false, fmt.Errorf("failed to record the segment's value error: %w", err)
+	}
+
+	p.logger.WithFields(map[string]interface{}{
+		"segment_id": state.SegmentID,
+		"version":    state.Version,
+		"column":     lastErr.Column,
+		"path":       lastErr.Path,
+		"type":       lastErr.Type,
+	}).Warn("Segment build stopped on a contact value it cannot convert")
+
+	if updated {
+		task.State.Message = buildValueErrorTaskMessage(lastErr)
+		p.rescheduleRecompute(releaseCtx, task.WorkspaceID, segment, state.StartedAt, false)
+	}
+	return true, nil
+}
+
+// buildValueErrorTaskMessage says why a build stopped, for the task list. Tasks are readable with
+// segments read alone, so it names the field and the type but never the contact, nor the value
+// (which PostgreSQL's own message quotes): those are on the segment, redacted for members without
+// contacts read.
+func buildValueErrorTaskMessage(lastErr *domain.SegmentLastError) string {
+	if lastErr.Kind == domain.SegmentLastErrorKindValueConversion && lastErr.Column != "" {
+		field := strings.Join(append([]string{lastErr.Column}, lastErr.Path...), ".")
+		return fmt.Sprintf("stopped: a contact's %s is not a valid %s; see the segment", field, lastErr.Type)
+	}
+	return "stopped: a contact value could not be converted; see the segment"
 }
 
 // processBatch processes a batch of emails against the segment criteria
@@ -278,32 +508,41 @@ func (p *SegmentBuildProcessor) processBatch(
 	// Execute query to find matching contacts
 	rows, err := p.executeSegmentQuery(ctx, workspaceID, batchQuery, batchArgs)
 	if err != nil {
+		if database.IsDataConversionError(err) {
+			return &segmentQueryDataError{err: err}
+		}
 		return fmt.Errorf("failed to execute segment query: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	// Track matched emails
-	matchedEmails := make(map[string]bool)
+	// Matched emails, once each, in the order the query returned them
+	seen := make(map[string]bool)
+	matchedEmails := make([]string, 0)
 	for rows.Next() {
 		var email string
 		if err := rows.Scan(&email); err != nil {
 			return fmt.Errorf("failed to scan email: %w", err)
 		}
-		matchedEmails[email] = true
+		if !seen[email] {
+			seen[email] = true
+			matchedEmails = append(matchedEmails, email)
+		}
 	}
 
 	if err := rows.Err(); err != nil {
+		// The query can raise after returning rows, on a contact read later.
+		if database.IsDataConversionError(err) {
+			return &segmentQueryDataError{err: err}
+		}
 		return fmt.Errorf("error iterating rows: %w", err)
 	}
 
-	// Add matched contacts to segment
-	for email := range matchedEmails {
+	// Add matched contacts to segment. A failed write fails the batch: skipping the contact
+	// would leave it out of the segment, and RemoveOldMemberships would then also drop the row
+	// it had at the previous version.
+	for _, email := range matchedEmails {
 		if err := p.segmentRepo.AddContactToSegment(ctx, workspaceID, email, state.SegmentID, state.Version); err != nil {
-			p.logger.WithFields(map[string]interface{}{
-				"error": err.Error(),
-				"email": email,
-			}).Warn("Failed to add contact to segment")
-			continue
+			return fmt.Errorf("failed to add contact to segment: %w", err)
 		}
 		state.MatchedCount++
 	}

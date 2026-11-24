@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/asaskevich/govalidator"
@@ -25,6 +26,10 @@ type List struct {
 	CreatedAt           time.Time          `json:"created_at"`
 	UpdatedAt           time.Time          `json:"updated_at"`
 	DeletedAt           *time.Time         `json:"-" db:"deleted_at"`
+
+	// ActiveCount is the number of active subscribers, set only when lists.list is called
+	// with with_counts.
+	ActiveCount *int `json:"active_count,omitempty"`
 }
 
 // Validate performs validation on the list fields
@@ -158,10 +163,16 @@ func (r *CreateListRequest) Validate() (list *List, workspaceID string, err erro
 
 type GetListsRequest struct {
 	WorkspaceID string `json:"workspace_id"`
+	WithCounts  bool   `json:"with_counts,omitempty"`
 }
 
 func (r *GetListsRequest) FromURLParams(queryParams url.Values) (err error) {
 	r.WorkspaceID = queryParams.Get("workspace_id")
+	if v := queryParams.Get("with_counts"); v != "" {
+		if r.WithCounts, err = strconv.ParseBool(v); err != nil {
+			return fmt.Errorf("invalid get lists request: with_counts must be a boolean")
+		}
+	}
 
 	if r.WorkspaceID == "" {
 		return fmt.Errorf("invalid get lists request: workspace_id is required")
@@ -462,8 +473,8 @@ type ListService interface {
 	// GetListByID retrieves a list by ID
 	GetListByID(ctx context.Context, workspaceID string, id string) (*List, error)
 
-	// GetLists retrieves all lists
-	GetLists(ctx context.Context, workspaceID string) ([]*List, error)
+	// GetLists retrieves all lists. withCounts also sets each list's ActiveCount.
+	GetLists(ctx context.Context, workspaceID string, withCounts bool) ([]*List, error)
 
 	// UpdateList updates an existing list
 	UpdateList(ctx context.Context, workspaceID string, list *List) error
@@ -485,6 +496,10 @@ type ListRepository interface {
 	// GetLists retrieves all lists
 	GetLists(ctx context.Context, workspaceID string) ([]*List, error)
 
+	// CountActiveContactsByList returns the number of active subscribers of each list
+	// that has any, keyed by list ID.
+	CountActiveContactsByList(ctx context.Context, workspaceID string) (map[string]int, error)
+
 	// UpdateList updates an existing list
 	UpdateList(ctx context.Context, workspaceID string, list *List) error
 
@@ -502,6 +517,22 @@ type ErrListNotFound struct {
 }
 
 func (e *ErrListNotFound) Error() string {
+	return e.Message
+}
+
+// ErrListExists is returned on a UNIQUE violation (PG 23505) of the lists primary key:
+// the id is taken. The handler turns it into a 400 naming the problem; without it the
+// caller gets a 500 "Failed to create list" and no way to learn the id is in use.
+//
+// Deleted reports that the id belongs to a soft-deleted list. Deletion only stamps
+// deleted_at, so the row keeps its id while lists.get and lists.list no longer show it:
+// without saying so, the author is told the id is in use by a list nobody can see.
+type ErrListExists struct {
+	Message string
+	Deleted bool
+}
+
+func (e *ErrListExists) Error() string {
 	return e.Message
 }
 

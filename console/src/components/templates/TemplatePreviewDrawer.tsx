@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useLingui } from '@lingui/react/macro'
-import { Drawer, Typography, Spin, Alert, Tabs, Tag, Space, Descriptions, Segmented } from 'antd'
+import { Drawer, Typography, Spin, Alert, Tag, Space, Segmented, Select } from 'antd'
 import type { Template, MjmlCompileError, Workspace } from '../../services/api/types'
 import { templatesApi } from '../../services/api/template'
-import type { CompileTemplateRequest } from '../../services/api/template'
-import type { EmailBlock } from '../email_builder/types'
+import { buildTemplatePreviewRequest } from './compileTemplatePreview'
 import { Highlight, themes } from 'prism-react-renderer'
 import type { MessageHistory } from '../../services/api/messages_history'
+import { BroadcastSenderLine, SenderLine } from './previewSender'
 import { SUPPORTED_LANGUAGES } from '../../lib/languages'
+import { CloseButton } from '../layout/DrawerControls'
+import { KeyValueList, type KeyValueItem } from '../layout'
+import { TEMPLATE_CATEGORY_LABELS, isTemplateCategory } from './templateCategories'
 
 const { Text } = Typography
 
@@ -16,7 +19,13 @@ interface TemplatePreviewDrawerProps {
   workspace: Workspace
   templateData?: Record<string, unknown>
   messageHistory?: MessageHistory
-  children: React.ReactNode
+  /** Opens the drawer on click; not needed in controlled mode. */
+  children?: React.ReactNode
+  /** Controlled mode, for a page that opens the drawer itself; onClose asks it to close. */
+  open?: boolean
+  onClose?: () => void
+  /** The language it opens on, as chosen where it was asked for; the default language otherwise. */
+  initialLanguage?: string
 }
 
 const TemplatePreviewDrawer: React.FC<TemplatePreviewDrawerProps> = ({
@@ -24,19 +33,30 @@ const TemplatePreviewDrawer: React.FC<TemplatePreviewDrawerProps> = ({
   workspace,
   templateData,
   messageHistory,
-  children
+  children,
+  open,
+  onClose,
+  initialLanguage
 }) => {
-  const { t } = useLingui()
+  const { t, i18n } = useLingui()
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
   const [previewMjml, setPreviewMjml] = useState<string | null>(null)
+  // Plain-text version sent with the email; null when the compile returned none.
+  const [previewText, setPreviewText] = useState<string | null>(null)
+  // Where the previewed text comes from, and why a custom text was not used.
+  const [previewTextSource, setPreviewTextSource] = useState<'auto' | 'custom' | null>(null)
+  const [previewTextError, setPreviewTextError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [mjmlError, setMjmlError] = useState<MjmlCompileError | null>(null)
-  const [isOpen, setIsOpen] = useState<boolean>(false)
+  const [ownOpen, setOwnOpen] = useState<boolean>(false)
+  const controlled = open !== undefined
+  const isOpen = controlled ? open : ownOpen
+  const close = () => (controlled ? onClose?.() : setOwnOpen(false))
   const [activeTabKey, setActiveTabKey] = useState<string>('1') // State for active tab
   const [renderedSubject, setRenderedSubject] = useState<string | null>(null)
   const [renderedSubjectPreview, setRenderedSubjectPreview] = useState<string | null>(null)
-  const [selectedLanguage, setSelectedLanguage] = useState<string | null>(null)
+  const [selectedLanguage, setSelectedLanguage] = useState<string | null>(initialLanguage ?? null)
   // Effective template data returned by the compile endpoint (includes the workspace
   // object the server injects). Displayed in the Template Data tab so it matches the render.
   const [effectiveTestData, setEffectiveTestData] = useState<Record<string, unknown> | null>(null)
@@ -71,13 +91,20 @@ const TemplatePreviewDrawer: React.FC<TemplatePreviewDrawerProps> = ({
   }, [effectiveLanguage, record.email, record.translations, workspace.settings?.default_language])
 
   const fetchPreview = async () => {
-    const isCodeMode = effectiveEmail?.editor_mode === 'code'
+    const built = workspace.id
+      ? buildTemplatePreviewRequest({
+          workspace,
+          email: effectiveEmail,
+          testData: templateData || record.test_data
+        })
+      : ({ error: 'missing_content' } as const)
 
-    if (!workspace.id || (!isCodeMode && !effectiveEmail?.visual_editor_tree) || (isCodeMode && !effectiveEmail?.mjml_source)) {
+    if ('error' in built && built.error === 'missing_content') {
       setError(t`Missing workspace ID or template data.`)
       setMjmlError(null)
       setPreviewMjml(null)
       setPreviewHtml(null)
+      setPreviewText(null)
       return
     }
 
@@ -86,63 +113,26 @@ const TemplatePreviewDrawer: React.FC<TemplatePreviewDrawerProps> = ({
     setMjmlError(null)
     setPreviewHtml(null)
     setPreviewMjml(null)
+    setPreviewText(null)
     setRenderedSubject(null)
     setRenderedSubjectPreview(null)
     setEffectiveTestData(null)
     setActiveTabKey('1') // Reset to HTML tab on new fetch
+    setPreviewTextSource(null)
+    setPreviewTextError(null)
 
     try {
-      // Build compile request based on editor mode.
-      // Subject and subject_preview are sent so the server can render them with
-      // the same Liquid engine used at send time, keeping preview and send in sync.
-      const req: Partial<CompileTemplateRequest> = {
-        workspace_id: workspace.id,
-        message_id: 'preview',
-        subject: effectiveEmail?.subject,
-        subject_preview: effectiveEmail?.subject_preview,
-        test_data: templateData || record.test_data || {},
-        tracking_settings: {
-          enable_tracking: workspace.settings?.email_tracking_enabled || false,
-          endpoint: workspace.settings?.custom_endpoint_url || undefined,
-          workspace_id: workspace.id,
-          message_id: 'preview'
-        }
+      if ('error' in built) {
+        setError(t`Invalid template structure data.`)
+        setMjmlError(null)
+        setPreviewMjml(null)
+        setIsLoading(false)
+        return
       }
-
-      if (isCodeMode) {
-        // Code mode: use mjml_source directly
-        req.mjml_source = effectiveEmail!.mjml_source
-      } else {
-        // Visual mode: parse visual_editor_tree
-        let treeObject: EmailBlock | null = null
-        if (effectiveEmail?.visual_editor_tree && typeof effectiveEmail.visual_editor_tree === 'string') {
-          try {
-            treeObject = JSON.parse(effectiveEmail.visual_editor_tree)
-          } catch (parseError) {
-            console.error('Failed to parse visual_editor_tree:', parseError)
-            setError(t`Invalid template structure data.`)
-            setMjmlError(null)
-            setPreviewMjml(null)
-            setIsLoading(false)
-            return
-          }
-        } else if (effectiveEmail?.visual_editor_tree) {
-          treeObject = effectiveEmail.visual_editor_tree as unknown as EmailBlock
-        }
-
-        if (!treeObject) {
-          setError(t`Template structure data is missing or invalid.`)
-          setMjmlError(null)
-          setPreviewMjml(null)
-          setIsLoading(false)
-          return
-        }
-
-        req.visual_editor_tree = treeObject
-      }
+      const req = built.request
 
       // console.log('Compile Request:', req)
-      const response = await templatesApi.compile(req as CompileTemplateRequest)
+      const response = await templatesApi.compile(req)
       // console.log('Compile Response:', response)
 
       // Server returns rendered subject/subject_preview on both success and
@@ -158,9 +148,13 @@ const TemplatePreviewDrawer: React.FC<TemplatePreviewDrawerProps> = ({
         setPreviewMjml(response.mjml)
         setError(null)
         setPreviewHtml(null)
+        setPreviewText(null)
       } else {
         setPreviewHtml(response.html)
         setPreviewMjml(response.mjml)
+        setPreviewText(response.text ?? null)
+        setPreviewTextSource(response.text_source ?? null)
+        setPreviewTextError(response.text_error ?? null)
         setError(null)
         setMjmlError(null)
       }
@@ -172,6 +166,7 @@ const TemplatePreviewDrawer: React.FC<TemplatePreviewDrawerProps> = ({
       setError(errorMsg)
       setMjmlError(null)
       setPreviewMjml(null)
+      setPreviewText(null)
     } finally {
       setIsLoading(false)
     }
@@ -184,6 +179,9 @@ const TemplatePreviewDrawer: React.FC<TemplatePreviewDrawerProps> = ({
       // Reset state when drawer closes to avoid showing stale data briefly on reopen
       setPreviewHtml(null)
       setPreviewMjml(null)
+      setPreviewText(null)
+      setPreviewTextSource(null)
+      setPreviewTextError(null)
       setError(null)
       setMjmlError(null)
       setIsLoading(false)
@@ -191,7 +189,7 @@ const TemplatePreviewDrawer: React.FC<TemplatePreviewDrawerProps> = ({
       setRenderedSubject(null)
       setRenderedSubjectPreview(null)
       setEffectiveTestData(null)
-      setSelectedLanguage(null)
+      setSelectedLanguage(initialLanguage ?? null)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchPreview is stable
   }, [isOpen, record.id, record.version, workspace.id, effectiveLanguage])
@@ -203,22 +201,75 @@ const TemplatePreviewDrawer: React.FC<TemplatePreviewDrawerProps> = ({
       key: '1',
       label: t`HTML Preview`,
       children: (
-        <iframe
-          srcDoc={previewHtml}
-          className="w-full h-full border-0"
-          style={{ height: '600px', width: '100%' }}
-          title={t`HTML Preview of ${record.name}`}
-          sandbox=""
-        />
+        // The email on a grey ground, as the inbox shows it
+        <div className="rounded-md bg-subtle p-4">
+          <iframe
+            srcDoc={previewHtml}
+            className="block w-full rounded-md border border-line bg-surface"
+            style={{ height: '600px' }}
+            title={t`HTML Preview of ${record.name}`}
+            sandbox=""
+          />
+        </div>
       )
     })
   }
 
+  // The mockup's order: HTML, MJML, text, data
   if (previewMjml) {
     items.push({
       key: '2',
       label: t`MJML Source`,
       children: <MJMLPreview previewMjml={previewMjml} />
+    })
+  }
+
+  if (previewText !== null) {
+    items.push({
+      key: 'text',
+      label: t`Text version`,
+      children: (
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            {previewTextSource === 'custom' ? (
+              <Tag color="purple">{t`Custom`}</Tag>
+            ) : previewTextSource === 'auto' ? (
+              <Tag>{t`Automatic`}</Tag>
+            ) : null}
+            <span className="text-xs text-gray-500">
+              {previewTextSource === 'custom'
+                ? t`Written by hand for this template and sent with the HTML version. Its links are not tracked.`
+                : t`Sent with the HTML version and generated from it. Its links are tracked like the links of the HTML.`}
+            </span>
+          </div>
+          {previewTextError && (
+            <Alert
+              type="warning"
+              showIcon
+              className="mb-2"
+              title={t`The custom text could not be used, the automatic version is sent instead: ${previewTextError}`}
+            />
+          )}
+          {previewText.trim() ? (
+            <pre
+              data-testid="preview-text-version"
+              className="text-sm text-gray-800 bg-white border border-gray-200 rounded"
+              style={{
+                margin: 0,
+                padding: '16px 20px',
+                lineHeight: 1.6,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+              }}
+            >
+              {previewText}
+            </pre>
+          ) : (
+            <div className="text-gray-500">{t`No text version: this email will be sent as HTML only.`}</div>
+          )}
+        </div>
+      )
     })
   }
 
@@ -245,121 +296,120 @@ const TemplatePreviewDrawer: React.FC<TemplatePreviewDrawerProps> = ({
     })
   }
 
+  // A broadcast email goes out through the marketing integration, with its variation's sender when it has one
+  const fromBroadcast = !!messageHistory?.broadcast_id
   const emailProvider = workspace.integrations?.find(
     (i) =>
       i.id ===
-      (record.category === 'marketing'
+      (record.category === 'marketing' || fromBroadcast
         ? workspace.settings?.marketing_email_provider_id
         : workspace.settings?.transactional_email_provider_id)
   )?.email_provider
 
-  const defaultSender = emailProvider?.senders.find((s) => s.is_default)
-  const templateSender = emailProvider?.senders.find((s) => s.id === record.email?.sender_id)
+  const senders = emailProvider?.senders ?? []
+  const categoryLabel = record.category
+    ? isTemplateCategory(record.category)
+      ? i18n._(TEMPLATE_CATEGORY_LABELS[record.category])
+      : record.category
+    : undefined
+  const subtitle = [record.version ? `v${record.version}` : null, categoryLabel].filter(Boolean).join(' · ')
+  const fromName = messageHistory?.channel_options?.from_name
+
+  const replyTo = messageHistory?.channel_options?.reply_to
+  const envelope: KeyValueItem[] = [
+    {
+      key: 'from',
+      label: t`From`,
+      value: fromBroadcast ? (
+        <BroadcastSenderLine
+          workspaceId={workspace.id}
+          broadcastId={messageHistory!.broadcast_id!}
+          templateId={record.id}
+          senders={senders}
+          templateSenderId={record.email?.sender_id}
+          fromName={fromName}
+        />
+      ) : (
+        <SenderLine senders={senders} senderId={record.email?.sender_id} fromName={fromName} />
+      )
+    },
+    {
+      key: 'replyTo',
+      label: t`Reply to`,
+      value: replyTo ? (
+        <>
+          <Text>{replyTo}</Text>
+          {record.email?.reply_to && (
+            <Text type="secondary" className="pl-2 text-xs">
+              {t`(original: ${record.email.reply_to})`}
+            </Text>
+          )}
+        </>
+      ) : record.email?.reply_to ? (
+        <Text>{record.email.reply_to}</Text>
+      ) : (
+        <span className="text-ink-3">{t`Not set`}</span>
+      )
+    },
+    ...(messageHistory?.channel_options?.cc?.length
+      ? [
+          {
+            key: 'cc',
+            label: t`CC`,
+            value: (
+              <Space size={[0, 4]} wrap>
+                {messageHistory.channel_options.cc.map((email, idx) => (
+                  <Tag variant="filled" key={idx} color="blue" className="text-xs">
+                    {email}
+                  </Tag>
+                ))}
+              </Space>
+            )
+          }
+        ]
+      : []),
+    ...(messageHistory?.channel_options?.bcc?.length
+      ? [
+          {
+            key: 'bcc',
+            label: t`BCC`,
+            value: (
+              <Space size={[0, 4]} wrap>
+                {messageHistory.channel_options.bcc.map((email, idx) => (
+                  <Tag variant="filled" key={idx} color="purple" className="text-xs">
+                    {email}
+                  </Tag>
+                ))}
+              </Space>
+            )
+          }
+        ]
+      : []),
+    {
+      key: 'subject',
+      label: t`Subject`,
+      value: <span className="font-semibold text-ink">{renderedSubject ?? effectiveEmail?.subject}</span>
+    },
+    ...(renderedSubjectPreview || effectiveEmail?.subject_preview
+      ? [
+          {
+            key: 'subjectPreview',
+            label: t`Subject preview`,
+            value: <span className="text-ink-3">{renderedSubjectPreview ?? effectiveEmail?.subject_preview}</span>
+          }
+        ]
+      : [])
+  ]
+
+  // The view shown: the one chosen when it exists, else the first there is (no HTML on an MJML error)
+  const shownKey = items.some((item) => item.key === activeTabKey) ? activeTabKey : items[0]?.key
 
   const drawerContent = (
     <div>
-      {/* Header details */}
-      <Descriptions bordered={false} size="small" column={1} className="mb-4">
-        <Descriptions.Item label={t`From`}>
-          {messageHistory?.channel_options?.from_name ? (
-            <>
-              <Text>
-                {messageHistory.channel_options.from_name} &lt;
-                {templateSender?.email || defaultSender?.email || t`no email`}&gt;
-              </Text>
-              {(templateSender || defaultSender) && (
-                <Text type="secondary" className="text-xs pl-2">
-                  {t`(original: ${templateSender?.name || defaultSender?.name})`}
-                </Text>
-              )}
-            </>
-          ) : (
-            <>
-              {templateSender ? (
-                <>
-                  <Text>
-                    {templateSender.name}
-                    <Text> &lt;{templateSender.email}&gt;</Text>
-                  </Text>
-                </>
-              ) : (
-                <>
-                  {defaultSender ? (
-                    <Text>
-                      {defaultSender.name}
-                      <Text> &lt;{defaultSender.email}&gt;</Text>
-                    </Text>
-                  ) : (
-                    <Text>{t`No default sender configured`}</Text>
-                  )}
-                </>
-              )}
-            </>
-          )}
-        </Descriptions.Item>
-
-        {(record.email?.reply_to || messageHistory?.channel_options?.reply_to) && (
-          <Descriptions.Item label={t`Reply to`}>
-            {messageHistory?.channel_options?.reply_to ? (
-              <>
-                <Text>{messageHistory.channel_options.reply_to}</Text>
-                {record.email?.reply_to && (
-                  <Text type="secondary" className="text-xs pl-2">
-                    {t`(original: ${record.email.reply_to})`}
-                  </Text>
-                )}
-              </>
-            ) : (
-              <Text>{record.email?.reply_to || t`Not set`}</Text>
-            )}
-          </Descriptions.Item>
-        )}
-
-        <Descriptions.Item label={t`Subject`}>
-          <Text>{renderedSubject ?? effectiveEmail?.subject}</Text>
-        </Descriptions.Item>
-
-        {(renderedSubjectPreview || effectiveEmail?.subject_preview) && (
-          <Descriptions.Item label={t`Subject preview`}>
-            <Text>{renderedSubjectPreview ?? effectiveEmail?.subject_preview}</Text>
-          </Descriptions.Item>
-        )}
-
-        {/* Channel Options Display - CC and BCC */}
-        {messageHistory?.channel_options?.cc && messageHistory.channel_options.cc.length > 0 && (
-          <Descriptions.Item label={t`CC`}>
-            <Space size={[0, 4]} wrap>
-              {messageHistory.channel_options.cc.map((email, idx) => (
-                <Tag variant="filled" key={idx} color="blue" className="text-xs">
-                  {email}
-                </Tag>
-              ))}
-            </Space>
-          </Descriptions.Item>
-        )}
-
-        {messageHistory?.channel_options?.bcc && messageHistory.channel_options.bcc.length > 0 && (
-          <Descriptions.Item label={t`BCC`}>
-            <Space size={[0, 4]} wrap>
-              {messageHistory.channel_options.bcc.map((email, idx) => (
-                <Tag variant="filled" key={idx} color="purple" className="text-xs">
-                  {email}
-                </Tag>
-              ))}
-            </Space>
-          </Descriptions.Item>
-        )}
-        {showLanguageSelector && (
-          <Descriptions.Item label={t`Language`}>
-            <Segmented
-              size="small"
-              value={effectiveLanguage}
-              onChange={(value) => setSelectedLanguage(value as string)}
-              options={availableLanguages}
-            />
-          </Descriptions.Item>
-        )}
-      </Descriptions>
+      {/* The envelope: who sends, to whom it answers, what the inbox shows */}
+      <div className="mb-4 border-b border-line-soft pb-3">
+        <KeyValueList labelWidth={130} items={envelope} />
+      </div>
       {/* Main content area */}
       <div className="flex flex-col mt-4">
         {isLoading && (
@@ -400,13 +450,21 @@ const TemplatePreviewDrawer: React.FC<TemplatePreviewDrawerProps> = ({
         )}
         {!isLoading &&
           items.length > 0 && ( // Success case
-            <Tabs
-              activeKey={activeTabKey} // Control active tab
-              onChange={setActiveTabKey} // Update state on tab change (onChange is preferred over onTabClick for controlled Tabs)
-              className="flex flex-col flex-grow"
-              items={items}
-              destroyOnHidden={false}
-            />
+            <div className="flex flex-col gap-3">
+              <Segmented
+                size="small"
+                value={shownKey}
+                onChange={(key) => setActiveTabKey(String(key))}
+                options={items.map((item) => ({ value: item.key, label: item.label }))}
+                className="self-start"
+              />
+              {/* Every view stays mounted, as with the former tabs: switching does not reload the HTML */}
+              {items.map((item) => (
+                <div key={item.key} hidden={item.key !== shownKey}>
+                  {item.children}
+                </div>
+              ))}
+            </div>
           )}
         {!isLoading &&
           !error &&
@@ -424,13 +482,36 @@ const TemplatePreviewDrawer: React.FC<TemplatePreviewDrawerProps> = ({
 
   return (
     <>
-      <div onClick={() => setIsOpen(true)}>{children}</div>
+      {controlled ? null : <div onClick={() => setOwnOpen(true)}>{children}</div>}
       <Drawer
-        title={`${record.name}`}
+        title={
+          // The name, then its version and category in grey
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className="truncate">{record.name}</span>
+            {subtitle ? <span className="shrink-0 text-sm font-normal text-ink-3">{subtitle}</span> : null}
+          </span>
+        }
+        extra={
+          <div className="flex items-center gap-2">
+            {showLanguageSelector ? (
+              <Select
+                size="small"
+                aria-label={t`Language`}
+                value={effectiveLanguage}
+                onChange={(value: string) => setSelectedLanguage(value)}
+                options={availableLanguages}
+                popupMatchSelectWidth={false}
+                className="min-w-32"
+              />
+            ) : null}
+            <CloseButton onClose={close} />
+          </div>
+        }
+        closable={false}
         placement="right"
-        size={650}
+        size={760}
         open={isOpen}
-        onClose={() => setIsOpen(false)}
+        onClose={close}
         destroyOnHidden={true}
         mask={{ enabled: true, closable: true }}
         keyboard={true}

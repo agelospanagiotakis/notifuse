@@ -13,9 +13,10 @@ export interface BaseTiptapProps {
 }
 
 // Props specific to the rich text editor
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface TiptapRichEditorProps extends BaseTiptapProps {
-  // Additional props specific to rich editor can be added here
+  // Level of the last heading above this block in the email, null when none:
+  // the text style menu marks the levels that would skip one
+  headingLevelBeforeBlock?: number | null
 }
 
 // Props specific to the inline editor
@@ -29,6 +30,7 @@ export interface TiptapToolbarProps {
   editor: Editor | null
   buttons?: string[]
   mode?: 'rich' | 'inline'
+  headingLevelBeforeBlock?: number | null
 }
 
 // Individual toolbar button props
@@ -77,4 +79,4 @@ export type ButtonType =
   | 'subscript'
 
 // Link types
-export type LinkType = 'url' | 'email' | 'phone' | 'anchor'
+export type LinkType = 'url' | 'email' | 'phone' | 'anchor' | 'web_version'

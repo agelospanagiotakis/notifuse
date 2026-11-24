@@ -38,6 +38,7 @@ func (h *TemplateHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/templates.update", requireAuth(http.HandlerFunc(h.handleUpdate)))
 	mux.Handle("/api/templates.delete", requireAuth(http.HandlerFunc(h.handleDelete)))
 	mux.Handle("/api/templates.compile", requireAuth(http.HandlerFunc(h.handleCompile)))
+	mux.Handle("/api/templates.usage", requireAuth(http.HandlerFunc(h.handleUsage)))
 }
 
 func (h *TemplateHandler) handleList(w http.ResponseWriter, r *http.Request) {
@@ -62,6 +63,33 @@ func (h *TemplateHandler) handleList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"templates": templates,
 	})
+}
+
+// handleUsage answers templates.usage: what uses each template, or one template with the
+// objects using it, over the types the member may read.
+func (h *TemplateHandler) handleUsage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		WriteJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req domain.GetTemplateUsageRequest
+	if err := req.FromURLParams(r.URL.Query()); err != nil {
+		WriteJSONError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	usage, err := h.service.GetTemplateUsage(r.Context(), req.WorkspaceID, req.TemplateID)
+	if err != nil {
+		if writeServiceError(w, err, "Failed to get template usage") {
+			return
+		}
+		h.logger.WithField("error", err.Error()).Error("Failed to get template usage")
+		WriteJSONError(w, "Failed to get template usage", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, usage)
 }
 
 func (h *TemplateHandler) handleGet(w http.ResponseWriter, r *http.Request) {
@@ -92,6 +120,34 @@ func (h *TemplateHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// maxTemplateRequestBytes bounds the body of templates.create, templates.update and
+// templates.compile. A template of the gallery weighs 18 to 23 KB per language, and 136 KB
+// with all its languages; a larger body is refused before it is parsed, since a template is
+// compiled again at every send and its cost grows with its size.
+const maxTemplateRequestBytes = 1 << 20
+
+// decodeTemplateRequest decodes a template request body of at most maxTemplateRequestBytes
+// into v. It answers the request and returns false when the body is too large (413) or is
+// not valid JSON (400, with the decoder's message when detailed is true).
+func (h *TemplateHandler) decodeTemplateRequest(w http.ResponseWriter, r *http.Request, v interface{}, detailed bool) bool {
+	err := json.NewDecoder(middleware.MaxBytesReader(w, r, maxTemplateRequestBytes)).Decode(v)
+	if err == nil {
+		return true
+	}
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		WriteJSONError(w, fmt.Sprintf("Request body too large: a template request is limited to %d bytes", maxTemplateRequestBytes), http.StatusRequestEntityTooLarge)
+		return false
+	}
+	h.logger.WithField("error", err.Error()).Error("Failed to decode request body")
+	if detailed {
+		WriteJSONError(w, err.Error(), http.StatusBadRequest)
+	} else {
+		WriteJSONError(w, "Invalid request body", http.StatusBadRequest)
+	}
+	return false
+}
+
 func (h *TemplateHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		WriteJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -99,9 +155,7 @@ func (h *TemplateHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req domain.CreateTemplateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.logger.WithField("error", err.Error()).Error("Failed to decode request body")
-		WriteJSONError(w, "Invalid request body", http.StatusBadRequest)
+	if !h.decodeTemplateRequest(w, r, &req, false) {
 		return
 	}
 
@@ -151,9 +205,7 @@ func (h *TemplateHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req domain.UpdateTemplateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.logger.WithField("error", err.Error()).Error("Failed to decode request body")
-		WriteJSONError(w, "Invalid request body", http.StatusBadRequest)
+	if !h.decodeTemplateRequest(w, r, &req, false) {
 		return
 	}
 
@@ -215,6 +267,12 @@ func (h *TemplateHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.service.DeleteTemplate(r.Context(), workspaceID, id); err != nil {
+		if writePermissionError(w, err) {
+			return
+		}
+		if writeValidationError(w, err) {
+			return
+		}
 		if _, ok := err.(*domain.ErrTemplateNotFound); ok {
 			WriteJSONError(w, "Template not found", http.StatusNotFound)
 			return
@@ -236,9 +294,7 @@ func (h *TemplateHandler) handleCompile(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req domain.CompileTemplateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.logger.WithField("error", err.Error()).Error("Failed to decode compile request body")
-		WriteJSONError(w, err.Error(), http.StatusBadRequest)
+	if !h.decodeTemplateRequest(w, r, &req, true) {
 		return
 	}
 
@@ -246,6 +302,9 @@ func (h *TemplateHandler) handleCompile(w http.ResponseWriter, r *http.Request) 
 		WriteJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	// The preview shows the plain-text version a send would include.
+	req.IncludeText = true
 
 	resp, err := h.service.CompileTemplate(r.Context(), req)
 	if err != nil {

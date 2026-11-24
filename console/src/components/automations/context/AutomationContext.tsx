@@ -7,7 +7,7 @@ import type { Node, Edge } from '@xyflow/react'
 import {
   automationApi,
   type Automation,
-  type AutomationNode
+  type TriggerFrequency
 } from '../../../services/api/automation'
 import { ApiError } from '../../../services/api/errors'
 import type { Workspace, Template } from '../../../services/api/types'
@@ -16,13 +16,11 @@ import type { Segment } from '../../../services/api/segment'
 import {
   createInitialFlow,
   automationToFlow,
-  flowToAutomationNodes,
-  buildTriggerConfig,
   hydrateTriggerNodeConfig,
-  findRootNodeId,
   validateFlow,
   type AutomationNodeData
 } from '../utils/flowConverter'
+import { buildAutomationPayload, stableKey } from '../utils/buildAutomationPayload'
 import { useUndoRedo } from '../hooks/useUndoRedo'
 import { layoutNodes } from '../utils/layoutNodes'
 import {
@@ -39,6 +37,10 @@ const changedDespiteFailure = (error: Error): boolean => {
   return paused === true || running_previous_trigger === true
 }
 
+// Stable defaults: a fresh [] on each render would change the context value every time.
+const NO_SEGMENTS: Segment[] = []
+const NO_TEMPLATES: Template[] = []
+
 // Provider props
 interface AutomationProviderProps {
   workspace: Workspace
@@ -46,8 +48,11 @@ interface AutomationProviderProps {
   lists: List[]
   segments?: Segment[]
   templates?: Template[]
-  onSaveSuccess?: () => void
-  onClose?: () => void
+  canReadTemplates: boolean
+  /** Live, or no write permission: nothing can be changed. */
+  readOnly?: boolean
+  /** After each save, with the automation as the server answered it; the editor stays open. */
+  onSaved?: (automation: Automation) => void
   children: React.ReactNode
 }
 
@@ -55,16 +60,20 @@ export function AutomationProvider({
   workspace,
   automation,
   lists,
-  segments = [],
-  templates = [],
-  onSaveSuccess,
-  // Reserved for future use
-  onClose: _onClose,
+  segments = NO_SEGMENTS,
+  templates = NO_TEMPLATES,
+  canReadTemplates,
+  readOnly = false,
+  onSaved,
   children
 }: AutomationProviderProps) {
   const { t } = useLingui()
   const queryClient = useQueryClient()
   const { message } = App.useApp()
+  // The callbacks below take their strings from the render rather than calling t, so that they, and
+  // the context value, depend on nothing but their own inputs.
+  const listInUseMessage = t`Cannot remove list while email nodes exist. Delete email nodes first.`
+  const nameRequiredMessage = t`Please enter an automation name`
 
   // Form state
   const [name, setName] = useState(automation?.name || '')
@@ -75,10 +84,15 @@ export function AutomationProvider({
   const [nodes, setNodes] = useState<Node<AutomationNodeData>[]>([])
   const [edges, setEdges] = useState<Edge[]>([])
 
-  // Save state
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  // The id is fixed for the session: a new automation is created under it, then updated.
+  const [automationId] = useState(() => automation?.id ?? uuidv4())
+  // The automation as last loaded or saved, and the key of what that save sent.
+  const [saved, setSaved] = useState<Automation | null>(automation ?? null)
+  const [savedKey, setSavedKey] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [lastError, setLastError] = useState<Error | null>(null)
+  const [conflict, setConflict] = useState(false)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
 
   // Initial selection tracking
   const [initialSelectedNodeId, setInitialSelectedNodeId] = useState<string | undefined>(undefined)
@@ -90,7 +104,14 @@ export function AutomationProvider({
   // Internal method for pushing the current state onto the future (redo) stack.
   const pushToFuture = undoRedoHook._pushToFuture
 
-  const isEditing = !!automation
+  const isEditing = !!saved
+
+  // A pause or an activation made from the editor reloads the automation: its status follows,
+  // the rest of the session (edits, history) stays.
+  const loadedStatus = automation?.id === automationId ? automation?.status : undefined
+  useEffect(() => {
+    if (loadedStatus) setSaved((prev) => (prev && prev.status !== loadedStatus ? { ...prev, status: loadedStatus } : prev))
+  }, [loadedStatus])
 
   // Initialize flow on mount
   useEffect(() => {
@@ -100,44 +121,92 @@ export function AutomationProvider({
     if (automation) {
       // Load existing automation
       const { nodes: flowNodes, edges: flowEdges } = automationToFlow(automation)
-      setNodes(hydrateTriggerNodeConfig(flowNodes, automation.trigger))
+      const loadedNodes = hydrateTriggerNodeConfig(flowNodes, automation.trigger)
+      setNodes(loadedNodes)
       setEdges(flowEdges)
       setName(automation.name)
       setListId(automation.list_id)
       setExitOnReply(automation.exit_on_reply || false)
+      setSavedKey(
+        stableKey(
+          buildAutomationPayload({
+            id: automationId,
+            workspaceId: workspace.id,
+            name: automation.name,
+            listId: automation.list_id,
+            exitOnReply: automation.exit_on_reply || false,
+            nodes: loadedNodes,
+            edges: flowEdges,
+            base: automation
+          })
+        )
+      )
     } else {
       // New automation - start with trigger only
       const { nodes: initialNodes, edges: initialEdges } = createInitialFlow()
       setNodes(initialNodes)
       setEdges(initialEdges)
+      // An untouched new automation has nothing to lose.
+      setSavedKey(
+        stableKey(
+          buildAutomationPayload({
+            id: automationId,
+            workspaceId: workspace.id,
+            name: '',
+            listId: undefined,
+            exitOnReply: false,
+            nodes: initialNodes,
+            edges: initialEdges,
+            base: null
+          })
+        )
+      )
       // Auto-select trigger node for new automations
       const triggerNode = initialNodes.find((n) => n.data.nodeType === 'trigger')
       setInitialSelectedNodeId(triggerNode?.id)
     }
-  }, [automation])
+  }, [automation, automationId, workspace.id])
 
-  // Mark as changed
-  const markAsChanged = useCallback(() => {
-    setHasUnsavedChanges(true)
-  }, [])
+  // What a save would send now, and whether it differs from what was loaded or last saved.
+  const payload = useMemo(
+    () =>
+      buildAutomationPayload({
+        id: automationId,
+        workspaceId: workspace.id,
+        name,
+        listId,
+        exitOnReply,
+        nodes,
+        edges,
+        base: saved
+      }),
+    [automationId, workspace.id, name, listId, exitOnReply, nodes, edges, saved]
+  )
+  const payloadKey = useMemo(() => stableKey(payload), [payload])
+  const changed = savedKey !== null && payloadKey !== savedKey
+  const hasUnsavedChanges = !readOnly && changed
+  const hasHeldChanges = readOnly && changed
 
-  // Wrapped setters that mark as changed
+  // Read-only: the writers do nothing.
   const setNameWithChange = useCallback((newName: string) => {
-    setName(newName)
-    setHasUnsavedChanges(true)
-  }, [])
+    if (!readOnly) setName(newName)
+  }, [readOnly])
 
   const setExitOnReplyWithChange = useCallback((v: boolean) => {
-    setExitOnReply(v)
-    setHasUnsavedChanges(true)
-  }, [])
+    if (!readOnly) setExitOnReply(v)
+  }, [readOnly])
+
+  const triggerNode = nodes.find((n) => n.data.nodeType === 'trigger')
+  const frequency: TriggerFrequency =
+    (triggerNode?.data.config as { frequency?: TriggerFrequency } | undefined)?.frequency || 'once'
 
   const setListIdWithChange = useCallback((newListId: string | undefined) => {
+    if (readOnly) return
     // Check if clearing list while email nodes exist
     if (!newListId) {
       const hasEmailNodes = nodes.some(n => n.data.nodeType === 'email')
       if (hasEmailNodes) {
-        message.error(t`Cannot remove list while email nodes exist. Delete email nodes first.`)
+        message.error(listInUseMessage)
         return
       }
     }
@@ -218,14 +287,24 @@ export function AutomationProvider({
     }
 
     setListId(newListId)
-    setHasUnsavedChanges(true)
-  }, [nodes, edges, message, t])
+  }, [nodes, edges, message, listInUseMessage, readOnly])
 
   // Push current canvas state to history (call BEFORE making changes). Pass a coalesceKey to fold a
   // run of edits — typing in one field — into a single undo step; see useUndoRedo.push.
   const pushHistory = useCallback((coalesceKey?: string) => {
     pushToHistory({ nodes, edges }, coalesceKey)
   }, [nodes, edges, pushToHistory])
+
+  // The frequency lives on the trigger node: one undo step like any config change.
+  const setFrequency = useCallback((next: TriggerFrequency) => {
+    if (readOnly) return
+    pushHistory()
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.data.nodeType === 'trigger' ? { ...n, data: { ...n.data, config: { ...n.data.config, frequency: next } } } : n
+      )
+    )
+  }, [readOnly, pushHistory])
 
   // Undo - restore previous state
   const undo = useCallback(() => {
@@ -236,7 +315,6 @@ export function AutomationProvider({
       // Restore previous state
       setNodes(previousState.nodes)
       setEdges(previousState.edges)
-      setHasUnsavedChanges(true)
     }
   }, [undoRedoHook, nodes, edges, pushToFuture])
 
@@ -249,7 +327,6 @@ export function AutomationProvider({
       // Restore next state
       setNodes(nextState.nodes)
       setEdges(nextState.edges)
-      setHasUnsavedChanges(true)
     }
   }, [undoRedoHook, nodes, edges, pushToHistory])
 
@@ -258,14 +335,25 @@ export function AutomationProvider({
     return validateFlow(nodes, edges, listId)
   }, [nodes, edges, listId])
 
-  // Create mutation
-  const createMutation = useMutation({
+  // After a save: the automation as answered, the key of what was sent, the caches told.
+  const afterSave = useCallback((sent: Automation, answered: Automation | undefined) => {
+    const next = answered ?? sent
+    setSaved(next)
+    setSavedKey(stableKey(sent))
+    setConflict(false)
+    queryClient.setQueryData(['automation', workspace.id, next.id], { automation: next })
+    void queryClient.invalidateQueries({ queryKey: ['automations', workspace.id] })
+    void queryClient.invalidateQueries({ queryKey: ['automation-node-stats', workspace.id, next.id] })
+    onSaved?.(next)
+  }, [queryClient, workspace.id, onSaved])
+
+  // Create mutation (its mutateAsync is stable, the result object is not)
+  const { mutateAsync: createAsync } = useMutation({
     mutationFn: (data: { workspace_id: string; automation: Automation }) =>
       automationApi.create(data),
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
       message.success(t`Automation created successfully`)
-      queryClient.invalidateQueries({ queryKey: ['automations', workspace.id] })
-      onSaveSuccess?.()
+      afterSave(variables.automation, data?.automation)
     },
     onError: (error: Error) => {
       message.error(t`Failed to create automation: ${error.message}`)
@@ -274,45 +362,44 @@ export function AutomationProvider({
   })
 
   // Update mutation
-  const updateMutation = useMutation({
+  const { mutateAsync: updateAsync } = useMutation({
     mutationFn: (data: { workspace_id: string; automation: Automation }) =>
       automationApi.update(data),
-    onSuccess: (data) => {
-      // Saving keeps the stored status, and the automation can have been paused since the editor
-      // loaded it live, by a save that failed among others: saved, but not running, which a plain
-      // success would hide.
-      if (automation?.status === 'live' && data.automation?.status === 'paused') {
-        message.warning({
-          content: t`Automation updated, but it is paused: activate it to run this version.`,
-          duration: 10
-        })
-      } else {
-        message.success(t`Automation updated successfully`)
-      }
-      queryClient.invalidateQueries({ queryKey: ['automations', workspace.id] })
-      onSaveSuccess?.()
+    onSuccess: (data, variables) => {
+      message.success(t`Automation updated successfully`)
+      afterSave(variables.automation, data?.automation)
     },
     onError: (error: Error) => {
-      // An answer that says what became of the automation starts with the failure itself, and the
-      // rest is what the user has to act on: shown as sent, and long enough to read.
-      if (changedDespiteFailure(error)) {
+      if (error instanceof ApiError && error.status === 409) {
+        // Another change won the race: the edits stay, and the editor offers to reload.
+        setConflict(true)
+        message.error(t`This automation was changed elsewhere`)
+      } else if (changedDespiteFailure(error)) {
+        // An answer that says what became of the automation starts with the failure itself, and
+        // the rest is what the user has to act on: shown as sent, and long enough to read.
         message.error({ content: error.message, duration: 10 })
       } else {
         message.error(t`Failed to update automation: ${error.message}`)
       }
       setLastError(error)
       // A failed update can still have changed the automation: one that could not go back to
-      // its previous version is paused, and the list has to show it.
-      queryClient.invalidateQueries({ queryKey: ['automations', workspace.id] })
+      // its previous version is paused, and the list and the editor have to show it.
+      void queryClient.invalidateQueries({ queryKey: ['automations', workspace.id] })
+      void queryClient.invalidateQueries({ queryKey: ['automation', workspace.id, automationId] })
     }
   })
 
+  // One save at a time: a second one (a held ⌘S) would create the automation twice. A ref, as the
+  // state only changes on the next render.
+  const savingRef = useRef(false)
+
   // Save automation
-  const save = useCallback(async () => {
+  const save = useCallback(async (): Promise<boolean> => {
+    if (readOnly || savingRef.current) return false
     // Validate name
     if (!name.trim()) {
-      message.error(t`Please enter an automation name`)
-      return
+      message.error(nameRequiredMessage)
+      return false
     }
 
     // Validate flow
@@ -320,56 +407,33 @@ export function AutomationProvider({
     const errors = validationErrors.filter(e => !e.message.startsWith('Warning:'))
 
     if (errors.length > 0) {
-      message.error(errors[0].message)
-      return
+      const [first] = errors
+      // Longer than a plain toast, and the step at fault is selected: the canvas brings it into
+      // view and its panel opens on what is missing.
+      message.error({ content: first.message, duration: 8 })
+      const faultyId = first.nodeId
+      if (faultyId) {
+        setSelectedNodeId(faultyId)
+        setNodes((nds) => nds.map((n) => ({ ...n, selected: n.id === faultyId })))
+      }
+      return false
     }
 
+    savingRef.current = true
     setIsSaving(true)
     setLastError(null)
 
     try {
-      const automationId = automation?.id || uuidv4()
-
-      // Convert flow to automation nodes
-      const automationNodes: AutomationNode[] = flowToAutomationNodes(nodes, edges, automationId)
-
-      // Build trigger config from trigger node
-      const triggerConfig = buildTriggerConfig(nodes)
-
-      // Find root node ID
-      const rootNodeId = findRootNodeId(nodes)
-
-      const automationData: Automation = {
-        id: automationId,
-        workspace_id: workspace.id,
-        name: name.trim(),
-        status: automation?.status || 'draft',
-        list_id: listId || '',
-        exit_on_reply: exitOnReply,
-        trigger: triggerConfig,
-        root_node_id: rootNodeId,
-        nodes: automationNodes,
-        created_at: automation?.created_at || new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }
-
-      if (isEditing) {
-        await updateMutation.mutateAsync({
-          workspace_id: workspace.id,
-          automation: automationData
-        })
-      } else {
-        await createMutation.mutateAsync({
-          workspace_id: workspace.id,
-          automation: automationData
-        })
-      }
-
-      setHasUnsavedChanges(false)
+      const mutateAsync = isEditing ? updateAsync : createAsync
+      await mutateAsync({ workspace_id: workspace.id, automation: payload })
+      return true
+    } catch {
+      return false
     } finally {
+      savingRef.current = false
       setIsSaving(false)
     }
-  }, [name, listId, exitOnReply, nodes, edges, automation, workspace.id, isEditing, validate, createMutation, updateMutation, message, t])
+  }, [readOnly, name, payload, workspace.id, isEditing, validate, createAsync, updateAsync, message, nameRequiredMessage])
 
   // Reset state
   const reset = useCallback(() => {
@@ -378,7 +442,6 @@ export function AutomationProvider({
     setName('')
     setListId(undefined)
     setExitOnReply(false)
-    setHasUnsavedChanges(false)
     setLastError(null)
     clearHistory()
     initializedRef.current = false
@@ -395,22 +458,30 @@ export function AutomationProvider({
   // Context value
   const value = useMemo<AutomationContextType>(() => ({
     workspace,
-    automation: automation || null,
+    automation: saved,
+    automationId,
     isEditing,
+    readOnly,
     lists,
     segments,
     templates,
+    canReadTemplates,
     name,
     setName: setNameWithChange,
     listId,
     setListId: setListIdWithChange,
     exitOnReply,
     setExitOnReply: setExitOnReplyWithChange,
+    frequency,
+    setFrequency,
+    selectedNodeId,
+    setSelectedNodeId,
     canvasState,
     hasUnsavedChanges,
-    markAsChanged,
+    hasHeldChanges,
     isSaving,
     lastError,
+    conflict,
     initialSelectedNodeId,
     canUndo,
     canRedo,
@@ -422,22 +493,29 @@ export function AutomationProvider({
     reset
   }), [
     workspace,
-    automation,
+    saved,
+    automationId,
     isEditing,
+    readOnly,
     lists,
     segments,
     templates,
+    canReadTemplates,
     name,
     setNameWithChange,
     listId,
     setListIdWithChange,
     exitOnReply,
     setExitOnReplyWithChange,
+    frequency,
+    setFrequency,
+    selectedNodeId,
     canvasState,
     hasUnsavedChanges,
-    markAsChanged,
+    hasHeldChanges,
     isSaving,
     lastError,
+    conflict,
     initialSelectedNodeId,
     canUndo,
     canRedo,

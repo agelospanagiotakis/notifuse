@@ -227,6 +227,10 @@ func (s *BlogService) UpdateCategory(ctx context.Context, request *domain.Update
 
 	// Check if slug is changing and if new slug already exists
 	if category.Slug != request.Slug {
+		// An existing category with a reserved slug stays editable; it cannot move to one.
+		if domain.IsReservedBlogCategorySlug(request.Slug) {
+			return nil, fmt.Errorf("slug is reserved by another route")
+		}
 		existing, err := s.categoryRepo.GetCategoryBySlug(ctx, request.Slug)
 		if err == nil && existing != nil && existing.ID != request.ID {
 			return nil, fmt.Errorf("category with slug '%s' already exists", request.Slug)
@@ -691,7 +695,38 @@ func (s *BlogService) ListPosts(ctx context.Context, params *domain.ListBlogPost
 		return nil, err
 	}
 
+	// published_at is stored in UTC without a time zone.
+	params.Now = time.Now().UTC()
+
 	return s.postRepo.ListPosts(ctx, *params)
+}
+
+// CountPosts counts the posts by status, overall or in one category, and per category; a
+// search narrows the counts by status to the matching titles.
+func (s *BlogService) CountPosts(ctx context.Context, categoryID string, search string) (*domain.BlogPostCounts, error) {
+	workspaceID, ok := ctx.Value(domain.WorkspaceIDKey).(string)
+	if !ok {
+		return nil, fmt.Errorf("workspace_id not found in context")
+	}
+
+	ctx, _, userWorkspace, err := s.authService.AuthenticateUserForWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to authenticate user: %w", err)
+	}
+
+	if !userWorkspace.HasPermission(domain.PermissionResourceBlog, domain.PermissionTypeRead) {
+		return nil, domain.NewPermissionError(
+			domain.PermissionResourceBlog,
+			domain.PermissionTypeRead,
+			"Insufficient permissions: read access to blog required",
+		)
+	}
+
+	counts, err := s.postRepo.CountPosts(ctx, workspaceID, categoryID, strings.TrimSpace(search), time.Now().UTC())
+	if err != nil {
+		return nil, fmt.Errorf("failed to count blog posts: %w", err)
+	}
+	return counts, nil
 }
 
 // PublishPost publishes a draft blog post
@@ -799,25 +834,32 @@ func (s *BlogService) GetPublicPostByCategoryAndSlug(ctx context.Context, catego
 		return nil, err
 	}
 
-	// Only return published posts
-	if !post.IsPublished() {
+	// Only return posts that are published and whose date has come
+	if !post.IsLive(time.Now().UTC()) {
 		return nil, fmt.Errorf("post not found")
 	}
 
 	return post, nil
 }
 
-// ListPublicPosts retrieves published blog posts (no auth required)
-func (s *BlogService) ListPublicPosts(ctx context.Context, params *domain.ListBlogPostsRequest) (*domain.BlogPostListResponse, error) {
-	// Force status to published
-	params.Status = domain.BlogPostStatusPublished
-
-	// Validate the request
-	if err := params.Validate(); err != nil {
-		return nil, err
+// ListPublicSitemapPosts returns the live posts the sitemap can list, newest first, at most
+// domain.BlogSitemapMaxPosts of them (no auth required: the sitemap is public)
+func (s *BlogService) ListPublicSitemapPosts(ctx context.Context) ([]*domain.BlogSitemapPost, error) {
+	posts, err := s.postRepo.ListSitemapPosts(ctx, time.Now().UTC(), domain.BlogSitemapMaxPosts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list sitemap posts: %w", err)
 	}
+	return posts, nil
+}
 
-	return s.postRepo.ListPosts(ctx, *params)
+// NextScheduledPublishAt returns the earliest publication after now, or nil when no post is
+// scheduled (no auth required: it bounds the cache of the public pages).
+func (s *BlogService) NextScheduledPublishAt(ctx context.Context, now time.Time) (*time.Time, error) {
+	next, err := s.postRepo.NextScheduledPublishAt(ctx, now)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the next scheduled publication: %w", err)
+	}
+	return next, nil
 }
 
 // ====================
@@ -1176,11 +1218,13 @@ func (s *BlogService) RenderHomePage(ctx context.Context, workspaceID string, pa
 		pageSize = workspace.Settings.BlogSettings.GetHomePageSize()
 	}
 
-	// Get published posts for home page
+	// Get published posts for home page, without those scheduled after now
+	now := time.Now().UTC()
 	params := &domain.ListBlogPostsRequest{
-		Status: domain.BlogPostStatusPublished,
-		Page:   page,
-		Limit:  pageSize,
+		Status:          domain.BlogPostStatusPublished,
+		Page:            page,
+		Limit:           pageSize,
+		PublishedBefore: &now,
 	}
 	// Validate will calculate offset
 	if err := params.Validate(); err != nil {
@@ -1355,8 +1399,8 @@ func (s *BlogService) RenderPostPage(ctx context.Context, workspaceID, categoryS
 		}
 	}
 
-	// Check if post is published
-	if !post.IsPublished() {
+	// Check if post is published and its date has come
+	if !post.IsLive(time.Now().UTC()) {
 		return "", &domain.BlogRenderError{
 			Code:    domain.ErrCodePostNotFound,
 			Message: "Post is not published",
@@ -1511,7 +1555,7 @@ func (s *BlogService) RenderPostContent(ctx context.Context, workspaceID, catego
 			Details: err,
 		}
 	}
-	if !post.IsPublished() {
+	if !post.IsLive(time.Now().UTC()) {
 		return "", &domain.BlogRenderError{
 			Code:    domain.ErrCodePostNotFound,
 			Message: "Post is not published",
@@ -1908,12 +1952,14 @@ func (s *BlogService) RenderCategoryPage(ctx context.Context, workspaceID, categ
 		pageSize = workspace.Settings.BlogSettings.GetCategoryPageSize()
 	}
 
-	// Get published posts in this category
+	// Get published posts in this category, without those scheduled after now
+	now := time.Now().UTC()
 	params := &domain.ListBlogPostsRequest{
-		CategoryID: category.ID,
-		Status:     domain.BlogPostStatusPublished,
-		Page:       page,
-		Limit:      pageSize,
+		CategoryID:      category.ID,
+		Status:          domain.BlogPostStatusPublished,
+		Page:            page,
+		Limit:           pageSize,
+		PublishedBefore: &now,
 	}
 	// Validate will calculate offset
 	if err := params.Validate(); err != nil {

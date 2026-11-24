@@ -168,13 +168,17 @@ func (s *mockSMTPServer) handleConnection(conn net.Conn) {
 			return
 		}
 
+		// The message body is kept as received, dot-stuffing included, minus the line
+		// ending: trimming it would unfold MIME headers and strip the leading spaces
+		// of a plain-text part.
+		rawLine := strings.TrimRight(line, "\r\n")
 		line = strings.TrimSpace(line)
 		s.mu.Lock()
 		s.commands = append(s.commands, line)
 		s.mu.Unlock()
 
 		if inData {
-			if line == "." {
+			if rawLine == "." {
 				inData = false
 				s.mu.Lock()
 				s.messages = append(s.messages, capturedMessage{
@@ -186,7 +190,7 @@ func (s *mockSMTPServer) handleConnection(conn net.Conn) {
 				conn.Write([]byte("250 OK message queued\r\n"))
 				continue
 			}
-			dataBuffer.WriteString(line + "\r\n")
+			dataBuffer.WriteString(rawLine + "\r\n")
 			continue
 		}
 
@@ -1602,7 +1606,7 @@ func TestSendRawEmailWithSettings_OAuth2_XOAUTH2(t *testing.T) {
 		token: expectedToken,
 	}
 
-	err := sendRawEmailWithSettings(settings, "sender@example.com", []string{"recipient@example.com"}, msg, mockTokenService)
+	err := sendRawEmailWithSettings(context.Background(), settings, "sender@example.com", []string{"recipient@example.com"}, msg, mockTokenService)
 	require.NoError(t, err)
 
 	// Verify AUTH XOAUTH2 was sent
@@ -1639,7 +1643,7 @@ func TestSendRawEmailWithSettings_OAuth2_InvalidToken(t *testing.T) {
 		token: "wrong-token",
 	}
 
-	err := sendRawEmailWithSettings(settings, "sender@example.com", []string{"recipient@example.com"}, msg, mockTokenService)
+	err := sendRawEmailWithSettings(context.Background(), settings, "sender@example.com", []string{"recipient@example.com"}, msg, mockTokenService)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "authentication")
 }
@@ -1659,7 +1663,7 @@ func TestSendRawEmailWithSettings_BasicAuth_Fallback(t *testing.T) {
 
 	msg := []byte("From: sender@example.com\r\nTo: recipient@example.com\r\nSubject: Test\r\n\r\nTest body")
 
-	err := sendRawEmailWithSettings(settings, "sender@example.com", []string{"recipient@example.com"}, msg, nil)
+	err := sendRawEmailWithSettings(context.Background(), settings, "sender@example.com", []string{"recipient@example.com"}, msg, nil)
 	require.NoError(t, err)
 
 	messages := server.GetMessages()
@@ -1681,7 +1685,7 @@ func TestSendRawEmailWithSettings_EmptyAuthType_DefaultsToBasic(t *testing.T) {
 
 	msg := []byte("From: sender@example.com\r\nTo: recipient@example.com\r\nSubject: Test\r\n\r\nTest body")
 
-	err := sendRawEmailWithSettings(settings, "sender@example.com", []string{"recipient@example.com"}, msg, nil)
+	err := sendRawEmailWithSettings(context.Background(), settings, "sender@example.com", []string{"recipient@example.com"}, msg, nil)
 	require.NoError(t, err)
 
 	messages := server.GetMessages()
@@ -1731,7 +1735,7 @@ func TestSendRawEmailWithSettings_OAuth2_TokenServiceError(t *testing.T) {
 		err: fmt.Errorf("failed to get access token"),
 	}
 
-	err := sendRawEmailWithSettings(settings, "sender@example.com", []string{"recipient@example.com"}, msg, mockTokenService)
+	err := sendRawEmailWithSettings(context.Background(), settings, "sender@example.com", []string{"recipient@example.com"}, msg, mockTokenService)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get OAuth2 token")
 }
@@ -1743,10 +1747,12 @@ type mockOAuth2TokenService struct {
 	invalidateCalled bool
 	callCount        int
 	tokensOnRetry    []string // tokens to return on subsequent calls (for retry testing)
+	lastCtx          context.Context
 }
 
-func (m *mockOAuth2TokenService) GetAccessToken(settings *domain.SMTPSettings) (string, error) {
+func (m *mockOAuth2TokenService) GetAccessToken(ctx context.Context, settings *domain.SMTPSettings) (string, error) {
 	m.callCount++
+	m.lastCtx = ctx
 	if m.err != nil {
 		return "", m.err
 	}
@@ -1992,7 +1998,7 @@ func TestSendRawEmailWithSettings_OAuth2_RetryOnExpiredToken(t *testing.T) {
 		tokensOnRetry: []string{expectedToken},
 	}
 
-	err := sendRawEmailWithSettings(settings, "sender@example.com", []string{"recipient@example.com"}, msg, mockTokenService)
+	err := sendRawEmailWithSettings(context.Background(), settings, "sender@example.com", []string{"recipient@example.com"}, msg, mockTokenService)
 	require.NoError(t, err)
 
 	// Verify retry happened
@@ -2090,7 +2096,7 @@ func TestSendRawEmailWithSettings_OAuth2_ErrorDecoding(t *testing.T) {
 		token: "some-token",
 	}
 
-	err = sendRawEmailWithSettings(settings, "sender@example.com", []string{"recipient@example.com"}, msg, mockTokenService)
+	err = sendRawEmailWithSettings(context.Background(), settings, "sender@example.com", []string{"recipient@example.com"}, msg, mockTokenService)
 	require.Error(t, err)
 	// The error should contain the decoded JSON message
 	assert.Contains(t, err.Error(), "status")
@@ -2159,4 +2165,83 @@ func TestDotStuffingIntegration(t *testing.T) {
 	// Our mock server stores the raw data as received (with dot-stuffing applied).
 	assert.Contains(t, receivedData, "..com/path/to/image.png",
 		"Expected dot-stuffed content (double dot) but got: %s", receivedData)
+}
+
+func TestSMTPService_SendEmail_PlainTextVersion(t *testing.T) {
+	const text = "Hello Camille\n\nTrack your parcel (https://example.com/track)\n"
+	const html = "<h1>Hello Camille</h1><img src=\"cid:logo.png\"><a href=\"https://example.com/track\">Track your parcel</a>"
+
+	inline := domain.Attachment{Filename: "logo.png", Content: "iVBORw0KGgo=", ContentType: "image/png", Disposition: "inline"}
+	regular := domain.Attachment{Filename: "invoice.pdf", Content: "JVBERi0xLjQ=", ContentType: "application/pdf", Disposition: "attachment"}
+
+	tests := []struct {
+		name        string
+		text        string
+		attachments []domain.Attachment
+		wantShape   string
+	}{
+		{
+			name:      "text and HTML are alternatives, HTML last",
+			text:      text,
+			wantShape: "multipart/alternative[text/plain,text/html]",
+		},
+		{
+			name:        "inline image and attachment keep their places around the alternative",
+			text:        text,
+			attachments: []domain.Attachment{inline, regular},
+			wantShape:   "multipart/mixed[multipart/related[multipart/alternative[text/plain,text/html],image/png],application/pdf]",
+		},
+		{
+			name:      "no text keeps the HTML-only message",
+			wantShape: "text/html",
+		},
+		{
+			name:        "no text with attachments keeps the previous structure",
+			attachments: []domain.Attachment{inline, regular},
+			wantShape:   "multipart/mixed[multipart/related[text/html,image/png],application/pdf]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := newMockSMTPServer(t, true)
+			defer server.Close()
+
+			service := NewSMTPService(&noopLogger{})
+			request := domain.SendEmailProviderRequest{
+				WorkspaceID:   "workspace-123",
+				IntegrationID: "integration-123",
+				MessageID:     "message-123",
+				FromAddress:   "sender@example.com",
+				FromName:      "Test Sender",
+				To:            "recipient@example.com",
+				Subject:       "Your order",
+				Content:       html,
+				TextContent:   tt.text,
+				Provider: &domain.EmailProvider{
+					Kind: domain.EmailProviderKindSMTP,
+					SMTP: &domain.SMTPSettings{Host: "127.0.0.1", Port: server.Port()},
+				},
+				EmailOptions: domain.EmailOptions{Attachments: tt.attachments},
+			}
+
+			require.NoError(t, service.SendEmail(context.Background(), request))
+
+			messages := server.GetMessages()
+			require.Len(t, messages, 1)
+			tree := parseMIMEMessage(t, messages[0].data)
+			assert.Equal(t, tt.wantShape, tree.shape())
+
+			htmlPart, ok := tree.find("text/html")
+			require.True(t, ok)
+			assert.Equal(t, html, strings.TrimRight(htmlPart.Body, "\n"))
+
+			textPart, hasText := tree.find("text/plain")
+			assert.Equal(t, tt.text != "", hasText)
+			if hasText {
+				assert.Equal(t, tt.text, textPart.Body)
+				assert.Equal(t, "UTF-8", strings.ToUpper(textPart.Params["charset"]))
+			}
+		})
+	}
 }

@@ -1,23 +1,41 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import { SettingsPanelHeader } from './SettingsPanelHeader'
 import { useLingui } from '@lingui/react/macro'
 import { Empty } from 'antd'
-import type { EmailBlock } from '../types'
+import type { DisplayCondition, EmailBlock } from '../types'
+import type { BlockUpdates, UpdateOptions } from '../utils/applyBlockUpdates'
 import { EmailBlockFactory } from '../blocks/EmailBlockFactory'
+import { isConditionEligible } from '../displayCondition'
+import { inheritedAttributes } from '../utils/inheritedAttributes'
+import { DisplayConditionSummary } from '../ui/DisplayConditionSummary'
 
 interface SettingsPanelProps {
   selectedBlock: EmailBlock | null
-  onUpdateBlock: (blockId: string, updates: EmailBlock) => void
+  onUpdateBlock: (blockId: string, updates: EmailBlock, options?: { coalesceKey?: string }) => void
+  // Writes a field's keys into the block as it is in the email now (see EmailBuilder)
+  onUpdateAttributes: (blockId: string, updates: BlockUpdates, options?: UpdateOptions) => void
   attributeDefaults: Record<string, Record<string, unknown>>
   emailTree: EmailBlock
   testData?: Record<string, unknown>
   onTestDataChange?: (testData: Record<string, unknown>) => void
+  // The header's path and actions (the same as the canvas toolbar's)
+  onSelectBlock?: (blockId: string) => void
+  onCloneBlock?: (blockId: string) => void
+  onDeleteBlock?: (blockId: string) => void
+  onSaveBlock?: (blockId: string) => void
 }
 
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   selectedBlock,
   onUpdateBlock,
+  onUpdateAttributes,
   attributeDefaults,
-  emailTree
+  emailTree,
+  testData,
+  onSelectBlock,
+  onCloneBlock,
+  onDeleteBlock,
+  onSaveBlock
 }) => {
   const { t } = useLingui()
   const [currentBlockId, setCurrentBlockId] = useState<string | null>(null)
@@ -30,36 +48,43 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     }
   }, [selectedBlock?.id, currentBlockId])
 
-  // Direct mutation approach - accepts object of attribute updates
+  // A field's write: its keys only, merged into the block as it is in the email now
+  const selectedId = selectedBlock?.id
   const handleDirectUpdate = useCallback(
-    (updates: Record<string, unknown>) => {
+    (updates: Record<string, unknown>, options?: UpdateOptions) => {
+      if (!selectedId) return
+      onUpdateAttributes(selectedId, updates, options)
+    },
+    [selectedId, onUpdateAttributes]
+  )
+
+  // Sets or removes the block's display condition; the update goes through the
+  // editor's history like any attribute change
+  const handleDisplayConditionChange = useCallback(
+    (condition: DisplayCondition | undefined) => {
       if (!selectedBlock) return
-
-      // Create a fresh copy to avoid mutation issues
       const updatedBlock = JSON.parse(JSON.stringify(selectedBlock)) as EmailBlock
-
-      if (!updatedBlock.attributes) {
-        updatedBlock.attributes = {}
+      if (condition) {
+        updatedBlock.display_condition = condition
+      } else {
+        delete updatedBlock.display_condition
       }
-
-      // Apply all updates at once
-      Object.entries(updates).forEach(([key, value]) => {
-        // Special handling for content property - it goes directly on the block, not in attributes
-        if (key === 'content') {
-          updatedBlock.content = value as string | undefined
-        } else {
-          // TypeScript doesn't know the specific type, so we cast to any for assignment
-          (updatedBlock.attributes as Record<string, unknown>)[key] = value
-        }
-      })
-
-      // Update tree immediately
       onUpdateBlock(updatedBlock.id, updatedBlock)
     },
     [selectedBlock, onUpdateBlock]
   )
 
-  if (!selectedBlock) {
+  // What the block shows for a field it does not set, computed once per version of the email
+  const inherited = useMemo(
+    () =>
+      selectedBlock
+        ? inheritedAttributes(emailTree, selectedBlock, attributeDefaults as Parameters<typeof inheritedAttributes>[2])
+        : {},
+    [emailTree, selectedBlock, attributeDefaults]
+  )
+
+  // The email's root has no settings of its own: it shows the empty state
+  if (!selectedBlock || selectedBlock.type === 'mjml') {
     return (
       <div style={{ padding: '24px' }}>
         <Empty
@@ -92,7 +117,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   }
 
   // Try to use the new block class architecture, fallback to old system
-  let blockInstance: { renderSettingsPanel: (update: (updates: Record<string, unknown>) => void, defaults: Record<string, unknown>, tree: EmailBlock) => React.ReactNode } | null = null
+  let blockInstance: { renderSettingsPanel: (update: (updates: Record<string, unknown>, options?: UpdateOptions) => void, defaults: Record<string, unknown>, tree: EmailBlock, onUpdateBlock: (blockId: string, block: EmailBlock, options?: { coalesceKey?: string }) => void) => React.ReactNode } | null = null
 
   try {
     if (EmailBlockFactory.hasBlockType(selectedBlock.type)) {
@@ -101,7 +126,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
       const safeBlock = selectedBlock.attributes
         ? selectedBlock
         : { ...selectedBlock, attributes: {} }
-      blockInstance = EmailBlockFactory.createBlock(safeBlock as EmailBlock) as { renderSettingsPanel: (update: (updates: Record<string, unknown>) => void, defaults: Record<string, unknown>, tree: EmailBlock) => React.ReactNode }
+      blockInstance = EmailBlockFactory.createBlock(safeBlock as EmailBlock) as { renderSettingsPanel: (update: (updates: Record<string, unknown>, options?: UpdateOptions) => void, defaults: Record<string, unknown>, tree: EmailBlock, onUpdateBlock: (blockId: string, block: EmailBlock, options?: { coalesceKey?: string }) => void) => React.ReactNode }
     }
   } catch (error: unknown) {
     console.warn(`No block class for ${selectedBlock.type}, falling back to legacy system`, error)
@@ -113,12 +138,38 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   }
 
   // Extract mj-attributes defaults if emailTree is available
-  const blockDefaults = attributeDefaults[selectedBlock.type] || {}
+  // What the block shows for a field it does not set: the placeholders and the « set » marks
+  const blockDefaults = inherited
 
   // Render the settings panel using the new block architecture
-  return blockInstance.renderSettingsPanel(
-    handleDirectUpdate,
-    blockDefaults,
-    emailTree
+  const settings = blockInstance.renderSettingsPanel(handleDirectUpdate, blockDefaults, emailTree, onUpdateBlock)
+  const header = (
+    <SettingsPanelHeader
+      block={selectedBlock}
+      emailTree={emailTree}
+      onSelectBlock={onSelectBlock}
+      onCloneBlock={onCloneBlock}
+      onDeleteBlock={onDeleteBlock}
+      onSaveBlock={onSaveBlock}
+    />
+  )
+  if (!isConditionEligible(emailTree, selectedBlock)) {
+    return (
+      <>
+        {header}
+        {settings}
+      </>
+    )
+  }
+  return (
+    <>
+      {header}
+      <DisplayConditionSummary
+        block={selectedBlock}
+        testData={testData}
+        onChange={handleDisplayConditionChange}
+      />
+      {settings}
+    </>
   )
 }

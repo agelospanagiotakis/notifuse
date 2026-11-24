@@ -14,7 +14,7 @@ import {
   escapeTooltipHTML,
   sanitizeRichLabelText
 } from './lib/annotations'
-import { formatAxisValue, formatValue, formatXAxisLabel } from './lib/format'
+import { formatAxisValue, formatPercent, formatValue, formatXAxisLabel } from './lib/format'
 import {
   ChartDataPoint,
   COMPARISON_COLOR,
@@ -23,13 +23,14 @@ import {
   PRIMARY_COLOR,
   ResolvedRange
 } from './lib/types'
+import { colors, typography } from '../../theme/tokens'
 
 interface MetricChartProps {
   metric: MetricConfig
   current: ChartDataPoint[]
   previous?: ChartDataPoint[]
   granularity: Granularity
-  /** Series names, e.g. "Dec 21-27" and "Dec 14-20". */
+  /** Series names, e.g. "Dec 21 – 27" and "Dec 14 – 20". */
   currentLabel: string
   previousLabel?: string
   loading?: boolean
@@ -58,7 +59,9 @@ export function MetricChart(props: MetricChartProps) {
   const { metric, current, previous = [], granularity, height = 200 } = props
 
   const option = useMemo(() => {
-    const labels = current.map((point) => formatXAxisLabel(point.timestamp, granularity))
+    const firstDay = current[0]?.timestamp.slice(0, 10)
+    const withDate = granularity === 'hour' && current.some((point) => point.timestamp.slice(0, 10) !== firstDay)
+    const labels = current.map((point) => formatXAxisLabel(point.timestamp, granularity, { withDate }))
     // Long ranges would print a tick per bucket; thin them out instead of
     // letting echarts drop labels at arbitrary positions.
     const labelInterval = labels.length > 14 ? Math.floor(labels.length / 7) - 1 : 0
@@ -90,7 +93,7 @@ export function MetricChart(props: MetricChartProps) {
     ]
 
     // Placed by bucket INDEX, never by axis label: at hour granularity
-    // `formatXAxisLabel` prints "3am" once per day, and echarts resolves a
+    // `formatXAxisLabel` prints "3:00 AM" once per day, and echarts resolves a
     // category name through a hash map where a repeat overwrites its
     // predecessor — so a label would drop every annotation on the last match.
     const marks = (props.annotations ?? [])
@@ -118,6 +121,24 @@ export function MetricChart(props: MetricChartProps) {
     // follows the x-order it exists to separate.
     const collapsed = [...annotationsByIndex.entries()].sort(([a], [b]) => a - b)
 
+    // A title prints beside its line: left ("Top") or right ("Bottom") on a vertical one. Each
+    // takes the other side from the previous one, so two annotations a few buckets apart do not
+    // print their titles over each other; but the first bucket has the y-axis labels on its left
+    // and the last one the chart's edge on its right, so those print inward.
+    const sides: string[] = []
+    for (const [index] of collapsed) {
+      const previous = sides[sides.length - 1]
+      sides.push(
+        index === 0
+          ? 'insideEndBottom'
+          : index === current.length - 1
+            ? 'insideEndTop'
+            : previous === 'insideEndTop'
+              ? 'insideEndBottom'
+              : 'insideEndTop'
+      )
+    }
+
     if (collapsed.length > 0) {
       series[0].markLine = {
         silent: true,
@@ -132,9 +153,7 @@ export function MetricChart(props: MetricChartProps) {
             lineStyle: { color: first.color, type: 'dotted', width: 1 },
             label: {
               show: true,
-              // Alternating keeps two annotations a few buckets apart from
-              // printing their titles over each other.
-              position: position % 2 === 0 ? 'insideEndTop' : 'insideEndBottom',
+              position: sides[position],
               // A rich label, so `{`, `}` and `|` in the title are markup here
               // and have to go — a different problem from the HTML escaping the
               // tooltip needs. "+N" stands for the rest of the bucket, which
@@ -144,7 +163,7 @@ export function MetricChart(props: MetricChartProps) {
               }}`,
               rich: {
                 dot: { color: first.color, fontSize: 12, padding: [0, 4, 0, 0] },
-                title: { color: '#6b7280', fontSize: 10 }
+                title: { color: colors.ink3, fontSize: typography.size.overline }
               }
             }
           }
@@ -187,8 +206,8 @@ export function MetricChart(props: MetricChartProps) {
         confine: true,
         extraCssText: 'max-width:320px;white-space:normal;word-break:break-word;',
         backgroundColor: 'rgba(255, 255, 255, 0.95)',
-        borderColor: '#e5e7eb',
-        textStyle: { color: '#374151', fontSize: 12 },
+        borderColor: colors.line,
+        textStyle: { color: colors.ink, fontSize: typography.size.xs },
         formatter: (
           params: { axisValue: string; value: number; seriesName: string; dataIndex: number }[]
         ) => {
@@ -210,7 +229,7 @@ export function MetricChart(props: MetricChartProps) {
             const previousValue = Number(params[1].value ?? 0)
             const delta = previousValue !== 0 ? ((currentValue - previousValue) / previousValue) * 100 : 0
             const better = metric.invertTrend ? delta <= 0 : delta >= 0
-            const sign = delta >= 0 ? '+' : ''
+            const sign = delta >= 0 ? '+' : '-'
             rows.push(
               `<div>${bullet(COMPARISON_COLOR)}${params[1].seriesName}: <b>${formatValue(
                 previousValue,
@@ -218,9 +237,11 @@ export function MetricChart(props: MetricChartProps) {
                 props.currency
               )}</b>` +
                 (delta !== 0
-                  ? ` <span style="color:${better ? '#10b981' : '#ef4444'}">${sign}${delta.toFixed(
-                      1
-                    )}%</span>`
+                  ? ` <span style="color:${
+                      better ? colors.tones.success.fg : colors.tones.danger.fg
+                    }">${sign}${formatPercent(
+                      Math.abs(delta)
+                    )}</span>`
                   : '') +
                 `</div>`
             )
@@ -237,7 +258,7 @@ export function MetricChart(props: MetricChartProps) {
             )
             if (annotation.description) {
               rows.push(
-                `<div style="margin-left:14px;color:#6b7280">${escapeTooltipHTML(
+                `<div style="margin-left:14px;color:${colors.ink3}">${escapeTooltipHTML(
                   annotation.description
                 )}</div>`
               )
@@ -252,22 +273,26 @@ export function MetricChart(props: MetricChartProps) {
         boundaryGap: false,
         data: labels,
         axisTick: { show: false },
-        axisLine: { lineStyle: { color: '#e5e7eb' } },
+        axisLine: { lineStyle: { color: colors.line } },
         axisLabel: {
-          color: '#6b7280',
-          fontSize: 10,
+          color: colors.ink3,
+          fontSize: typography.size.overline,
           interval: labelInterval,
-          rotate: labelRotate
+          rotate: labelRotate,
+          // Centred on the first and last points, the end labels ran past the plot and were cut
+          // ("Nov 1" for "Nov 15"): they align inward instead.
+          alignMinLabel: 'left',
+          alignMaxLabel: 'right'
         }
       },
       yAxis: {
         type: 'value',
         axisLine: { show: false },
         axisTick: { show: false },
-        splitLine: { lineStyle: { color: '#f3f4f6' } },
+        splitLine: { lineStyle: { color: colors.gray[100] } },
         axisLabel: {
-          color: '#6b7280',
-          fontSize: 10,
+          color: colors.ink3,
+          fontSize: typography.size.overline,
           formatter: (value: number) => formatAxisValue(value, metric.format)
         }
       },
@@ -289,7 +314,7 @@ export function MetricChart(props: MetricChartProps) {
   ])
 
   if (props.loading) {
-    return <div className="animate-pulse rounded bg-gray-100" style={{ height }} />
+    return <div className="animate-pulse rounded bg-fill" style={{ height }} />
   }
 
   if (current.length === 0) {

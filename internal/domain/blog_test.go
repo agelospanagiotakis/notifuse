@@ -1087,6 +1087,28 @@ func TestBlogPost_IsDraft(t *testing.T) {
 	})
 }
 
+func TestBlogPost_IsLive(t *testing.T) {
+	now := time.Date(2026, 11, 12, 10, 0, 0, 0, time.UTC)
+	past := now.Add(-time.Hour)
+	future := now.Add(time.Hour)
+
+	t.Run("a draft is not live", func(t *testing.T) {
+		assert.False(t, (&BlogPost{}).IsLive(now))
+	})
+	t.Run("a post published in the past is live", func(t *testing.T) {
+		assert.True(t, (&BlogPost{PublishedAt: &past}).IsLive(now))
+	})
+	t.Run("a post published exactly now is live", func(t *testing.T) {
+		at := now
+		assert.True(t, (&BlogPost{PublishedAt: &at}).IsLive(now))
+	})
+	t.Run("a scheduled post is not live before its date", func(t *testing.T) {
+		post := &BlogPost{PublishedAt: &future}
+		assert.False(t, post.IsLive(now))
+		assert.True(t, post.IsPublished(), "it still counts as published for the console")
+	})
+}
+
 func TestBlogPost_IsPublished(t *testing.T) {
 	t.Run("returns true when PublishedAt is not nil", func(t *testing.T) {
 		now := time.Now()
@@ -2047,5 +2069,165 @@ func TestListBlogThemesRequest_Validate(t *testing.T) {
 		err := req.Validate()
 		assert.NoError(t, err)
 		assert.Equal(t, 20, req.Offset)
+	})
+}
+
+func TestListBlogPostsRequest_ScheduledAndSearch(t *testing.T) {
+	t.Run("scheduled is accepted", func(t *testing.T) {
+		req := ListBlogPostsRequest{Status: BlogPostStatusScheduled}
+		require.NoError(t, req.Validate())
+	})
+
+	t.Run("an unknown status is a validation error", func(t *testing.T) {
+		req := ListBlogPostsRequest{Status: "archived"}
+		err := req.Validate()
+		var validationErr ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Contains(t, err.Error(), "archived")
+	})
+
+	t.Run("search is trimmed, and 200 characters are accepted", func(t *testing.T) {
+		req := ListBlogPostsRequest{Search: "  " + repeatRune('é', 200) + "  "}
+		require.NoError(t, req.Validate())
+		assert.Equal(t, repeatRune('é', 200), req.Search)
+	})
+
+	t.Run("201 characters of search are a validation error", func(t *testing.T) {
+		req := ListBlogPostsRequest{Search: repeatRune('é', 201)}
+		err := req.Validate()
+		var validationErr ValidationError
+		require.ErrorAs(t, err, &validationErr)
+	})
+
+	t.Run("now is never read from JSON", func(t *testing.T) {
+		var req ListBlogPostsRequest
+		require.NoError(t, json.Unmarshal([]byte(`{"status":"scheduled","Now":"2030-01-01T00:00:00Z","now":"2030-01-01T00:00:00Z"}`), &req))
+		assert.True(t, req.Now.IsZero())
+	})
+}
+
+func repeatRune(r rune, n int) string {
+	out := make([]rune, n)
+	for i := range out {
+		out[i] = r
+	}
+	return string(out)
+}
+
+func TestBlogPostCounts_JSON(t *testing.T) {
+	raw, err := json.Marshal(NewBlogPostCounts())
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"all_total":0,"total":0,"published":0,"scheduled":0,"draft":0,"by_category":{}}`, string(raw))
+}
+
+func TestBlogSitemapLimits(t *testing.T) {
+	// The sitemap protocol allows 50,000 URLs; the home page and the main feed take two.
+	assert.Equal(t, 50000, BlogSitemapMaxURLs)
+	assert.Equal(t, 49998, BlogSitemapMaxPosts)
+}
+
+// The slugs are written out, so that a slug dropped from the domain's lists shows here.
+// TestBlogReservedCategorySlugs (tests/integration) checks most of them against the running
+// server.
+func TestBlogCategorySlugRouteOf(t *testing.T) {
+	cases := map[BlogCategorySlugRoute][]string{
+		BlogCategorySlugSubtreeTaken: {
+			"v", "t", "r",
+			"api", "console", "notification-center",
+			// The root handler matches api, console and notification-center by prefix.
+			"apis", "api-docs", "consoles", "notification-centers",
+		},
+		BlogCategorySlugPageTaken: {
+			"visit", "opens", "track",
+			"preferences", "subscribe", "unsubscribe", "unsubscribe-oneclick",
+			"health", "healthz",
+		},
+		BlogCategorySlugFree: {
+			// Nothing is registered at /webhooks itself, only paths under it.
+			"webhooks",
+			// Neighbours of an exact route.
+			"vip", "tracking", "health-tips", "visits", "news", "r2", "tv",
+		},
+	}
+	for want, slugs := range cases {
+		for _, slug := range slugs {
+			assert.Equal(t, want, BlogCategorySlugRouteOf(slug), slug)
+			assert.Equal(t, want != BlogCategorySlugFree, IsReservedBlogCategorySlug(slug), slug)
+		}
+	}
+}
+
+func TestCreateBlogCategoryRequest_Validate_ReservedSlug(t *testing.T) {
+	for _, slug := range []string{"track", "unsubscribe", "apis"} {
+		err := (&CreateBlogCategoryRequest{Name: "Name", Slug: slug}).Validate()
+		require.Error(t, err, slug)
+		assert.Equal(t, "slug is reserved by another route", err.Error())
+	}
+	assert.NoError(t, (&CreateBlogCategoryRequest{Name: "Name", Slug: "tracking"}).Validate())
+}
+
+// An existing category keeps a reserved slug it already had: the update refuses only a
+// change to one, in the service.
+func TestUpdateBlogCategoryRequest_Validate_ReservedSlugAllowed(t *testing.T) {
+	assert.NoError(t, (&UpdateBlogCategoryRequest{ID: "c1", Name: "Name", Slug: "health"}).Validate())
+}
+
+func TestListBlogPostsRequest_Validate_UnreadableSearch(t *testing.T) {
+	for _, search := range []string{"a\x00b", "caf\xe9"} {
+		req := &ListBlogPostsRequest{Search: search}
+		err := req.Validate()
+		require.Error(t, err, "%q", search)
+		var validation ValidationError
+		require.ErrorAs(t, err, &validation)
+		assert.Equal(t, "search must be valid UTF-8 text without NUL bytes", validation.Message)
+	}
+	assert.NoError(t, (&ListBlogPostsRequest{Search: "café"}).Validate())
+}
+
+func TestBuildBlogTemplateData_CanonicalStandsForItsOwnPage(t *testing.T) {
+	// A canonical stands for the page it is set on. Handing a blog-wide or a category's canonical
+	// to every page let a theme that falls back to it (the default one did, up to 44.0) tell
+	// search engines that every post was a copy of that one address.
+	workspace := &Workspace{
+		ID:   "ws1",
+		Name: "Acme",
+		Settings: WorkspaceSettings{
+			BlogSettings: &BlogSettings{SEO: &SEOSettings{MetaTitle: "Acme blog", CanonicalURL: "https://acme.com/blog"}},
+		},
+	}
+	category := &BlogCategory{ID: "c1", Slug: "guides", Settings: BlogCategorySettings{
+		Name: "Guides",
+		SEO:  &SEOSettings{MetaTitle: "Guides", CanonicalURL: "https://acme.com/guides"},
+	}}
+	post := &BlogPost{ID: "p1", Slug: "subject-lines", Settings: BlogPostSettings{Title: "Subject lines"}}
+
+	seoOf := func(data MapOfAny, key string) MapOfAny {
+		section, ok := data[key].(MapOfAny)
+		require.True(t, ok, key)
+		seo, ok := section["seo"].(MapOfAny)
+		require.True(t, ok, key+".seo")
+		return seo
+	}
+
+	t.Run("the blog's canonical reaches no page", func(t *testing.T) {
+		data, err := BuildBlogTemplateData(BlogTemplateDataRequest{Workspace: workspace, PublicLists: []*List{}})
+		require.NoError(t, err)
+		seo := seoOf(data, "workspace")
+		assert.Equal(t, "Acme blog", seo["meta_title"])
+		assert.NotContains(t, seo, "canonical_url")
+	})
+
+	t.Run("a category's canonical is on its own page", func(t *testing.T) {
+		data, err := BuildBlogTemplateData(BlogTemplateDataRequest{Workspace: workspace, Category: category, PublicLists: []*List{}})
+		require.NoError(t, err)
+		assert.Equal(t, "https://acme.com/guides", seoOf(data, "category")["canonical_url"])
+	})
+
+	t.Run("not on its posts", func(t *testing.T) {
+		data, err := BuildBlogTemplateData(BlogTemplateDataRequest{Workspace: workspace, Category: category, Post: post, PublicLists: []*List{}})
+		require.NoError(t, err)
+		seo := seoOf(data, "category")
+		assert.Equal(t, "Guides", seo["meta_title"])
+		assert.NotContains(t, seo, "canonical_url")
 	})
 }

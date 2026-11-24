@@ -33,6 +33,12 @@ type ServerManager struct {
 	// the free tier and failing deep inside a workspace or SSO test on a 402.
 	licenseErr error
 
+	// writeTimeout, when set, replaces the 30s WriteTimeout of the server Start builds.
+	// The application's own server sets none (app.go), so a request that legitimately
+	// runs longer, like a demo seed, needs it lifted to behave as it does there:
+	// otherwise the server cuts the connection and the client silently retries the GET.
+	writeTimeout time.Duration
+
 	// pendingSecurity holds the keys SetSecretKey gave, until the next start: the running
 	// server reads its configuration on every request.
 	pendingSecurity *config.SecurityConfig
@@ -123,6 +129,16 @@ func NewServerManager(appFactory func(*config.Config) AppInterface, dbManager *D
 		},
 		TaskScheduler: config.TaskSchedulerConfig{
 			Enabled: false, // Disable task scheduler and autoExecuteImmediate to prevent background goroutines
+			// Production makes a send-now task wait so the broadcast commits first;
+			// every test broadcast would wait it out. A shorter margin keeps the
+			// tests in the order production runs (see TaskService.SetSendNowDelay
+			// for what an early pick costs).
+			SendNowDelay: time.Second,
+		},
+		// The demo seed generates 100 000 web-analytics sessions, minutes of writes
+		// that no test asserts on. The 400-day span is kept, only the density drops.
+		Demo: config.DemoConfig{
+			WebAnalyticsSessions: 2000,
 		},
 		AutomationScheduler: config.AutomationSchedulerConfig{
 			Delay:     0,                      // No delay for tests
@@ -201,10 +217,14 @@ func (sm *ServerManager) Start() error {
 	sm.url = fmt.Sprintf("http://%s:%d", sm.config.Server.Host, port)
 
 	// Create HTTP server
+	writeTimeout := 30 * time.Second
+	if sm.writeTimeout > 0 {
+		writeTimeout = sm.writeTimeout
+	}
 	sm.server = &http.Server{
 		Handler:      sm.app.GetHandler(),
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		WriteTimeout: writeTimeout,
 	}
 
 	// Start server in background
@@ -502,6 +522,12 @@ func (sm *ServerManager) applyPendingSecretKey() {
 		sm.config.Security = *sm.pendingSecurity
 		sm.pendingSecurity = nil
 	}
+}
+
+// SetWriteTimeout sets the WriteTimeout of the server the next Start builds; see
+// ServerManager.writeTimeout.
+func (sm *ServerManager) SetWriteTimeout(d time.Duration) {
+	sm.writeTimeout = d
 }
 
 // Restart stops and starts the server

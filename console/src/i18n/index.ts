@@ -1,12 +1,13 @@
 import { i18n } from "@lingui/core"
+import { activateDayjsLocale } from "./dayjsLocales"
 
 // Keep this list in sync with the backend's canonical set:
 // domain.SupportedUILanguages (internal/domain/languages.go) and the
 // pkg/mailer translation registry. The two backend lists are guarded by a
 // test; this frontend list is not automatically guarded against them.
-export type Locale = "en" | "fr" | "es" | "de" | "ca" | "pt-BR" | "ja" | "it"
+export type Locale = "en" | "fr" | "es" | "de" | "ca" | "pt-BR" | "ja" | "it" | "el"
 
-export const locales: Locale[] = ["en", "fr", "es", "de", "ca", "pt-BR", "ja", "it"]
+export const locales: Locale[] = ["en", "fr", "es", "de", "ca", "pt-BR", "ja", "it", "el"]
 
 export const localeNames: Record<Locale, string> = {
   en: "English",
@@ -17,6 +18,7 @@ export const localeNames: Record<Locale, string> = {
   "pt-BR": "Português (Brasil)",
   ja: "日本語",
   it: "Italiano",
+  el: "Ελληνικά",
 }
 
 /**
@@ -70,10 +72,10 @@ export async function loadLocale(
       // I18nProvider renders null for an empty locale, and App wraps the whole
       // router in it, so the console becomes a blank page with no error. The
       // superseded language beats nothing.
-      if (!i18n.locale) i18n.activate(locale)
+      if (!i18n.locale) activate(locale)
       return null
     }
-    i18n.activate(locale)
+    activate(locale)
     if (persist) storeLocale(locale)
     return locale
   } catch (error) {
@@ -87,6 +89,14 @@ export async function loadLocale(
     }
     return null
   }
+}
+
+// Switch the console to a locale whose catalog is loaded. dayjs goes first so that the "change"
+// event i18n.activate() fires, which repaints every translated string, already finds dates in the
+// same language.
+function activate(locale: Locale): void {
+  activateDayjsLocale(locale)
+  i18n.activate(locale)
 }
 
 // Record a locale as the preference to boot with next time. Private on purpose:

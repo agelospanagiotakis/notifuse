@@ -6,6 +6,7 @@ import { useLingui } from '@lingui/react/macro'
 import { formatValue } from './lib/format'
 import { ISO2_TO_ISO3, ISO3_TO_ISO2, countryName } from './lib/isoCountries'
 import { PRIMARY_COLOR } from './lib/types'
+import { alpha, colors, typography } from '../../theme/tokens'
 import worldGeoJson from './lib/worldGeo.json'
 
 interface GeoFeature {
@@ -116,13 +117,13 @@ export function CountryMapView(props: CountryMapViewProps): ReactNode {
         top: 10,
         bottom: 10,
         itemStyle: {
-          areaColor: '#f9fafb',
-          borderColor: '#e5e7eb',
+          areaColor: colors.subtle,
+          borderColor: colors.line,
           borderWidth: 0.5
         },
         emphasis: {
           itemStyle: { areaColor: PRIMARY_COLOR },
-          label: { show: true, fontSize: 10 }
+          label: { show: true, fontSize: typography.size.overline }
         }
       },
       visualMap: {
@@ -131,11 +132,7 @@ export function CountryMapView(props: CountryMapViewProps): ReactNode {
         show: false,
         inRange: {
           color: [
-            'rgba(119, 99, 241, 0.2)',
-            'rgba(119, 99, 241, 0.4)',
-            'rgba(119, 99, 241, 0.6)',
-            'rgba(119, 99, 241, 0.8)',
-            'rgba(119, 99, 241, 1)'
+            ...[0.2, 0.4, 0.6, 0.8, 1].map((opacity) => alpha(colors.primary[500], opacity))
           ]
         }
       },

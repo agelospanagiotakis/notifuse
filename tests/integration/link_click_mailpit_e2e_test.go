@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,8 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Notifuse/notifuse/internal/domain"
-	"github.com/Notifuse/notifuse/pkg/crypto"
 	"github.com/Notifuse/notifuse/pkg/notifuse_mjml"
+	"github.com/Notifuse/notifuse/pkg/trackingtoken"
 	"github.com/Notifuse/notifuse/tests/testutil"
 )
 
@@ -93,14 +92,17 @@ func TestLinkClickMailpitE2E(t *testing.T) {
 		testutil.WithContactListStatus(domain.ContactListStatusActive))
 	require.NoError(t, err)
 
-	// Two distinct destinations; the offer URL appears twice in the email
-	// (text link + button) to mirror a realistic multi-CTA layout.
+	// Three distinct destinations; the offer URL appears twice in the email
+	// (text link + button) to mirror a realistic multi-CTA layout. The sale URL
+	// holds a '%' that starts no escape: browsers open it and net/url refuses it.
 	offerURL := "https://shop.example.com/offer?utm_source=newsletter"
 	docsURL := "https://docs.example.com/getting-started"
+	saleURL := "https://shop.example.com/50%off"
 	mjmlSource := fmt.Sprintf(`<mjml><mj-body><mj-section><mj-column>
 		<mj-text>Check <a href="%s">our offer</a> and read the <a href="%s">docs</a>.</mj-text>
+		<mj-text>Don't miss the <a href="%s">sale</a>.</mj-text>
 		<mj-button href="%s">Shop now</mj-button>
-	</mj-column></mj-section></mj-body></mjml>`, offerURL, docsURL, offerURL)
+	</mj-column></mj-section></mj-body></mjml>`, offerURL, docsURL, saleURL, offerURL)
 
 	template, err := factory.CreateTemplate(workspace.ID,
 		testutil.WithTemplateName("Link Click E2E Template"),
@@ -131,7 +133,7 @@ func TestLinkClickMailpitE2E(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Log("Fetching email from Mailpit...")
-	email, err := waitForEmailByRecipientAddr(t, contactEmail, 30*time.Second)
+	email, err := testutil.WaitForMailpitMessageByRecipient(t, contactEmail, 30*time.Second)
 	require.NoError(t, err, "the broadcast email must arrive in Mailpit")
 
 	// The authored destinations must not appear as raw hrefs: every link is
@@ -152,21 +154,21 @@ func TestLinkClickMailpitE2E(t *testing.T) {
 	var sentTs int64
 	clickURLByDest := map[string]string{}
 	for _, m := range matches {
-		decrypted, err := crypto.DecryptTrackingToken(m[2])
+		tok, err := trackingtoken.Parse(m[2], trackingtoken.PurposeClick)
 		require.NoError(t, err)
-		parts := strings.SplitN(decrypted, "\n", 4)
-		require.Len(t, parts, 4)
-		require.Equal(t, workspace.ID, parts[1], "token must carry the workspace ID")
+		require.Equal(t, workspace.ID, tok.WorkspaceID, "token must carry the workspace ID")
+		require.NotEmpty(t, tok.Tag, "links of a real send are signed")
+		require.NotZero(t, tok.Timestamp, "the timestamp before the tag still feeds the bot check")
 		if messageID == "" {
-			messageID = parts[0]
-			sentTs, err = strconv.ParseInt(parts[2], 10, 64)
-			require.NoError(t, err)
+			messageID = tok.MessageID
+			sentTs = tok.Timestamp
 		} else {
-			require.Equal(t, messageID, parts[0], "all links of one email share the message ID")
+			require.Equal(t, messageID, tok.MessageID, "all links of one email share the message ID")
 		}
 		// Click via the test server regardless of the endpoint host baked into
-		// the email, so the test does not depend on endpoint configuration.
-		clickURLByDest[parts[3]] = fmt.Sprintf("%s/r/%s", baseURL, m[2])
+		// the email, so the test does not depend on endpoint configuration: the
+		// signature binds no host.
+		clickURLByDest[tok.URL] = fmt.Sprintf("%s/r/%s", baseURL, m[2])
 	}
 	// The send path appends utm_content=<templateID> to links that carry no
 	// UTM parameters, and leaves links with author-set UTM params untouched —
@@ -176,7 +178,11 @@ func TestLinkClickMailpitE2E(t *testing.T) {
 		"author-tagged link must keep its URL untouched")
 	require.Contains(t, clickURLByDest, docsDest,
 		"untagged link must gain the default utm_content")
-	require.Len(t, clickURLByDest, 2, "exactly two distinct destinations expected")
+	// The sale link is tagged too, its stray '%' kept as written.
+	saleDest := fmt.Sprintf("%s?utm_content=%s", saleURL, template.ID)
+	require.Contains(t, clickURLByDest, saleDest,
+		"a link with a stray '%' must gain the default utm_content and keep its bytes")
+	require.Len(t, clickURLByDest, 3)
 
 	// Clicks within 7 seconds of the compile-time token timestamp are treated
 	// as bot prefetch and not recorded — wait out the window.
@@ -185,17 +191,42 @@ func TestLinkClickMailpitE2E(t *testing.T) {
 		time.Sleep(wait)
 	}
 
-	redirectClient := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
+	// The delivered pixel records the open on its own, before any click backfills it.
+	pixelRe := regexp.MustCompile(`<img src="[^"]*(/t/[A-Za-z0-9_-]+)"`)
+	pixel := pixelRe.FindStringSubmatch(email.HTML)
+	require.NotNil(t, pixel, "the delivered email must carry the open pixel")
+	openTok, err := trackingtoken.Parse(strings.TrimPrefix(pixel[1], "/t/"), trackingtoken.PurposeOpen)
+	require.NoError(t, err)
+	require.Equal(t, messageID, openTok.MessageID)
+	require.NotEmpty(t, openTok.Tag, "the pixel of a real send is signed")
+	pixelReq, err := http.NewRequest(http.MethodGet, baseURL+pixel[1], nil)
+	require.NoError(t, err)
+	pixelReq.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15")
+	pixelResp, err := http.DefaultClient.Do(pixelReq)
+	require.NoError(t, err)
+	_ = pixelResp.Body.Close()
+	require.Equal(t, http.StatusOK, pixelResp.StatusCode)
+	{
+		workspaceDB, err := factory.GetWorkspaceDB(workspace.ID)
+		require.NoError(t, err)
+		testutil.WaitForCondition(t, func() bool {
+			var openedAt, clickedAt *time.Time
+			_ = workspaceDB.QueryRowContext(ctx, `SELECT opened_at, clicked_at FROM message_history WHERE id = $1`,
+				messageID).Scan(&openedAt, &clickedAt)
+			return openedAt != nil && clickedAt == nil
+		}, 5*time.Second, "opened_at set by the delivered pixel alone")
 	}
+
+	// The transport, not an http.Client: the client parses Location before
+	// CheckRedirect runs and fails on the sale URL. The handler answers a
+	// signed link with its URL exactly as minted, which browsers and curl
+	// follow, and the Location assertion below pins that exact string.
 	click := func(t *testing.T, dest string) {
 		t.Helper()
 		req, err := http.NewRequest(http.MethodGet, clickURLByDest[dest], nil)
 		require.NoError(t, err)
 		req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15")
-		resp, err := redirectClient.Do(req)
+		resp, err := http.DefaultTransport.RoundTrip(req)
 		require.NoError(t, err)
 		defer func() { _ = resp.Body.Close() }()
 		assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
@@ -206,6 +237,7 @@ func TestLinkClickMailpitE2E(t *testing.T) {
 	time.Sleep(50 * time.Millisecond) // ensure last_at advances past first_at
 	click(t, offerURL)
 	click(t, docsDest)
+	click(t, saleDest)
 
 	workspaceDB, err := factory.GetWorkspaceDB(workspace.ID)
 	require.NoError(t, err)
@@ -226,7 +258,7 @@ func TestLinkClickMailpitE2E(t *testing.T) {
 
 		var clickedLinks map[string]clickedLinkEntry
 		require.NoError(t, json.Unmarshal(clickedLinksJSON, &clickedLinks))
-		require.Len(t, clickedLinks, 2)
+		require.Len(t, clickedLinks, 3)
 
 		offer, ok := clickedLinks[offerURL]
 		require.True(t, ok, "offer URL must be recorded under its authored destination")
@@ -236,9 +268,13 @@ func TestLinkClickMailpitE2E(t *testing.T) {
 		docs, ok := clickedLinks[docsDest]
 		require.True(t, ok, "docs URL must be recorded under its stored (utm-augmented) destination")
 		assert.Equal(t, 1, docs.Count)
+
+		sale, ok := clickedLinks[saleDest]
+		require.True(t, ok, "a link with a stray '%' must be recorded under the URL as written")
+		assert.Equal(t, 1, sale.Count)
 	})
 
-	t.Run("triggers fire once despite three clicks", func(t *testing.T) {
+	t.Run("triggers fire once despite repeated clicks", func(t *testing.T) {
 		var clickRows, openRows int
 		require.NoError(t, workspaceDB.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM contact_timeline WHERE entity_id = $1 AND kind = 'email.clicked'`,
@@ -246,7 +282,7 @@ func TestLinkClickMailpitE2E(t *testing.T) {
 		require.NoError(t, workspaceDB.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM contact_timeline WHERE entity_id = $1 AND kind = 'email.opened'`,
 			messageID).Scan(&openRows))
-		assert.Equal(t, 1, clickRows, "exactly one email.clicked timeline row despite 3 clicks")
+		assert.Equal(t, 1, clickRows, "exactly one email.clicked timeline row despite repeated clicks")
 		assert.Equal(t, 1, openRows, "exactly one email.opened timeline row from the backfill")
 	})
 
@@ -267,7 +303,7 @@ func TestLinkClickMailpitE2E(t *testing.T) {
 			} `json:"link_stats"`
 		}
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
-		require.Len(t, result.LinkStats, 2)
+		require.Len(t, result.LinkStats, 3)
 
 		assert.Equal(t, offerURL, result.LinkStats[0].URL)
 		assert.Equal(t, int64(2), result.LinkStats[0].TotalClicks)
@@ -275,6 +311,10 @@ func TestLinkClickMailpitE2E(t *testing.T) {
 		assert.Equal(t, docsDest, result.LinkStats[1].URL)
 		assert.Equal(t, int64(1), result.LinkStats[1].TotalClicks)
 		assert.Equal(t, int64(1), result.LinkStats[1].UniqueClicks)
+		// Ties on clicks are ordered by URL, so the docs link comes before the sale link.
+		assert.Equal(t, saleDest, result.LinkStats[2].URL)
+		assert.Equal(t, int64(1), result.LinkStats[2].TotalClicks)
+		assert.Equal(t, int64(1), result.LinkStats[2].UniqueClicks)
 	})
 }
 
@@ -359,7 +399,11 @@ func TestLinkClickMailpitE2E_URLsWithQuotesOrCharacterReferences(t *testing.T) {
 			<a href='https://example.com/search?q="exact"'>code text quote</a>
 			<a href="https://example.com/hello?name={{ contact.last_name }}">code text liquid</a>
 			<a href="https://example.com/?s=code&#038;post_type=post">code text numeric reference</a>
+			<a href="https://example.com/trailing-space ">code text trailing space</a>
+			<a href=" https://example.com/leading-space">code text leading space</a>
+			<a href=" mailto:hello@example.com">code text mailto with a leading space</a>
 		</mj-text>
+		<mj-button href=" https://example.com/button-space ">code button spaces</mj-button>
 		<mj-button href="https://example.com/blog/what's-new?from=button">code button apostrophe</mj-button>
 		<mj-button href="https://example.com/blog/what&#X27;s-new?from=button-reference">code button numeric reference</mj-button>
 	</mj-column></mj-section></mj-body></mjml>`
@@ -379,6 +423,9 @@ func TestLinkClickMailpitE2E_URLsWithQuotesOrCharacterReferences(t *testing.T) {
 		template testutil.TemplateOption
 		// link text -> the URL its author wrote, as the recipient must land on it
 		authored map[string]string
+		// link text -> the href it must reach the recipient with, byte for byte:
+		// links Notifuse leaves alone, never wrapped in a tracking redirect
+		untracked map[string]string
 	}{
 		{
 			name:     "code mode",
@@ -390,7 +437,13 @@ func TestLinkClickMailpitE2E_URLsWithQuotesOrCharacterReferences(t *testing.T) {
 				"code button apostrophe":        "https://example.com/blog/what's-new?from=button",
 				"code text numeric reference":   "https://example.com/?s=code&post_type=post",
 				"code button numeric reference": "https://example.com/blog/what's-new?from=button-reference",
+				// Browsers trim the spaces around an href, so the recipient lands
+				// on the trimmed URL, tagged like any other link.
+				"code text trailing space": "https://example.com/trailing-space",
+				"code text leading space":  "https://example.com/leading-space",
+				"code button spaces":       "https://example.com/button-space",
 			},
+			untracked: map[string]string{"code text mailto with a leading space": " mailto:hello@example.com"},
 		},
 		{
 			name: "visual editor",
@@ -447,7 +500,7 @@ func TestLinkClickMailpitE2E_URLsWithQuotesOrCharacterReferences(t *testing.T) {
 				[]string{"processed", "completed", "sent"}, 60*time.Second)
 			require.NoError(t, err)
 
-			email, err := waitForEmailByRecipientAddr(t, contactEmail, 30*time.Second)
+			email, err := testutil.WaitForMailpitMessageByRecipient(t, contactEmail, 30*time.Second)
 			require.NoError(t, err, "the broadcast email must arrive in Mailpit")
 
 			// Read every link as delivered before clicking any.
@@ -457,6 +510,11 @@ func TestLinkClickMailpitE2E_URLsWithQuotesOrCharacterReferences(t *testing.T) {
 				require.True(t, strings.HasPrefix(href, baseURL+"/r/"),
 					"%q must be delivered as a tracking redirect on this server, got %q", text, href)
 				hrefs[text] = href
+			}
+
+			for text, want := range send.untracked {
+				assert.Equal(t, want, deliveredLinkHref(t, email.HTML, text),
+					"%q must reach the recipient as written, without a tracking redirect", text)
 			}
 
 			// No wait for the bot window: a click inside it is redirected the

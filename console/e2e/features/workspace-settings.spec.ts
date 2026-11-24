@@ -5,6 +5,8 @@ import { testWorkspaceSettingsData } from '../fixtures/form-data'
 import { logCapturedRequests } from '../fixtures/payload-assertions'
 
 const WORKSPACE_ID = 'test-workspace'
+// "Name a slot" without a named slot, "Name a free slot" under the table once one is named.
+const NAME_A_SLOT = /^Name a (free )?slot$/
 
 test.describe('Workspace Settings Feature', () => {
   test.describe('Settings Navigation', () => {
@@ -14,8 +16,8 @@ test.describe('Workspace Settings Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/settings/team`)
       await waitForLoading(page)
 
-      // Should show settings sidebar (the inner settings one with dark theme)
-      await expect(page.locator('.ant-layout-sider-dark')).toBeVisible()
+      // Should show the settings rail, a navigation named after its title
+      await expect(page.getByRole('navigation', { name: 'Settings' })).toBeVisible()
 
       // Should show "Settings" title
       await expect(page.locator('text=Settings').first()).toBeVisible()
@@ -28,26 +30,35 @@ test.describe('Workspace Settings Feature', () => {
       await waitForLoading(page)
 
       // Click on General settings
-      await page.locator('.ant-menu-item').filter({ hasText: 'General' }).click()
+      await page
+        .getByRole('navigation', { name: 'Settings' })
+        .getByRole('button', { name: 'General', exact: true })
+        .click()
       await expect(page).toHaveURL(/settings\/general/)
 
       // Click on Integrations
-      await page.locator('.ant-menu-item').filter({ hasText: 'Integrations' }).click()
+      await page
+        .getByRole('navigation', { name: 'Settings' })
+        .getByRole('button', { name: 'Integrations', exact: true })
+        .click()
       await expect(page).toHaveURL(/settings\/integrations/)
 
       // Click on Custom Fields
-      await page.locator('.ant-menu-item').filter({ hasText: 'Custom Fields' }).click()
+      await page
+        .getByRole('navigation', { name: 'Settings' })
+        .getByRole('button', { name: 'Custom fields', exact: true })
+        .click()
       await expect(page).toHaveURL(/settings\/custom-fields/)
     })
 
-    test('defaults to team section for invalid section', async ({ authenticatedPageWithData }) => {
+    test('defaults to general section for invalid section', async ({ authenticatedPageWithData }) => {
       const page = authenticatedPageWithData
 
       await page.goto(`/console/workspace/${WORKSPACE_ID}/settings/invalid-section`)
       await waitForLoading(page)
 
-      // Should redirect to team section
-      await expect(page).toHaveURL(/settings\/team/)
+      // Should redirect to the general section
+      await expect(page).toHaveURL(/settings\/general/)
     })
   })
 
@@ -58,8 +69,8 @@ test.describe('Workspace Settings Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/settings/team`)
       await waitForLoading(page)
 
-      // Should show Team section header
-      await expect(page.locator('text=Team').first()).toBeVisible()
+      // Should show Team & API keys section header
+      await expect(page.locator('[data-rail-content]').getByText('Team & API keys').first()).toBeVisible()
 
       // Should show members table
       await expect(page.locator('.ant-table')).toBeVisible()
@@ -72,7 +83,7 @@ test.describe('Workspace Settings Feature', () => {
       await waitForLoading(page)
 
       // The fixture signs in as a workspace owner, so the button is never optional here.
-      await expect(page.getByRole('button', { name: 'Invite Member', exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Invite', exact: true })).toBeVisible()
     })
 
     test('opens invite member drawer', async ({ authenticatedPageWithData }) => {
@@ -81,7 +92,7 @@ test.describe('Workspace Settings Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/settings/team`)
       await waitForLoading(page)
 
-      await page.getByRole('button', { name: 'Invite Member', exact: true }).click()
+      await page.getByRole('button', { name: 'Invite', exact: true }).click()
 
       // A drawer panel is a dialog too, labelled by its title, so this pins both the
       // host being open and the title it carries.
@@ -100,7 +111,7 @@ test.describe('Workspace Settings Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/settings/team`)
       await waitForLoading(page)
 
-      await page.getByRole('button', { name: 'Create API Key', exact: true }).click()
+      await page.getByRole('button', { name: 'New key', exact: true }).click()
 
       const drawer = page.getByRole('dialog', { name: 'Create API Key', exact: true })
       await expect(drawer).toBeVisible()
@@ -118,10 +129,10 @@ test.describe('Workspace Settings Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/settings/general`)
       await waitForLoading(page)
 
-      // Should show General Settings section - look in the content area
-      await expect(
-        page.locator('.ant-layout-content').getByText('General Settings').first()
-      ).toBeVisible()
+      // Should show the General header and its first panel - look in the content area
+      const content = page.locator('[data-rail-content]')
+      await expect(content.getByRole('heading', { name: 'General', exact: true })).toBeVisible()
+      await expect(content.getByRole('heading', { name: 'Workspace', exact: true })).toBeVisible()
     })
 
     test('shows workspace name field', async ({ authenticatedPageWithData }) => {
@@ -131,8 +142,7 @@ test.describe('Workspace Settings Feature', () => {
       await waitForLoading(page)
 
       // Should have workspace name field
-      const nameLabel = page.locator('text=Workspace Name')
-      await expect(nameLabel.first()).toBeVisible()
+      await expect(page.locator('[data-rail-content]').getByLabel('Name', { exact: true })).toBeVisible()
     })
 
     test('shows timezone field', async ({ authenticatedPageWithData }) => {
@@ -154,7 +164,7 @@ test.describe('Workspace Settings Feature', () => {
 
       // Genuine role fork: owners get the editable form, everyone else the
       // read-only descriptions. Both branches assert, so neither passes silently.
-      const contentArea = page.locator('.ant-layout-content')
+      const contentArea = page.locator('[data-rail-content]')
       const nameInput = contentArea.locator('input[placeholder*="workspace name" i]')
       if ((await nameInput.count()) > 0) {
         // Fill workspace name
@@ -163,7 +173,7 @@ test.describe('Workspace Settings Feature', () => {
         await expect(nameInput).toHaveValue('Updated Workspace Name')
 
         // Fill website URL - always part of the owner form
-        const websiteInput = contentArea.getByRole('textbox', { name: 'Website URL' })
+        const websiteInput = contentArea.getByRole('textbox', { name: 'Website' })
         await websiteInput.fill('https://example.com')
         await expect(websiteInput).toHaveValue('https://example.com')
 
@@ -171,8 +181,8 @@ test.describe('Workspace Settings Feature', () => {
         const saveButton = contentArea.getByRole('button', { name: /save/i })
         await expect(saveButton).toBeVisible()
       } else {
-        // Non-owner view - should show read-only descriptions
-        await expect(contentArea.locator('.ant-descriptions')).toBeVisible()
+        // Non-owner view - the same rows, with the values as text
+        await expect(contentArea.locator('[data-settings-row]').first()).toBeVisible()
       }
     })
   })
@@ -197,18 +207,18 @@ test.describe('Workspace Settings Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/settings/custom-fields`)
       await waitForLoading(page)
 
-      // Should show Custom Fields section
-      await expect(page.locator('text=Custom Fields').first()).toBeVisible()
+      // Should show Custom fields section
+      await expect(page.locator('[data-rail-content]').getByText('Custom fields').first()).toBeVisible()
     })
 
-    test('shows add label button for owners', async ({ authenticatedPageWithData }) => {
+    test('shows the button naming a slot for owners', async ({ authenticatedPageWithData }) => {
       const page = authenticatedPageWithData
 
       await page.goto(`/console/workspace/${WORKSPACE_ID}/settings/custom-fields`)
       await waitForLoading(page)
 
       // The fixture signs in as a workspace owner, so the button is never optional here.
-      await expect(page.getByRole('button', { name: 'Add Label', exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: NAME_A_SLOT })).toBeEnabled()
     })
 
     test('opens add custom field label modal', async ({ authenticatedPageWithData }) => {
@@ -217,7 +227,7 @@ test.describe('Workspace Settings Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/settings/custom-fields`)
       await waitForLoading(page)
 
-      await page.getByRole('button', { name: 'Add Label', exact: true }).click()
+      await page.getByRole('button', { name: NAME_A_SLOT }).click()
 
       const modal = page.getByRole('dialog', { name: 'Add Custom Field Label', exact: true })
       await expect(modal).toBeVisible()
@@ -235,7 +245,7 @@ test.describe('Workspace Settings Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/settings/custom-fields`)
       await waitForLoading(page)
 
-      await page.getByRole('button', { name: 'Add Label', exact: true }).click()
+      await page.getByRole('button', { name: NAME_A_SLOT }).click()
 
       const modal = page.getByRole('dialog', { name: 'Add Custom Field Label', exact: true })
       await expect(modal).toBeVisible()
@@ -289,7 +299,7 @@ test.describe('Workspace Settings Feature', () => {
       await waitForLoading(page)
 
       // The fixture signs in as a workspace owner, so the danger zone is always rendered.
-      await expect(page.locator('.ant-layout-content').getByText('Danger Zone').first()).toBeVisible()
+      await expect(page.locator('[data-rail-content]').getByText('Danger zone').first()).toBeVisible()
       await expect(page.getByRole('button', { name: 'Delete Workspace', exact: true })).toBeVisible()
     })
   })
@@ -302,22 +312,24 @@ test.describe('Workspace Settings Feature', () => {
       await waitForLoading(page)
 
       // Target the settings sidebar specifically
-      const settingsSidebar = page.locator('.ant-layout-sider-dark')
+      const settingsSidebar = page.getByRole('navigation', { name: 'Settings' })
 
       // Should show all menu items in settings sidebar
-      await expect(settingsSidebar.locator('.ant-menu-item').filter({ hasText: 'Team' })).toBeVisible()
       await expect(
-        settingsSidebar.locator('.ant-menu-item').filter({ hasText: 'Integrations' })
-      ).toBeVisible()
-      await expect(settingsSidebar.locator('.ant-menu-item').filter({ hasText: 'Blog' })).toBeVisible()
-      await expect(
-        settingsSidebar.locator('.ant-menu-item').filter({ hasText: 'Custom Fields' })
+        settingsSidebar.getByRole('button', { name: 'Team & API keys', exact: true })
       ).toBeVisible()
       await expect(
-        settingsSidebar.locator('.ant-menu-item').filter({ hasText: 'SMTP Bridge' })
+        settingsSidebar.getByRole('button', { name: 'Integrations', exact: true })
+      ).toBeVisible()
+      await expect(settingsSidebar.getByRole('button', { name: 'Blog', exact: true })).toBeVisible()
+      await expect(
+        settingsSidebar.getByRole('button', { name: 'Custom fields', exact: true })
       ).toBeVisible()
       await expect(
-        settingsSidebar.locator('.ant-menu-item').filter({ hasText: 'General' })
+        settingsSidebar.getByRole('button', { name: 'SMTP bridge', exact: true })
+      ).toBeVisible()
+      await expect(
+        settingsSidebar.getByRole('button', { name: 'General', exact: true })
       ).toBeVisible()
     })
 
@@ -327,9 +339,11 @@ test.describe('Workspace Settings Feature', () => {
       await page.goto(`/console/workspace/${WORKSPACE_ID}/settings/general`)
       await waitForLoading(page)
 
-      // General should be selected
-      const generalMenuItem = page.locator('.ant-menu-item').filter({ hasText: 'General' })
-      await expect(generalMenuItem).toHaveClass(/ant-menu-item-selected/)
+      // General should be the current page
+      const generalMenuItem = page
+        .getByRole('navigation', { name: 'Settings' })
+        .getByRole('button', { name: 'General', exact: true })
+      await expect(generalMenuItem).toHaveAttribute('aria-current', 'page')
     })
   })
 
@@ -341,13 +355,13 @@ test.describe('Workspace Settings Feature', () => {
       await waitForLoading(page)
 
       // Fill workspace name - always editable in the owner form
-      const nameInput = page.getByLabel('Workspace Name', { exact: false })
+      const nameInput = page.locator('[data-rail-content]').getByLabel('Name', { exact: true })
       await nameInput.fill(testWorkspaceSettingsData.name)
 
       // Select a timezone. The option list is built from window.TIMEZONES, which the
       // mocked /config.js does not serve, so the dropdown is legitimately empty here -
       // the fallback closes it again and leaves the field at its stored value.
-      const timezoneSelect = page.locator('.ant-form-item').filter({ hasText: /timezone/i }).locator('.ant-select')
+      const timezoneSelect = page.locator('[data-settings-row]').filter({ hasText: /timezone/i }).locator('.ant-select')
       await timezoneSelect.click()
       await page.locator('.ant-select-dropdown').waitFor({ state: 'visible' })
       const option = page.locator('.ant-select-item-option').filter({ hasText: /New_York|UTC/i }).first()
@@ -358,7 +372,7 @@ test.describe('Workspace Settings Feature', () => {
       }
 
       // Fill custom endpoint URL
-      const endpointInput = page.getByLabel('Custom Endpoint', { exact: false })
+      const endpointInput = page.locator('[data-rail-content]').getByLabel('Domain', { exact: true })
       await endpointInput.fill(testWorkspaceSettingsData.custom_endpoint_url!)
 
       // Submit form - the save bar shows up as soon as the form is dirty

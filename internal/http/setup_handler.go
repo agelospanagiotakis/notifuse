@@ -5,11 +5,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/Notifuse/notifuse/internal/service"
 	"github.com/Notifuse/notifuse/pkg/logger"
+	"github.com/google/uuid"
 )
+
+// reloadShutdownTimeout bounds the shutdown a handler starts to load a new configuration. It is
+// shorter than the 70 s cmd/api waits for that shutdown, so the databases close before the exit.
+const reloadShutdownTimeout = 65 * time.Second
+
+// reloadShutdown shuts the app down to load a new configuration, within reloadShutdownTimeout.
+func reloadShutdown(app AppShutdowner) error {
+	ctx, cancel := context.WithTimeout(context.Background(), reloadShutdownTimeout)
+	defer cancel()
+	return app.Shutdown(ctx)
+}
 
 // AppShutdowner defines the interface for triggering app shutdown
 type AppShutdowner interface {
@@ -22,6 +35,9 @@ type SetupHandler struct {
 	settingService *service.SettingService
 	logger         logger.Logger
 	app            AppShutdowner
+	// bootID is drawn once per handler, so once per process: the setup page tells
+	// the restarted server from the one shutting down by a different value.
+	bootID string
 }
 
 // NewSetupHandler creates a new setup handler
@@ -36,6 +52,7 @@ func NewSetupHandler(
 		settingService: settingService,
 		logger:         logger,
 		app:            app,
+		bootID:         uuid.NewString(),
 	}
 }
 
@@ -47,6 +64,12 @@ type StatusResponse struct {
 	RootEmailConfigured   bool `json:"root_email_configured"`
 	SMTPBridgeConfigured  bool `json:"smtp_bridge_configured"`
 	OIDCConfigured        bool `json:"oidc_configured"`
+	// EnvOverrides lists, before install only, the setting keys whose environment
+	// variable is set (names, never values), so the wizard can lock those fields.
+	EnvOverrides []string `json:"env_overrides,omitempty"`
+	// BootID is random and changes at each start of the process; it says nothing
+	// about the host or the time.
+	BootID string `json:"boot_id"`
 }
 
 // InitializeRequest represents the setup initialization request
@@ -62,7 +85,7 @@ type InitializeRequest struct {
 	SMTPUseTLS              *bool  `json:"smtp_use_tls"`
 	SMTPEHLOHostname        string `json:"smtp_ehlo_hostname"`
 	TelemetryEnabled        bool   `json:"telemetry_enabled"`
-	CheckForUpdates         bool   `json:"check_for_updates"`
+	CheckForUpdates         *bool  `json:"check_for_updates"`
 	SMTPBridgeEnabled       bool   `json:"smtp_bridge_enabled"`
 	SMTPBridgeHost          string `json:"smtp_bridge_domain"`
 	SMTPBridgePort          int    `json:"smtp_bridge_port"`
@@ -83,6 +106,9 @@ type InitializeRequest struct {
 type InitializeResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
+	// BootID of the process that handled the request: the setup page waits for the
+	// server to answer another one, since this process restarts to apply the setup.
+	BootID string `json:"boot_id"`
 }
 
 // TestSMTPRequest represents the SMTP connection test request
@@ -126,6 +152,15 @@ func (h *SetupHandler) Status(w http.ResponseWriter, r *http.Request) {
 		RootEmailConfigured:   configStatus.RootEmailConfigured,
 		SMTPBridgeConfigured:  configStatus.SMTPBridgeConfigured,
 		OIDCConfigured:        configStatus.OIDCConfigured,
+		BootID:                h.bootID,
+	}
+	if !isInstalled {
+		for key, set := range h.setupService.GetEnvOverrides() {
+			if set {
+				response.EnvOverrides = append(response.EnvOverrides, key)
+			}
+		}
+		slices.Sort(response.EnvOverrides)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -154,6 +189,7 @@ func (h *SetupHandler) Initialize(w http.ResponseWriter, r *http.Request) {
 		response := InitializeResponse{
 			Success: true,
 			Message: "Setup already completed. System is ready to use.",
+			BootID:  h.bootID,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -184,6 +220,13 @@ func (h *SetupHandler) Initialize(w http.ResponseWriter, r *http.Request) {
 		smtpUseTLS = *req.SMTPUseTLS
 	}
 
+	// Absent means on, as the setup wizard and the documentation default it: a plain bool
+	// would install a JSON client that leaves the field out with it off.
+	checkForUpdates := true
+	if req.CheckForUpdates != nil {
+		checkForUpdates = *req.CheckForUpdates
+	}
+
 	// Convert request to service config
 	setupConfig := &service.SetupConfig{
 		RootEmail:               req.RootEmail,
@@ -197,7 +240,7 @@ func (h *SetupHandler) Initialize(w http.ResponseWriter, r *http.Request) {
 		SMTPUseTLS:              smtpUseTLS,
 		SMTPEHLOHostname:        req.SMTPEHLOHostname,
 		TelemetryEnabled:        req.TelemetryEnabled,
-		CheckForUpdates:         req.CheckForUpdates,
+		CheckForUpdates:         checkForUpdates,
 		SMTPBridgeEnabled:       req.SMTPBridgeEnabled,
 		SMTPBridgeDomain:        req.SMTPBridgeHost,
 		SMTPBridgePort:          req.SMTPBridgePort,
@@ -225,6 +268,7 @@ func (h *SetupHandler) Initialize(w http.ResponseWriter, r *http.Request) {
 	response := InitializeResponse{
 		Success: true,
 		Message: "Setup completed successfully. Server is restarting with new configuration...",
+		BootID:  h.bootID,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -241,7 +285,7 @@ func (h *SetupHandler) Initialize(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		time.Sleep(500 * time.Millisecond)
 		h.logger.Info("Setup completed - initiating graceful shutdown for configuration reload")
-		if err := h.app.Shutdown(context.Background()); err != nil {
+		if err := reloadShutdown(h.app); err != nil {
 			h.logger.WithField("error", err).Error("Error during graceful shutdown")
 		}
 	}()

@@ -17,6 +17,7 @@ import (
 	"github.com/Notifuse/notifuse/internal/app"
 	"github.com/Notifuse/notifuse/internal/domain"
 	"github.com/Notifuse/notifuse/tests/testutil"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -57,7 +58,7 @@ func TestListUnsubscribeHeaders(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set up SMTP email provider for testing (Mailpit)
-	_, err = factory.SetupWorkspaceWithSMTPProvider(workspace.ID)
+	integration, err := factory.SetupWorkspaceWithSMTPProvider(workspace.ID)
 	require.NoError(t, err)
 
 	// Login to get auth token
@@ -100,9 +101,10 @@ func TestListUnsubscribeHeaders(t *testing.T) {
 		return contact.Email, list.ID
 	}
 
-	// sendToIndividual sends a broadcast to a fresh subscribed contact through
-	// broadcasts.sendToIndividual and returns the email Mailpit received.
-	sendToIndividual := func(t *testing.T) (msg *testutil.MailpitMessage, email, listID string) {
+	// sendToIndividualWith sends a broadcast to a fresh subscribed contact through
+	// broadcasts.sendToIndividual and returns the email Mailpit received. excludeUnsubscribed
+	// is the broadcast's audience setting.
+	sendToIndividualWith := func(t *testing.T, excludeUnsubscribed bool) (msg *testutil.MailpitMessage, email, listID string) {
 		t.Helper()
 		email, listID = subscribedContact(t)
 
@@ -116,7 +118,7 @@ func TestListUnsubscribeHeaders(t *testing.T) {
 			testutil.WithBroadcastABTesting([]string{template1.ID, template2.ID}),
 			testutil.WithBroadcastAudience(domain.AudienceSettings{
 				List:                listID,
-				ExcludeUnsubscribed: true,
+				ExcludeUnsubscribed: excludeUnsubscribed,
 			}))
 		require.NoError(t, err)
 
@@ -134,9 +136,15 @@ func TestListUnsubscribeHeaders(t *testing.T) {
 			t.Fatalf("Failed to send broadcast: status=%d, response=%+v", resp.StatusCode, errResult)
 		}
 
-		msg, err = waitForEmailAndGetMessage(t, email, 10*time.Second)
+		msg, err = testutil.WaitForMailpitMessageByRecipient(t, email, 10*time.Second)
 		require.NoError(t, err, "Should receive email in Mailpit")
 		return msg, email, listID
+	}
+
+	// sendToIndividual sends the usual broadcast, which excludes unsubscribed contacts.
+	sendToIndividual := func(t *testing.T) (msg *testutil.MailpitMessage, email, listID string) {
+		t.Helper()
+		return sendToIndividualWith(t, true)
 	}
 
 	t.Run("header carries an absolute one-click URL on the workspace endpoint", func(t *testing.T) {
@@ -153,6 +161,16 @@ func TestListUnsubscribeHeaders(t *testing.T) {
 		require.NotEmpty(t, listUnsubscribePost, "Email should have List-Unsubscribe-Post header")
 		assert.Equal(t, "List-Unsubscribe=One-Click", listUnsubscribePost[0],
 			"List-Unsubscribe-Post should be 'List-Unsubscribe=One-Click'")
+	})
+
+	// A broadcast that keeps the list's unsubscribed contacts is a notice every member must
+	// receive (issue #484): its emails carry neither header, so mail clients show no
+	// Unsubscribe button.
+	t.Run("no header when the broadcast includes unsubscribed contacts", func(t *testing.T) {
+		msg, _, _ := sendToIndividualWith(t, false)
+
+		assert.Empty(t, msg.Headers["List-Unsubscribe"], "Email should have no List-Unsubscribe header")
+		assert.Empty(t, msg.Headers["List-Unsubscribe-Post"], "Email should have no List-Unsubscribe-Post header")
 	})
 
 	// RFC 8058 section 3.2: the receiver SHOULD send the one-click POST as
@@ -227,6 +245,125 @@ func TestListUnsubscribeHeaders(t *testing.T) {
 		assert.Equal(t, domain.ContactListStatusUnsubscribed, statusOf(t, email, listID))
 	})
 
+	// A test email sent from the console for a mailing list (issue #423) carries that list's
+	// real links and the header, and its one-click unsubscribe works for a recipient who was
+	// not on the list - typed with capitals, as people do.
+	t.Run("test email for a list", func(t *testing.T) {
+		list, err := factory.CreateList(workspace.ID)
+		require.NoError(t, err)
+		template, err := factory.CreateTemplate(workspace.ID, testutil.WithCodeModeTemplate(
+			`<mjml><mj-body><mj-section><mj-column><mj-text>List: {{ list.name }} Link: {{ unsubscribe_url }}</mj-text></mj-column></mj-section></mj-body></mjml>`))
+		require.NoError(t, err)
+		senderID := integration.EmailProvider.Senders[0].ID
+
+		testSend := func(t *testing.T, recipient string, extra map[string]interface{}) *testutil.MailpitMessage {
+			t.Helper()
+			req := map[string]interface{}{
+				"workspace_id":    workspace.ID,
+				"template_id":     template.ID,
+				"integration_id":  integration.ID,
+				"sender_id":       senderID,
+				"recipient_email": recipient,
+			}
+			for k, v := range extra {
+				req[k] = v
+			}
+			resp, err := client.TestTransactionalTemplate(req)
+			require.NoError(t, err)
+			defer func() { _ = resp.Body.Close() }()
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			var result domain.TestTemplateResponse
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+			require.True(t, result.Success, "test send failed: %s", result.Error)
+
+			msg, err := testutil.WaitForMailpitMessageByRecipient(t, recipient, 10*time.Second)
+			require.NoError(t, err, "Should receive the test email in Mailpit")
+			return msg
+		}
+
+		t.Run("carries the list's links and a working one-click header", func(t *testing.T) {
+			recipient := fmt.Sprintf("Tester.%s@Example.com", uuid.New().String()[:8])
+			msg := testSend(t, recipient, map[string]interface{}{"list_id": list.ID})
+
+			assert.Contains(t, msg.HTML, list.Name, "the body should name the real list")
+			assert.Contains(t, msg.HTML, "lid="+list.ID, "the body's unsubscribe link should point at the real list")
+
+			u := listUnsubscribeURL(t, msg)
+			assert.Equal(t, "/unsubscribe-oneclick", u.Path)
+			assert.Equal(t, list.ID, u.Query().Get("lids"))
+			listUnsubscribePost := msg.Headers["List-Unsubscribe-Post"]
+			require.NotEmpty(t, listUnsubscribePost)
+			assert.Equal(t, "List-Unsubscribe=One-Click", listUnsubscribePost[0])
+
+			resp := requestListUnsubscribeURL(t, http.MethodPost, u,
+				"application/x-www-form-urlencoded", strings.NewReader("List-Unsubscribe=One-Click"))
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+			assert.Equal(t, domain.ContactListStatusUnsubscribed, statusOf(t, domain.NormalizeEmail(recipient), list.ID),
+				"the one-click POST from the test must unsubscribe the recipient from the list")
+		})
+
+		t.Run("no header when the test leaves it out", func(t *testing.T) {
+			recipient := fmt.Sprintf("notice.%s@example.com", uuid.New().String()[:8])
+			msg := testSend(t, recipient, map[string]interface{}{
+				"list_id":                      list.ID,
+				"omit_list_unsubscribe_header": true,
+			})
+
+			assert.Contains(t, msg.HTML, "lid="+list.ID, "the body keeps the list's links")
+			assert.Empty(t, msg.Headers["List-Unsubscribe"])
+			assert.Empty(t, msg.Headers["List-Unsubscribe-Post"])
+		})
+
+		t.Run("no header without a list", func(t *testing.T) {
+			recipient := fmt.Sprintf("nolist.%s@example.com", uuid.New().String()[:8])
+			msg := testSend(t, recipient, nil)
+
+			assert.Empty(t, msg.Headers["List-Unsubscribe"])
+			assert.Empty(t, msg.Headers["List-Unsubscribe-Post"])
+		})
+
+		// The test is recorded for the list as a real send is, so a bounce reported on it
+		// changes the recipient's subscription, as the dialog says.
+		t.Run("a bounce on the test marks the subscriber bounced on the list", func(t *testing.T) {
+			email, listID := subscribedContact(t)
+			testSend(t, email, map[string]interface{}{"list_id": listID})
+
+			db, err := factory.GetWorkspaceDB(workspace.ID)
+			require.NoError(t, err)
+			res, err := db.ExecContext(context.Background(),
+				`UPDATE message_history SET bounced_at = NOW() WHERE contact_email = $1 AND list_id = $2`,
+				email, listID)
+			require.NoError(t, err)
+			rows, err := res.RowsAffected()
+			require.NoError(t, err)
+			require.Equal(t, int64(1), rows, "the test should be recorded for the list")
+
+			assert.Equal(t, domain.ContactListStatusBounced, statusOf(t, email, listID))
+		})
+
+		t.Run("an unknown list is refused and creates no contact", func(t *testing.T) {
+			recipient := fmt.Sprintf("unknown.%s@example.com", uuid.New().String()[:8])
+			resp, err := client.TestTransactionalTemplate(map[string]interface{}{
+				"workspace_id":    workspace.ID,
+				"template_id":     template.ID,
+				"integration_id":  integration.ID,
+				"sender_id":       senderID,
+				"recipient_email": recipient,
+				"list_id":         "nosuchlist",
+			})
+			require.NoError(t, err)
+			defer func() { _ = resp.Body.Close() }()
+			assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+
+			db, err := factory.GetWorkspaceDB(workspace.ID)
+			require.NoError(t, err)
+			var contacts int
+			require.NoError(t, db.QueryRowContext(context.Background(),
+				`SELECT COUNT(*) FROM contacts WHERE email = $1`, recipient).Scan(&contacts))
+			assert.Equal(t, 0, contacts)
+		})
+	})
+
 	// Real broadcasts are not sent through broadcasts.sendToIndividual but scheduled and
 	// delivered by the email queue worker, which builds the header on its own path.
 	t.Run("scheduled broadcast delivered by the email queue carries a working header", func(t *testing.T) {
@@ -264,7 +401,7 @@ func TestListUnsubscribeHeaders(t *testing.T) {
 			[]string{"processed", "completed"}, 60*time.Second)
 		require.NoError(t, err)
 
-		msg, err := waitForEmailAndGetMessage(t, email, 20*time.Second)
+		msg, err := testutil.WaitForMailpitMessageByRecipient(t, email, 20*time.Second)
 		require.NoError(t, err, "Should receive the broadcast email in Mailpit")
 
 		u := listUnsubscribeURL(t, msg)
@@ -322,55 +459,4 @@ func requestListUnsubscribeURL(t *testing.T, method string, u *url.URL, contentT
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = resp.Body.Close() })
 	return resp
-}
-
-// waitForEmailAndGetMessage polls Mailpit for an email to the specified recipient
-// and returns the full message with headers
-func waitForEmailAndGetMessage(t *testing.T, recipientEmail string, timeout time.Duration) (*testutil.MailpitMessage, error) {
-	deadline := time.Now().Add(timeout)
-	pollInterval := 500 * time.Millisecond
-	mailpitURL := "http://localhost:8025/api/v1/messages"
-
-	httpClient := &http.Client{Timeout: 5 * time.Second}
-
-	for time.Now().Before(deadline) {
-		resp, err := httpClient.Get(mailpitURL)
-		if err != nil {
-			t.Logf("Failed to connect to Mailpit API: %v", err)
-			time.Sleep(pollInterval)
-			continue
-		}
-
-		var apiResp testutil.MailpitMessagesResponse
-		err = json.NewDecoder(resp.Body).Decode(&apiResp)
-		resp.Body.Close()
-
-		if err != nil {
-			t.Logf("Failed to decode Mailpit response: %v", err)
-			time.Sleep(pollInterval)
-			continue
-		}
-
-		t.Logf("Mailpit has %d messages", len(apiResp.Messages))
-
-		// Check each message for matching recipient
-		for _, msg := range apiResp.Messages {
-			for _, to := range msg.To {
-				if strings.EqualFold(recipientEmail, to.Address) {
-					t.Logf("Found email for recipient: %s", recipientEmail)
-					// Get the full message with headers
-					fullMsg, err := testutil.GetMailpitMessage(t, msg.ID)
-					if err != nil {
-						t.Logf("Failed to get full message: %v", err)
-						continue
-					}
-					return fullMsg, nil
-				}
-			}
-		}
-
-		time.Sleep(pollInterval)
-	}
-
-	return nil, fmt.Errorf("timeout waiting for email to %s after %v", recipientEmail, timeout)
 }

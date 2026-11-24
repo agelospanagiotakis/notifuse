@@ -10,7 +10,9 @@ import (
 	"github.com/Notifuse/notifuse/internal/domain"
 	"github.com/Notifuse/notifuse/pkg/logger"
 	"github.com/Notifuse/notifuse/pkg/notifuse_mjml"
+	"github.com/Notifuse/notifuse/pkg/plaintext"
 	"github.com/Notifuse/notifuse/pkg/tracing"
+	"github.com/Notifuse/notifuse/pkg/trackingtoken"
 	"github.com/google/uuid"
 	"go.opencensus.io/trace"
 )
@@ -96,14 +98,16 @@ func (s *EmailService) TestEmailProvider(ctx context.Context, workspaceID string
 		return err
 	}
 
-	// This sends a real email through the workspace's stored provider credentials,
-	// so it is a send and gated like one.
-	if !userWorkspace.HasPermission(domain.PermissionResourceTransactional, domain.PermissionTypeWrite) {
-		return domain.NewPermissionError(
-			domain.PermissionResourceTransactional,
-			domain.PermissionTypeWrite,
-			"Insufficient permissions: write access to transactional required",
-		)
+	// Testing a provider is configuring one: the request carries the provider's
+	// settings and is completed with the saved integration's. It takes the role
+	// that creates and updates integrations (platform admins are synthesized as
+	// owners), as SECURITY.md describes for provider settings.
+	//
+	// Not logged: a denial is the caller's error, not ours.
+	if userWorkspace.Role != "owner" {
+		err := &domain.ErrUnauthorized{Message: "user is not an owner of the workspace"}
+		tracing.MarkSpanError(ctx, err)
+		return err
 	}
 
 	// Fill in credentials the client could not send. Workspaces do not serve
@@ -194,6 +198,23 @@ func (s *EmailService) SendEmail(ctx context.Context, request domain.SendEmailPr
 		request.FromName = request.Provider.Senders[0].Name
 	}
 
+	// Resend is a Resend-shaped configuration over an SMTP transport: the kind exists
+	// for its webhook events, not because sending differs. Hand the transport half to
+	// the SMTP sender rather than maintaining a second sending path that would drift.
+	if request.Provider.Kind == domain.EmailProviderKindResend {
+		if request.Provider.Resend == nil {
+			return fmt.Errorf("resend settings missing for provider %s", request.Provider.Kind)
+		}
+		request.Provider.SMTP = request.Provider.Resend.ToSMTP()
+	}
+
+	// Every email goes out with a plain-text version. Generating it here, from the final
+	// HTML, covers every send path at once and keeps its links identical to the HTML's.
+	// An HTML with nothing to read yields "", and the email goes out HTML-only.
+	if strings.TrimSpace(request.TextContent) == "" {
+		request.TextContent = plaintext.FromHTML(request.Content)
+	}
+
 	// Get the appropriate provider service
 	providerService, err := s.getProviderService(request.Provider.Kind)
 	if err != nil {
@@ -207,7 +228,7 @@ func (s *EmailService) SendEmail(ctx context.Context, request domain.SendEmailPr
 // getProviderService returns the appropriate email provider service based on provider kind
 func (s *EmailService) getProviderService(providerKind domain.EmailProviderKind) (domain.EmailProviderService, error) {
 	switch providerKind {
-	case domain.EmailProviderKindSMTP:
+	case domain.EmailProviderKindSMTP, domain.EmailProviderKindResend:
 		return s.smtpService, nil
 	case domain.EmailProviderKindSES:
 		return s.sesService, nil
@@ -227,11 +248,16 @@ func (s *EmailService) getProviderService(providerKind domain.EmailProviderKind)
 }
 
 // maxRecordedClickedURLLength bounds the destination URLs persisted in clicked_links
-const maxRecordedClickedURLLength = 2048
+const maxRecordedClickedURLLength = domain.MaxClickedURLLength
 
-func (s *EmailService) VisitLink(ctx context.Context, messageID string, workspaceID string, clickedURL string, requestHost string) error {
+// VisitLink records a click on a tracked link. ownHosts are the instance's hosts as the
+// click route knows them, each a host[:port] value: the request's Host, the last
+// forwarded hosts of each of X-Forwarded-Host and Forwarded, the API endpoint's host and
+// the workspace's custom endpoint host. verified says the token was signed by the workspace, so the email really
+// carried clickedURL; see MessageHistoryRepository.SetClicked.
+func (s *EmailService) VisitLink(ctx context.Context, messageID string, workspaceID string, clickedURL string, ownHosts []string, verified bool) error {
 	// find the message by id
-	err := s.messageRepo.SetClicked(ctx, workspaceID, messageID, time.Now(), sanitizeClickedURL(clickedURL, requestHost))
+	err := s.messageRepo.SetClicked(ctx, workspaceID, messageID, time.Now(), sanitizeClickedURL(clickedURL, ownHosts), verified)
 	if err != nil {
 		s.logger.Error(err.Error())
 		return fmt.Errorf("failed to set clicked: %w", err)
@@ -242,41 +268,64 @@ func (s *EmailService) VisitLink(ctx context.Context, messageID string, workspac
 
 // sanitizeClickedURL decides whether a clicked destination URL may be recorded
 // per-link; it returns "" (aggregate-only) when the URL is not a plausible
-// http(s) destination or when it points back at the host serving the click
-// redirect: all links of one email (tracking redirect, unsubscribe,
-// notification center) are built from the same send-time endpoint, and the
-// unsubscribe/notification-center ones embed the recipient's raw email
-// address, which must not be persisted in clicked_links keys. Comparing
-// against the request host identifies that send-time endpoint without a
-// workspace lookup on the hot click path, and stays correct when the
-// workspace endpoint is later reconfigured.
+// http(s) destination or when it points back at the instance: all links of one
+// email (tracking redirect, unsubscribe, notification center, web version) are
+// built from the same send-time endpoint, and the unsubscribe and notification
+// center ones embed the recipient's raw email address, which must not be
+// persisted in clicked_links keys, nor start an automation on any link.
+//
+// The request's Host is that send-time endpoint when nothing rewrites it, and
+// stays right after the workspace endpoint is reconfigured. Behind a reverse
+// proxy that forwards its upstream name as Host, the forwarded host is, and with
+// no forwarded header the API endpoint or the workspace's current custom domain
+// is, unless the email was sent before the one it used changed. A link whose
+// hostname is any of ownHosts is left out, on any port: a client adding its own
+// forwarded value can only leave out more of its own clicks, never get a link
+// back to the Host it reached recorded.
 //
 // It also strips the web analytics identity token from the URLs it does keep.
 // A recorded URL becomes a JSONB *key* in clicked_links and per-link reporting
 // aggregates those keys across a broadcast, but the token is minted per
 // recipient over a fresh random nonce: left in place it would turn one row per
 // link into one row per recipient, and persist a bearer identity credential in
-// the workspace database — the same two hazards the request-host check avoids
+// the workspace database — the same two hazards the own-host check avoids
 // for the unsubscribe links.
-func sanitizeClickedURL(clickedURL string, requestHost string) string {
-	if clickedURL == "" {
+func sanitizeClickedURL(clickedURL string, ownHosts []string) string {
+	// The destination is read as the click route reads it: a leading space or a stray
+	// '%' (https://shop.com/50%off) makes net/url refuse a link that browsers open and
+	// the route redirects to. A host holding a '%' is refused there, so a
+	// "click.example.com%" host cannot slip past the own-host check.
+	s, parsed := trackingtoken.ParseLenient(clickedURL)
+	if parsed == nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return ""
 	}
 
-	parsed, err := url.Parse(clickedURL)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return ""
+	// The recorded key is the link as written, never the repaired form: it is what the
+	// template ships, and what per-link reporting and segment filters match against.
+	// Only a link net/url refuses as written is keyed by its preprocessed form. One it
+	// reads as it is, a trailing space included, keeps the key it was always recorded
+	// under: a broadcast sent before the upgrade, whose links TrackLinks minted with the
+	// space, keeps a single row per link in its stats. Emails sent since are minted
+	// trimmed, so their clicks were never recorded under the old key.
+	key := clickedURL
+	if _, err := url.Parse(clickedURL); err != nil {
+		key = s
 	}
 
-	if requestHost != "" && strings.EqualFold(parsed.Host, requestHost) {
-		return ""
+	// Hostnames are compared as HostOf writes them, lowercase and in Punycode, so a
+	// link written in Unicode matches the endpoint host the route was given.
+	linkHost := trackingtoken.HostOf(parsed.Scheme + "://" + parsed.Host)
+	for _, host := range ownHosts {
+		if trackingtoken.SameHostname(linkHost, trackingtoken.HostOf(host)) {
+			return ""
+		}
 	}
 
 	// The parameter name has to be the one notifuse_mjml WRITES onto a tracked
 	// link, not a copy of the literal: a second definition drifting from the
 	// first would silently stop matching, and the per-recipient credential the
 	// strip exists to remove would become a clicked_links JSONB key.
-	recorded := stripQueryParam(clickedURL, domain.WebIdentifyQueryParam)
+	recorded := stripQueryParam(key, domain.WebIdentifyQueryParam)
 
 	// The cap is measured on what we are about to persist, not on what arrived:
 	// it exists to bound the clicked_links key, and the token adds ~150
@@ -398,11 +447,11 @@ func (s *EmailService) SendEmailForTemplate(ctx context.Context, request domain.
 
 	emailContent := template.ResolveEmailContent(contactLang, workspace.Settings.DefaultLanguage)
 
-	// Find the emailSender
-	emailSender := request.EmailProvider.GetSender(emailContent.SenderID)
-
-	if emailSender == nil {
-		return fmt.Errorf("sender not found: %s", emailContent.SenderID)
+	// The sender the send chooses wins over the template's; a chosen sender that is not one
+	// of the integration's is an error rather than the default sender.
+	emailSender, err := request.EmailProvider.ResolveSender(request.EmailOptions.SenderID, emailContent.SenderID)
+	if err != nil {
+		return err
 	}
 
 	span.AddAttributes(
@@ -457,7 +506,13 @@ func (s *EmailService) SendEmailForTemplate(ctx context.Context, request domain.
 	// web analytics with email click tracking off and still need the recipient
 	// identified on landing, which is why TrackLinks treats an identity token as
 	// its own reason to rewrite the links.
-	trackingOptedOut := request.TrackingSettings.TrackingMode == notifuse_mjml.TrackingModeDisabled
+	//
+	// The caller's tracking decision counts too: SuppressIdentify is set when the
+	// recipient's click consent does not allow tracking, and no_tracking tracks
+	// nothing, the identity included.
+	trackingOptedOut := request.TrackingSettings.TrackingMode == notifuse_mjml.TrackingModeDisabled ||
+		request.TrackingSettings.TrackingMode == notifuse_mjml.TrackingModeNoTracking ||
+		request.TrackingSettings.SuppressIdentify
 
 	var identifyToken string
 	var identifyAllowedHosts []string
@@ -491,17 +546,24 @@ func (s *EmailService) SendEmailForTemplate(ctx context.Context, request domain.
 		// without it, the UTMContent default above would still rewrite opted-out
 		// single-use auth URLs.
 		TrackingMode: request.TrackingSettings.TrackingMode,
-		UTMSource:    request.TrackingSettings.UTMSource,
-		UTMMedium:    request.TrackingSettings.UTMMedium,
-		UTMCampaign:  request.TrackingSettings.UTMCampaign,
-		UTMContent:   request.TrackingSettings.UTMContent,
-		UTMTerm:      request.TrackingSettings.UTMTerm,
-		WorkspaceID:  request.WorkspaceID,
-		MessageID:    request.MessageID,
+		// The caller's per-recipient decision (consent, workspace switches) must
+		// survive the rebuild as well, or a recipient who refused tracking would
+		// get the pixel and the redirects back.
+		SuppressOpens:    request.TrackingSettings.SuppressOpens,
+		SuppressClicks:   request.TrackingSettings.SuppressClicks,
+		SuppressIdentify: request.TrackingSettings.SuppressIdentify,
+		UTMSource:        request.TrackingSettings.UTMSource,
+		UTMMedium:        request.TrackingSettings.UTMMedium,
+		UTMCampaign:      request.TrackingSettings.UTMCampaign,
+		UTMContent:       request.TrackingSettings.UTMContent,
+		UTMTerm:          request.TrackingSettings.UTMTerm,
+		WorkspaceID:      request.WorkspaceID,
+		MessageID:        request.MessageID,
 		// Request-scoped, and both json:"-": the credential reaches the compiler
 		// without ever reaching a stored tracking_settings row.
 		IdentifyToken:        identifyToken,
 		IdentifyAllowedHosts: identifyAllowedHosts,
+		SigningKey:           domain.TrackingSigningKey(workspace.Settings.SecretKey),
 	}
 
 	compileTemplateRequest := domain.CompileTemplateRequest{
@@ -535,7 +597,7 @@ func (s *EmailService) SendEmailForTemplate(ctx context.Context, request domain.
 		}
 		s.logger.WithField("error", errMsg).Error("Template compilation failed")
 
-		err := fmt.Errorf("template compilation failed: %s", errMsg)
+		err := &domain.TemplateRenderError{Message: fmt.Sprintf("template compilation failed: %s", errMsg)}
 		tracing.MarkSpanError(ctx, err)
 		return err
 	}
@@ -568,7 +630,7 @@ func (s *EmailService) SendEmailForTemplate(ctx context.Context, request domain.
 			"subject":     emailContent.Subject,
 		}).Error("Failed to process subject line with Liquid templating")
 		tracing.MarkSpanError(ctx, err)
-		return fmt.Errorf("failed to process subject with Liquid: %w", err)
+		return &domain.TemplateRenderError{Message: fmt.Sprintf("failed to process subject with Liquid: %v", err)}
 	}
 
 	// Allow override of subject via email options
@@ -586,7 +648,7 @@ func (s *EmailService) SendEmailForTemplate(ctx context.Context, request domain.
 				"subject":     *request.EmailOptions.Subject,
 			}).Error("Failed to process subject override with Liquid templating")
 			tracing.MarkSpanError(ctx, err)
-			return fmt.Errorf("failed to process subject override with Liquid: %w", err)
+			return &domain.TemplateRenderError{Message: fmt.Sprintf("failed to process subject override with Liquid: %v", err)}
 		}
 		s.logger.WithFields(map[string]interface{}{
 			"message_id":       request.MessageID,
@@ -603,7 +665,8 @@ func (s *EmailService) SendEmailForTemplate(ctx context.Context, request domain.
 	// Convert email options to channel options for storage
 	channelOptions := request.EmailOptions.ToChannelOptions()
 
-	// Create message history record
+	// Create message history record, with what the compiled HTML tracks
+	opensTracked, clicksTracked := domain.TrackedFlagsFromSettings(trackingSettings)
 	messageHistory := &domain.MessageHistory{
 		ID:                          request.MessageID,
 		ExternalID:                  request.ExternalID,
@@ -614,6 +677,8 @@ func (s *EmailService) SendEmailForTemplate(ctx context.Context, request domain.
 		Channel:                     "email",
 		MessageData:                 request.MessageData,
 		ChannelOptions:              channelOptions,
+		OpensTracked:                opensTracked,
+		ClicksTracked:               clicksTracked,
 		SentAt:                      now,
 		CreatedAt:                   now,
 		UpdatedAt:                   now,
@@ -641,9 +706,18 @@ func (s *EmailService) SendEmailForTemplate(ctx context.Context, request domain.
 	}).Debug("Sending email")
 
 	tracing.AddAttribute(ctx, "email.sending", true)
+	if compiledTemplate.TextError != "" {
+		s.logger.WithFields(map[string]interface{}{
+			"message_id":       request.MessageID,
+			"workspace_id":     request.WorkspaceID,
+			"template_id":      template.ID,
+			"template_version": template.Version,
+			"error":            compiledTemplate.TextError,
+		}).Warn("Custom text version could not be used, sending the automatic one")
+	}
 
-	// optional override for reply to
-	if emailContent.ReplyTo != "" {
+	// The template's reply-to applies when the send gives none of its own
+	if request.EmailOptions.ReplyTo == "" && emailContent.ReplyTo != "" {
 		request.EmailOptions.ReplyTo = emailContent.ReplyTo
 	}
 
@@ -657,6 +731,7 @@ func (s *EmailService) SendEmailForTemplate(ctx context.Context, request domain.
 		To:            request.Contact.Email,
 		Subject:       subject,
 		Content:       htmlContent,
+		TextContent:   compiledTemplate.CustomText(),
 		Provider:      request.EmailProvider,
 		EmailOptions:  request.EmailOptions,
 	}

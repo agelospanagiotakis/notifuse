@@ -118,6 +118,7 @@ type App struct {
 	contactListRepo               domain.ContactListRepository
 	templateRepo                  domain.TemplateRepository
 	broadcastRepo                 domain.BroadcastRepository
+	archiveRepo                   domain.CampaignArchiveRepository
 	taskRepo                      domain.TaskRepository
 	transactionalNotificationRepo domain.TransactionalNotificationRepository
 	messageHistoryRepo            domain.MessageHistoryRepository
@@ -230,6 +231,15 @@ type App struct {
 	activeRequests  int64          // atomic counter for active HTTP requests
 	requestWg       sync.WaitGroup // wait group for active requests
 	shutdownTimeout time.Duration  // configurable shutdown timeout
+	backgroundWg    sync.WaitGroup // background work started by startBackground
+
+	// The shutdown runs once: a later call (a signal during a reload, a second reload) waits for
+	// it and returns its result. shutdownDone is closed when it has ended; it is made on first use,
+	// so that an App built as a literal has one too.
+	shutdownOnce     sync.Once
+	shutdownErr      error
+	shutdownDone     chan struct{}
+	shutdownDoneMake sync.Once
 }
 
 // AppOption defines a functional option for configuring the App
@@ -322,7 +332,7 @@ func (a *App) InitDB() error {
 	a.logger.Info(fmt.Sprintf("Connecting to database %s:%d, user %s, sslmode %s, password: %s, dbname: %s", a.config.Database.Host, a.config.Database.Port, a.config.Database.User, a.config.Database.SSLMode, maskedPassword, a.config.Database.DBName))
 
 	// Ensure system database exists
-	if err := database.EnsureSystemDatabaseExists(database.GetPostgresDSN(&a.config.Database), a.config.Database.DBName); err != nil {
+	if err := database.EnsureSystemDatabaseExists(database.GetPostgresDSN(&a.config.Database), a.config.Database.DBName, a.config.Database.ExpectExisting); err != nil {
 		a.logger.Error(err.Error())
 		return fmt.Errorf("failed to ensure system database exists: %w", err)
 	}
@@ -356,6 +366,21 @@ func (a *App) InitDB() error {
 		return fmt.Errorf("failed to ping system database: %w", err)
 	}
 
+	// Refuse a server too old for the compiled conditions, before the schema and the migrations
+	// (EnsureSystemDatabaseExists, above, may already have created the database).
+	if err := database.RequireServerVersion(db, database.MinServerVersionNum); err != nil {
+		_ = db.Close()
+		return err
+	}
+
+	// Under DB_EXPECT_EXISTING, before the schema and the root users are written to it.
+	if a.config.Database.ExpectExisting {
+		if err := database.RequireExistingInstallation(db, a.config.Database.DBName); err != nil {
+			_ = db.Close()
+			return err
+		}
+	}
+
 	// Initialize database schema if needed
 	if err := database.InitializeDatabase(db, a.config.RootEmails()); err != nil {
 		_ = db.Close()
@@ -368,7 +393,7 @@ func (a *App) InitDB() error {
 	if err := migrationManager.RunMigrations(ctx, a.config, db); err != nil {
 		// Check if this is a restart-required signal
 		if errors.Is(err, migrations.ErrRestartRequired) {
-			a.logger.Info("Migration completed successfully - server restart required to reload configuration")
+			a.logger.WithField("reason", err.Error()).Info("Server restart required to reload configuration")
 			a.logger.Info("Closing database connection and exiting for restart...")
 
 			// Close database connection before exit
@@ -399,6 +424,9 @@ func (a *App) InitDB() error {
 	a.logger.WithField("max_connections", a.config.Database.MaxConnections).
 		WithField("max_connections_per_db", a.config.Database.MaxConnectionsPerDB).
 		Info("Connection manager initialized")
+
+	// Last: only once the migrations are applied and nothing below can fail and close db.
+	a.startEmptyWorkspaceRepair(migrationManager.InitializeEmptyWorkspaces, db)
 
 	return nil
 	// codecov:ignore:end
@@ -560,6 +588,9 @@ func (a *App) InitMailer() error {
 			APIEndpoint:  a.config.APIEndpoint,
 			UseTLS:       a.config.SMTP.UseTLS,
 			EHLOHostname: a.config.SMTP.EHLOHostname,
+			// Global default signature for system emails; per-workspace override
+			// comes from WorkspaceSettings.EmailTeamName.
+			TeamName: os.Getenv("SMTP_TEAM_NAME"),
 		}
 
 		a.mailer = mailer.NewSMTPMailer(mailerConfig)
@@ -582,6 +613,15 @@ func (a *App) InitRepositories() error {
 	}
 
 	a.userRepo = repository.NewUserRepository(a.db)
+	// Force the change of an administrator-issued password on every authenticated route but
+	// /api/user.setPassword. Registered once, here, because the gate lives in the middleware
+	// package and every handler builds its own AuthConfig: wiring it per handler is 36
+	// chances to forget, and a forgotten one is a route that stays usable. The closure reads
+	// the repository rather than a snapshot so a later assignment cannot strand it.
+	userRepoForGate := a.userRepo
+	middleware.SetPasswordChangeGate(func(ctx context.Context, userID string) (bool, error) {
+		return userRepoForGate.GetMustChangePassword(ctx, userID)
+	})
 	a.fedRepo = repository.NewFederatedIdentityRepository(a.db)
 	a.taskRepo = repository.NewTaskRepository(a.db)
 	a.authRepo = repository.NewSQLAuthRepository(a.db)
@@ -705,6 +745,10 @@ func (a *App) InitServices() error {
 	a.rateLimiter.SetPolicy("wa_identify:create", 300, 1*time.Minute)
 	a.rateLimiter.SetPolicy("inbound:ip", 240, 1*time.Minute)        // Public inbound replies by source IP (generous; providers share IPs)
 	a.rateLimiter.SetPolicy("inbound:workspace", 120, 1*time.Minute) // Public inbound replies by workspace
+	// Web version of emails (/v/): by address, generous because readers behind one proxy
+	// share it, and per message once the token verifies, the bound a client cannot vary.
+	a.rateLimiter.SetPolicy(httpHandler.WebVersionIPPolicy, 300, 1*time.Minute)
+	a.rateLimiter.SetPolicy(httpHandler.WebVersionMessagePolicy, 30, 1*time.Minute)
 	// OIDC policies are registered UNCONDITIONALLY (even when OIDC is disabled):
 	// RateLimiter.Allow fails closed on an unknown namespace, so enabling OIDC at
 	// runtime (settings drawer → graceful restart) must not 429 every request.
@@ -760,6 +804,9 @@ func (a *App) InitServices() error {
 		OIDCButtonLabel:     a.config.EnvValues.OIDCButtonLabel,
 		OIDCAutoCreateUsers: a.config.EnvValues.OIDCAutoCreateUsers,
 		OIDCAllowedDomains:  a.config.EnvValues.OIDCAllowedDomains,
+
+		Telemetry:       a.config.EnvValues.Telemetry,
+		CheckForUpdates: a.config.EnvValues.CheckForUpdates,
 	}
 
 	a.setupService = service.NewSetupService(
@@ -949,6 +996,7 @@ func (a *App) InitServices() error {
 	// Configure autoExecuteImmediate based on TaskScheduler.Enabled
 	// If task scheduler is disabled (e.g., in tests), also disable background task execution
 	a.taskService.SetAutoExecuteImmediate(a.config.TaskScheduler.Enabled)
+	a.taskService.SetSendNowDelay(a.config.TaskScheduler.SendNowDelay)
 
 	// Execution mode is coupled to the internal scheduler: when this instance runs its own
 	// scheduler it executes due tasks in-process, instead of dispatching over HTTP to its own
@@ -960,6 +1008,10 @@ func (a *App) InitServices() error {
 	// verifies with the same key — the endpoint has no session to authenticate.
 	a.taskService.SetSecretKey(a.config.Security.SecretKey)
 
+	// Runs started outside the task scheduler ("send now", a winner selection, a resume,
+	// /api/cron, tasks.execute) stop with the app, and Shutdown waits for them.
+	a.taskService.SetShutdownContext(a.shutdownCtx)
+
 	// Initialize transactional notification service
 	a.transactionalNotificationService = service.NewTransactionalNotificationService(
 		a.transactionalNotificationRepo,
@@ -970,6 +1022,7 @@ func (a *App) InitServices() error {
 		a.authService,
 		a.logger,
 		a.workspaceRepo,
+		a.listRepo,
 		a.config.APIEndpoint,
 	)
 
@@ -1033,6 +1086,12 @@ func (a *App) InitServices() error {
 	if a.config.Broadcast.DefaultRateLimit > 0 {
 		broadcastConfig.DefaultRateLimit = a.config.Broadcast.DefaultRateLimit
 	}
+	// Publish every campaign this platform sends to the workspace archive, so a sent
+	// campaign is reachable on its own URL. Imported campaigns are archived by the
+	// import handler; this covers sends.
+	a.archiveRepo = repository.NewCampaignArchiveRepository(a.workspaceRepo)
+	archiveService := service.NewArchiveService(a.broadcastRepo, a.templateRepo, a.archiveRepo)
+	broadcastConfig.OnBroadcastSent = archiveService.ArchiveSentBroadcast
 	broadcastFactory := broadcast.NewFactory(
 		a.broadcastRepo,
 		a.messageHistoryRepo,
@@ -1228,6 +1287,7 @@ func (a *App) InitServices() error {
 		a.webhookSubscriptionService,
 		a.automationService,
 		a.authService,
+		a.settingRepo,
 	)
 
 	// Initialize telemetry service
@@ -1255,7 +1315,7 @@ func (a *App) InitServices() error {
 	)
 
 	// Initialize contact timeline service
-	a.contactTimelineService = service.NewContactTimelineService(a.contactTimelineRepo, a.authService)
+	a.contactTimelineService = service.NewContactTimelineService(a.contactTimelineRepo, a.authService, a.workspaceRepo, a.logger)
 
 	// Initialize task scheduler
 	a.taskScheduler = service.NewTaskScheduler(
@@ -1396,9 +1456,9 @@ func (a *App) InitServices() error {
 		a.logger,
 		a.config.APIEndpoint,
 		// Webhook nodes post to a URL whoever holds automations:write typed, so they
-		// take the same guard and opt-out as subscriptions. 30s is the node's
-		// timeout from before it had a guard.
-		newOutgoingWebhookClient(a.config.Webhook.AllowPrivateDeliveryHosts, a.config.Tracing.Enabled, 30*time.Second),
+		// take the same guard and opt-out as subscriptions. The node also bounds the
+		// call itself; a normal stop's drain is longer, so the call is not cut.
+		newOutgoingWebhookClient(a.config.Webhook.AllowPrivateDeliveryHosts, a.config.Tracing.Enabled, service.WebhookNodeTimeout),
 	)
 	a.automationScheduler = service.NewAutomationScheduler(
 		automationExecutor,
@@ -1467,6 +1527,49 @@ func (a *App) InitServices() error {
 	}
 
 	return nil
+}
+
+// immediateRunsStopTimeout bounds Shutdown's wait for the task runs started outside the
+// scheduler; it covers the wait an interrupted run gives its processor before handing the
+// task back.
+const immediateRunsStopTimeout = 5 * time.Second
+
+// startLongStops stops the automation scheduler and the email queue worker side by side, and
+// returns a channel closed once both stopped. Each claims nothing new from the start of the
+// shutdown (the shutdown context is cancelled first), and lets what is in flight finish.
+func (a *App) startLongStops() <-chan struct{} {
+	var stops []func()
+	if a.automationScheduler != nil {
+		stops = append(stops, func() {
+			a.logger.Info("Stopping automation scheduler...")
+			a.automationScheduler.Stop()
+		})
+	}
+	if a.emailQueueWorker != nil {
+		stops = append(stops, func() {
+			a.logger.Info("Stopping email queue worker...")
+			a.emailQueueWorker.Stop()
+		})
+	}
+	return runAll(stops...)
+}
+
+// runAll runs each function in its own goroutine and returns a channel closed once all ended.
+func runAll(fns ...func()) <-chan struct{} {
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	for _, fn := range fns {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fn()
+		}()
+	}
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	return done
 }
 
 // newEmailQueueWorkerConfig is the email queue worker's default configuration with the
@@ -1584,10 +1687,53 @@ func (a *App) InitHandlers() error {
 	contactListHandler := httpHandler.NewContactListHandler(a.contactListService, getJWTSecret, a.logger)
 	templateHandler := httpHandler.NewTemplateHandler(a.templateService, getJWTSecret, a.logger)
 	templateBlockHandler := httpHandler.NewTemplateBlockHandler(a.templateBlockService, getJWTSecret, a.logger)
-	emailHandler := httpHandler.NewEmailHandler(a.emailService, getJWTSecret, a.logger, a.config.Security.SecretKey)
-	broadcastHandler := httpHandler.NewBroadcastHandler(a.broadcastService, a.templateService, getJWTSecret, a.logger, a.config.IsDemo())
+	systemDB := a.db
+	trackingWorkspaces := service.NewTrackingWorkspaceSource(
+		func(ctx context.Context, workspaceID string) (string, string, error) {
+			row, err := repository.GetTrackingWorkspace(ctx, systemDB, workspaceID)
+			return row.EncryptedSecretKey, row.CustomEndpointURL, err
+		},
+		a.config.Security.SecretKey,
+		a.config.Security.PreviousSecretKeys,
+	)
+	emailHandler := httpHandler.NewEmailHandler(a.emailService, getJWTSecret, a.logger, a.config.Security.SecretKey, trackingWorkspaces, a.config.APIEndpoint)
+	webVersionHandler := httpHandler.NewWebVersionHandler(
+		service.NewWebVersionService(trackingWorkspaces, a.workspaceRepo, a.messageHistoryRepo, a.templateRepo, a.config.APIEndpoint, a.logger),
+		a.rateLimiter,
+	)
+	broadcastHandler := httpHandler.NewBroadcastHandler(a.broadcastService, getJWTSecret, a.logger, a.config.IsDemo())
 	blogHandler := httpHandler.NewBlogHandler(a.blogService, getJWTSecret, a.logger, a.config.IsDemo())
 	blogThemeHandler := httpHandler.NewBlogThemeHandler(a.blogService, getJWTSecret, a.logger)
+	// The public campaign archive: the Mailchimp campaign-archive surface, served
+	// from the templates we already hold. Read-only and unauthenticated by design
+	// (it is a page for readers, not operators); the workspace turns it on and
+	// gates it with basic auth in settings.archive.
+	archiveRepo := a.archiveRepo
+	if archiveRepo == nil {
+		archiveRepo = repository.NewCampaignArchiveRepository(a.workspaceRepo)
+	}
+	archiveAdminHandler := httpHandler.NewArchiveAdminHandler(
+		a.workspaceRepo,
+		archiveRepo,
+		a.templateRepo,
+		getJWTSecret,
+		a.logger,
+	)
+	importHandler := httpHandler.NewImportHandler(
+		a.workspaceRepo,
+		a.templateRepo,
+		archiveRepo,
+		getJWTSecret,
+		a.config.Security.SecretKey,
+		a.logger,
+	)
+	archiveHandler := httpHandler.NewArchiveHandler(
+		a.workspaceRepo,
+		a.templateRepo,
+		archiveRepo,
+		a.listService,
+		a.logger,
+	)
 	taskHandler := httpHandler.NewTaskHandler(
 		a.taskService,
 		a.authService,
@@ -1600,6 +1746,8 @@ func (a *App) InitHandlers() error {
 		// works exactly when something calls it.
 		!a.config.TaskScheduler.Enabled,
 	)
+	taskHandler.SetCronTaskCeiling(a.config.TaskScheduler.MaxTasks)
+	taskHandler.SetRunStarter(a.taskService)
 	transactionalHandler := httpHandler.NewTransactionalNotificationHandler(a.transactionalNotificationService, getJWTSecret, a.logger, a.config.IsDemo())
 	inboundWebhookEventHandler := httpHandler.NewInboundWebhookEventHandler(a.inboundWebhookEventService, getJWTSecret, a.rateLimiter, a.logger)
 	webhookRegistrationHandler := httpHandler.NewWebhookRegistrationHandler(a.webhookRegistrationService, getJWTSecret, a.logger)
@@ -1627,7 +1775,11 @@ func (a *App) InitHandlers() error {
 		getJWTSecret,
 		a.logger,
 		loadWebAnalyticsSDK(a.logger),
-	)
+	).WithContactVisits(service.NewWebAnalyticsContactVisitsService(
+		repository.NewWebAnalyticsContactVisitsRepository(a.workspaceRepo),
+		a.workspaceRepo,
+		a.authService,
+	))
 	usageHandler := httpHandler.NewUsageHandler(
 		a.usageService,
 		a.config.Security.SecretKey,
@@ -1671,10 +1823,10 @@ func (a *App) InitHandlers() error {
 		getJWTSecret,
 		a.logger,
 	)
-	if !a.config.IsProduction() {
-		demoHandler := httpHandler.NewDemoHandler(a.demoService, a.logger)
-		demoHandler.RegisterRoutes(a.mux)
-	}
+	// demo.seed on every environment, demo.reset (which deletes every workspace) only
+	// off production; see DemoHandler.RegisterRoutes.
+	demoHandler := httpHandler.NewDemoHandler(a.demoService, a.logger)
+	demoHandler.RegisterRoutes(a.mux, !a.config.IsProduction())
 
 	// Register routes
 	setupHandler.RegisterRoutes(a.mux) // Setup handler first (should be accessible without auth)
@@ -1689,8 +1841,12 @@ func (a *App) InitHandlers() error {
 	templateHandler.RegisterRoutes(a.mux)
 	templateBlockHandler.RegisterRoutes(a.mux)
 	emailHandler.RegisterRoutes(a.mux)
+	webVersionHandler.RegisterRoutes(a.mux)
 	broadcastHandler.RegisterRoutes(a.mux)
 	blogHandler.RegisterRoutes(a.mux)
+	archiveHandler.RegisterRoutes(a.mux)
+	archiveAdminHandler.RegisterRoutes(a.mux)
+	importHandler.RegisterRoutes(a.mux)
 	blogThemeHandler.RegisterRoutes(a.mux)
 	taskHandler.RegisterRoutes(a.mux)
 	transactionalHandler.RegisterRoutes(a.mux)
@@ -1944,6 +2100,15 @@ func (a *App) Start() error {
 
 // Shutdown gracefully shuts down the server
 func (a *App) Shutdown(ctx context.Context) error {
+	// sync.Once makes a later call wait until the first one has returned
+	a.shutdownOnce.Do(func() {
+		a.shutdownErr = a.shutdown(ctx)
+		close(a.shutdownDoneChan())
+	})
+	return a.shutdownErr
+}
+
+func (a *App) shutdown(ctx context.Context) error {
 	a.logger.Info("Starting graceful shutdown...")
 
 	// Signal shutdown to all components
@@ -1959,6 +2124,11 @@ func (a *App) Shutdown(ctx context.Context) error {
 		a.oidcExchangeCache.Stop()
 	}
 
+	// The automation scheduler and the email queue worker wait longest for their work in flight
+	// (a step, a send): they stop beside the rest instead of after it, so both waits fit in the
+	// shutdown's budget.
+	longStopsDone := a.startLongStops()
+
 	// Drain the web analytics buffer before connections start closing; Stop
 	// is synchronous and idempotent (Start's own shutdown path also flushes).
 	if a.webAnalyticsBuffer != nil {
@@ -1971,17 +2141,15 @@ func (a *App) Shutdown(ctx context.Context) error {
 		a.taskScheduler.Stop()
 	}
 
-	// Stop automation scheduler
-	if a.automationScheduler != nil {
-		a.logger.Info("Stopping automation scheduler...")
-		a.automationScheduler.Stop()
+	// The runs started outside the scheduler were cancelled with the shutdown context; their
+	// last writes (a broadcast's cursor) land before the databases close.
+	if a.taskService != nil && !a.taskService.WaitRuns(immediateRunsStopTimeout) {
+		a.logger.Warn("Task runs started outside the scheduler still running after the stop's wait")
 	}
 
-	// Stop email queue worker
-	if a.emailQueueWorker != nil {
-		a.logger.Info("Stopping email queue worker...")
-		a.emailQueueWorker.Stop()
-	}
+	// The automation scheduler and the email queue worker have the longest waits (see
+	// startLongStops); they end here at the latest.
+	<-longStopsDone
 
 	// Stop global rate limiter
 	if a.rateLimiter != nil {
@@ -2114,14 +2282,69 @@ func (a *App) Shutdown(ctx context.Context) error {
 	return shutdownErr
 }
 
+func (a *App) shutdownDoneChan() chan struct{} {
+	a.shutdownDoneMake.Do(func() { a.shutdownDone = make(chan struct{}) })
+	return a.shutdownDone
+}
+
+// ShutdownDone is closed once the shutdown has ended, whoever started it. When the app closes
+// its own server to load a new configuration, Start returns at once, and cmd/api waits for this.
+func (a *App) ShutdownDone() <-chan struct{} {
+	return a.shutdownDoneChan()
+}
+
+// startEmptyWorkspaceRepair runs repair (migrations.Manager.InitializeEmptyWorkspaces),
+// which gives the empty workspace databases left by failed creations their schema, in
+// the background, off the startup path. InitDB starts it once the migrations are
+// applied and nothing after it can fail and close db.
+func (a *App) startEmptyWorkspaceRepair(repair func(ctx context.Context, cfg *config.Config, db *sql.DB), db *sql.DB) {
+	a.startBackground("empty workspace repair", func(ctx context.Context) {
+		repair(ctx, a.config, db)
+	})
+}
+
+// startBackground runs fn in the background with the app's shutdown context, which
+// Shutdown cancels; cleanupResources waits for it before closing the database.
+func (a *App) startBackground(name string, fn func(ctx context.Context)) {
+	a.backgroundWg.Add(1)
+	go func() {
+		defer a.backgroundWg.Done()
+		fn(a.shutdownCtx)
+		a.logger.WithField("task", name).Debug("Background task finished")
+	}()
+}
+
+// waitForBackground waits for the background work, bounded by ctx, or by
+// shutdownTimeout when ctx has no deadline: the shutdown context, cancelled by then,
+// tells the work to stop but cannot bound the wait.
+func (a *App) waitForBackground(ctx context.Context) {
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, a.shutdownTimeout)
+		defer cancel()
+	}
+	done := make(chan struct{})
+	go func() {
+		a.backgroundWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		a.logger.Warn("Background work still running at shutdown; closing the database anyway")
+	}
+}
+
 // cleanupResources handles cleanup of database and other resources
-func (a *App) cleanupResources(_ context.Context) error {
+func (a *App) cleanupResources(ctx context.Context) error {
 	a.logger.Info("Cleaning up resources...")
+
+	a.waitForBackground(ctx)
 
 	// Close connection manager before closing database
 	if connManager, err := pkgDatabase.GetConnectionManager(); err == nil {
 		a.logger.Info("Closing connection manager")
-		if err := connManager.Close(); err != nil {
+		if err := closeWithin(ctx, connManager.Close); err != nil {
 			a.logger.WithField("error", err).Error("Error closing connection manager")
 		} else {
 			a.logger.Info("Connection manager closed successfully")
@@ -2138,7 +2361,7 @@ func (a *App) cleanupResources(_ context.Context) error {
 		}
 
 		a.logger.Info("Closing database connection")
-		if err := a.db.Close(); err != nil {
+		if err := closeWithin(ctx, a.db.Close); err != nil {
 			a.logger.WithField("error", err).Error("Error closing database connection")
 			return err
 		}
@@ -2152,6 +2375,35 @@ func (a *App) cleanupResources(_ context.Context) error {
 
 	a.logger.Info("Resource cleanup completed")
 	return nil
+}
+
+// closeGrace is how long closeWithin waits for a close when the shutdown deadline has already
+// passed, so a quick close still ends cleanly.
+var closeGrace = time.Second
+
+// closeWithin runs closeFn and returns its error, or ctx's error once ctx ends first (once
+// closeGrace has passed, when ctx had already ended). A close still running then goes on in its
+// goroutine, so a stuck close does not hold the shutdown.
+func closeWithin(ctx context.Context, closeFn func() error) error {
+	done := make(chan error, 1)
+	go func() { done <- closeFn() }()
+	waitCtx := ctx
+	if ctx.Err() != nil {
+		var cancel context.CancelFunc
+		waitCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), closeGrace)
+		defer cancel()
+	}
+	select {
+	case err := <-done:
+		return err
+	case <-waitCtx.Done():
+		select {
+		case err := <-done:
+			return err
+		default:
+			return fmt.Errorf("close did not end before the shutdown deadline: %w", ctx.Err())
+		}
+	}
 }
 
 // IsServerCreated safely checks if the server has been created

@@ -407,3 +407,92 @@ func TestSentMeasuresExcludeFailures(t *testing.T) {
 	assert.Contains(t, filterSQL("count_failed"), "failed_at IS NOT NULL")
 	assert.NotContains(t, filterSQL("count_failed"), "sent_at IS NOT NULL")
 }
+
+func TestTrackedMeasuresAreSentEmailsWithTheirFlag(t *testing.T) {
+	schema, ok := PredefinedSchemas["message_history"]
+	require.True(t, ok)
+
+	filterSQL := func(measure string) []string {
+		m, exists := schema.Measures[measure]
+		require.True(t, exists, "measure %s should exist", measure)
+		sql := make([]string, 0, len(m.Filters))
+		for _, f := range m.Filters {
+			sql = append(sql, f.SQL)
+		}
+		return sql
+	}
+
+	sentEmails := filterSQL("count_sent_emails")
+	assert.ElementsMatch(t, append(append([]string{}, sentEmails...), "opens_tracked IS NOT FALSE"), filterSQL("count_opens_tracked"))
+	assert.ElementsMatch(t, append(append([]string{}, sentEmails...), "clicks_tracked IS NOT FALSE"), filterSQL("count_clicks_tracked"))
+}
+
+// The origin dimension sorts every message into what sent it, from its broadcast, automation
+// and transactional notification IDs, with the values of the messages.list origin filter. Its
+// SQL is an expression, so it must be parenthesised: the query builder copies a dimension's
+// SQL as is into SELECT, GROUP BY and filters.
+func TestMessageHistoryOriginDimension(t *testing.T) {
+	schema, ok := PredefinedSchemas["message_history"]
+	require.True(t, ok)
+
+	origin, exists := schema.Dimensions["origin"]
+	require.True(t, exists, "message_history should have an origin dimension")
+	assert.Equal(t, "string", origin.Type)
+	assert.Equal(t,
+		"(CASE WHEN broadcast_id IS NOT NULL THEN 'broadcast' WHEN automation_id IS NOT NULL THEN 'automation' WHEN transactional_notification_id IS NOT NULL THEN 'transactional' ELSE 'other' END)",
+		origin.SQL)
+}
+
+// last_sent_at is the latest send the provider accepted: failed attempts are left
+// out, as in count_sent.
+func TestMessageHistoryLastSentAtMeasure(t *testing.T) {
+	schema, ok := PredefinedSchemas["message_history"]
+	require.True(t, ok)
+
+	measure, exists := schema.Measures["last_sent_at"]
+	require.True(t, exists, "message_history should have a last_sent_at measure")
+	assert.Equal(t, "max", measure.Type)
+	assert.Equal(t, "sent_at", measure.SQL)
+	require.Len(t, measure.Filters, 1)
+	assert.Equal(t, "failed_at IS NULL", measure.Filters[0].SQL)
+}
+
+// The automation detail links to its messages in analytics by the automation that sent them.
+func TestMessageHistoryAutomationIDDimension(t *testing.T) {
+	schema, ok := PredefinedSchemas["message_history"]
+	require.True(t, ok)
+
+	dimension, exists := schema.Dimensions["automation_id"]
+	require.True(t, exists, "message_history should have an automation_id dimension")
+	assert.Equal(t, "string", dimension.Type)
+	assert.Equal(t, "automation_id", dimension.SQL)
+}
+
+// Opens and clicks over time: both are time dimensions on their own columns.
+func TestMessageHistoryEngagementTimeDimensions(t *testing.T) {
+	schema, ok := PredefinedSchemas["message_history"]
+	require.True(t, ok)
+
+	for _, name := range []string{"opened_at", "clicked_at"} {
+		dimension, exists := schema.Dimensions[name]
+		require.True(t, exists, name)
+		assert.Equal(t, "time", dimension.Type, name)
+		assert.Equal(t, name, dimension.SQL, name)
+	}
+}
+
+// count_transactional_messages counts what the origin dimension calls transactional: a
+// notification's message, not an automation email carrying a notification ID, nor a broadcast's.
+func TestTransactionalMessagesMeasureFollowsTheOrigin(t *testing.T) {
+	m, ok := PredefinedSchemas["message_history"].Measures["count_transactional_messages"]
+	require.True(t, ok)
+	sql := make([]string, 0, len(m.Filters))
+	for _, f := range m.Filters {
+		sql = append(sql, f.SQL)
+	}
+	assert.ElementsMatch(t, []string{
+		"transactional_notification_id IS NOT NULL",
+		"automation_id IS NULL",
+		"broadcast_id IS NULL",
+	}, sql)
+}

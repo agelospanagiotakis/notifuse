@@ -206,8 +206,8 @@ export const MJ_TITLE_DEFAULTS = {
 }
 
 // mj-group defaults
+// No width: as in MJML, a group without one takes its share of the section
 export const MJ_GROUP_DEFAULTS = {
-  width: '100%',
   verticalAlign: 'top' as const,
   backgroundColor: 'transparent',
   direction: 'ltr' as const,
@@ -256,7 +256,7 @@ export const MJ_SOCIAL_DEFAULTS = {
   borderRadius: '3px',
   containerBackgroundColor: 'transparent',
   cssClass: '',
-  iconHeight: '20px',
+  // No icon height, as in MJML: the icons are as high as their size, and follow it when it changes
   iconSize: '20px',
   innerPadding: '4px',
   lineHeight: '22px',
@@ -274,6 +274,7 @@ export const MJ_SOCIAL_ELEMENT_DEFAULTS = {
   align: 'center',
   alt: '',
   backgroundColor: 'transparent', // Transparent background for true color icons
+  border: '0', // MJML 5: the icon's border
   borderRadius: '3px',
   color: '#333333',
   cssClass: undefined,
@@ -303,6 +304,27 @@ export const MJ_SOCIAL_ELEMENT_DEFAULTS = {
   title: undefined,
   verticalAlign: 'middle'
 }
+
+/**
+ * What mj-social passes to each of its elements, as MJML's getSocialElementAttributes: these attributes, and its
+ * inner-padding as their padding. An element's own value wins, so a new element does not write them: it takes them
+ * from its mj-social, whose values for them are these defaults unless set.
+ */
+export const SOCIAL_INHERITED_ATTRIBUTES = [
+  'border',
+  'borderRadius',
+  'color',
+  'fontFamily',
+  'fontSize',
+  'fontWeight',
+  'fontStyle',
+  'iconSize',
+  'iconHeight',
+  'iconPadding',
+  'textPadding',
+  'lineHeight',
+  'textDecoration'
+] as const
 
 /**
  * Comprehensive defaults mapping for all MJML component types
@@ -400,13 +422,3 @@ export const MJML_VERTICAL_ALIGNMENTS = {
   MIDDLE: 'middle',
   BOTTOM: 'bottom'
 } as const
-
-/**
- * @deprecated Use GetInitialTemplate() instead
- */
-export const INITIAL_EMAIL_TEMPLATE = {
-  id: 'mjml-1',
-  type: 'mjml' as const,
-  children: [],
-  attributes: {}
-}

@@ -152,3 +152,32 @@ func (mr *MockUserServiceInterfaceMockRecorder) VerifyUserSession(arg0, arg1, ar
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VerifyUserSession", reflect.TypeOf((*MockUserServiceInterface)(nil).VerifyUserSession), arg0, arg1, arg2)
 }
+
+// SignInWithPassword mocks base method.
+func (m *MockUserServiceInterface) SignInWithPassword(arg0 context.Context, arg1 domain.SignInInput) (*domain.AuthResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SignInWithPassword", arg0, arg1)
+	ret0, _ := ret[0].(*domain.AuthResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SignInWithPassword indicates an expected call of SignInWithPassword.
+func (mr *MockUserServiceInterfaceMockRecorder) SignInWithPassword(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignInWithPassword", reflect.TypeOf((*MockUserServiceInterface)(nil).SignInWithPassword), arg0, arg1)
+}
+
+// SetPassword mocks base method.
+func (m *MockUserServiceInterface) SetPassword(arg0 context.Context, arg1 string, arg2 domain.SetPasswordInput) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPassword", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetPassword indicates an expected call of SetPassword.
+func (mr *MockUserServiceInterfaceMockRecorder) SetPassword(arg0, arg1, arg2 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPassword", reflect.TypeOf((*MockUserServiceInterface)(nil).SetPassword), arg0, arg1, arg2)
+}

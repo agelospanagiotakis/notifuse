@@ -26,11 +26,20 @@ var modelPricing = map[string]struct {
 	InputPerMTok  float64
 	OutputPerMTok float64
 }{
+	// Anthropic - https://platform.claude.com/docs/en/about-claude/pricing
+	"claude-opus-5-5":   {4.0, 20.0},
+	"claude-sonnet-5-5": {2.0, 10.0},
+	// Prompts up to 100K tokens; longer ones cost $0.50 / $2.50
+	"claude-haiku-5-5":          {0.10, 0.50},
 	"claude-opus-4-6":           {5.0, 25.0},
 	"claude-sonnet-4-6":         {3.0, 15.0},
 	"claude-haiku-4-5-20251001": {1.0, 5.0},
-	// Google Gemini (Gemini Developer API) - https://ai.google.dev/gemini-api/docs/pricing
-	// Pro models priced at the <=200k context tier.
+	// Google Gemini (Gemini Developer API) - https://aistudio.google.com/docs/pricing
+	// Pro models priced at the <=200k context tier. Gemini 4 Carbon and Argon at their
+	// price from 2026-12-01 (introductory $2 / $10 until then).
+	"gemini-4-carbon":        {4.0, 20.0},
+	"gemini-4-argon":         {4.0, 20.0},
+	"gemini-4-hydrogen":      {1.50, 7.50},
 	"gemini-2.5-flash":       {0.30, 2.50},
 	"gemini-2.5-flash-lite":  {0.10, 0.40},
 	"gemini-2.5-pro":         {1.25, 10.0},
@@ -158,6 +167,19 @@ func (s *LLMService) StreamChat(ctx context.Context, req *domain.LLMChatRequest,
 			return fmt.Errorf("Gemini configuration is missing")
 		}
 		return s.streamChatGemini(ctx, req, integration.LLMProvider.Gemini, firecrawlSettings, onEvent)
+	case domain.LLMProviderKindDeepSeek:
+		if integration.LLMProvider.DeepSeek == nil {
+			return fmt.Errorf("DeepSeek configuration is missing")
+		}
+		// DeepSeek is OpenAI-compatible: reuse that transport with its endpoint defaults.
+		ds := *integration.LLMProvider.DeepSeek
+		if ds.BaseURL == "" {
+			ds.BaseURL = "https://api.deepseek.com"
+		}
+		if ds.Model == "" {
+			ds.Model = "deepseek-chat"
+		}
+		return s.streamChatOpenAI(ctx, req, &ds, firecrawlSettings, onEvent)
 	default:
 		return fmt.Errorf("unsupported LLM provider: %s", integration.LLMProvider.Kind)
 	}
@@ -178,7 +200,7 @@ func (s *LLMService) streamChatAnthropic(
 	}
 	model := settings.Model
 	if model == "" {
-		model = "claude-sonnet-4-6" // Default model
+		model = "claude-sonnet-5-5" // Default model
 	}
 
 	// Create Anthropic client

@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Notifuse/notifuse/pkg/notifuse_mjml"
 )
 
 //go:generate mockgen -destination mocks/mock_broadcast_service.go -package mocks github.com/Notifuse/notifuse/internal/domain BroadcastService
@@ -105,9 +107,12 @@ func (b *BroadcastTestSettings) Scan(value interface{}) error {
 
 // BroadcastVariation represents a single variation in an A/B test
 type BroadcastVariation struct {
-	VariationName string            `json:"variation_name"`
-	TemplateID    string            `json:"template_id"`
-	Metrics       *VariationMetrics `json:"metrics,omitempty"`
+	VariationName string `json:"variation_name"`
+	TemplateID    string `json:"template_id"`
+	// SenderID is the integration sender this variation is sent from, chosen on the
+	// broadcast. Empty: the template's sender.
+	SenderID string            `json:"sender_id,omitempty"`
+	Metrics  *VariationMetrics `json:"metrics,omitempty"`
 	// joined servers-side
 	Template *Template `json:"template,omitempty"`
 }
@@ -290,17 +295,58 @@ type Broadcast struct {
 	WinnerSentAt              *time.Time            `json:"winner_sent_at,omitempty"`
 	TestPhaseRecipientCount   int                   `json:"test_phase_recipient_count"`
 	WinnerPhaseRecipientCount int                   `json:"winner_phase_recipient_count"`
-	EnqueuedCount             int                   `json:"enqueued_count"` // Emails added to queue
-	CreatedAt                 time.Time             `json:"created_at"`
-	UpdatedAt                 time.Time             `json:"updated_at"`
-	StartedAt                 *time.Time            `json:"started_at,omitempty"`
-	CompletedAt               *time.Time            `json:"completed_at,omitempty"`
-	CancelledAt               *time.Time            `json:"cancelled_at,omitempty"`
-	PausedAt                  *time.Time            `json:"paused_at,omitempty"`
-	PauseReason               *string               `json:"pause_reason,omitempty"`
+	// TestPausedSeconds is the time an A/B test waiting for its winner spent paused: the
+	// automatic winner is picked once the test duration has passed without it.
+	TestPausedSeconds int        `json:"test_paused_seconds,omitempty"`
+	EnqueuedCount     int        `json:"enqueued_count"` // Emails added to queue
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	StartedAt         *time.Time `json:"started_at,omitempty"`
+	CompletedAt       *time.Time `json:"completed_at,omitempty"`
+	CancelledAt       *time.Time `json:"cancelled_at,omitempty"`
+	PausedAt          *time.Time `json:"paused_at,omitempty"`
+	PauseReason       *string    `json:"pause_reason,omitempty"`
 
 	// Data feed settings (global and recipient feeds)
 	DataFeed *DataFeedSettings `json:"data_feed,omitempty"`
+
+	// TrackingMode is "" (follow the workspace and each contact's consent) or
+	// BroadcastTrackingModeNoTracking (no open pixel, no click redirect; UTM
+	// parameters are kept).
+	TrackingMode string `json:"tracking_mode,omitempty"`
+}
+
+// BroadcastTrackingModeNoTracking turns tracking off for every recipient of a
+// broadcast. The transactional "disabled" mode, which also drops the UTM
+// parameters, is not offered to broadcasts.
+const BroadcastTrackingModeNoTracking = notifuse_mjml.TrackingModeNoTracking
+
+// canonicalBroadcastTrackingMode stores "inherit" as "", its meaning.
+func canonicalBroadcastTrackingMode(mode string) string {
+	if mode == notifuse_mjml.TrackingModeInherit {
+		return ""
+	}
+	return mode
+}
+
+// SendsListUnsubscribeHeader reports whether the broadcast's emails carry the RFC 8058
+// List-Unsubscribe and List-Unsubscribe-Post headers. A broadcast that keeps the list's
+// unsubscribed contacts is a notice every member must receive (security, outage, legal), so
+// its emails offer no one-click unsubscribe. The template's unsubscribe variables are not
+// affected.
+func (b *Broadcast) SendsListUnsubscribeHeader() bool {
+	return b != nil && b.Audience.ExcludeUnsubscribed
+}
+
+// ListUnsubscribeURL is the RFC 8058 List-Unsubscribe URL of a broadcast email rendered with
+// data: its oneclick_unsubscribe_url, or "" when the broadcast sends no such header or the
+// data has no such URL.
+func (b *Broadcast) ListUnsubscribeURL(data map[string]interface{}) string {
+	if !b.SendsListUnsubscribeHeader() {
+		return ""
+	}
+	url, _ := data["oneclick_unsubscribe_url"].(string)
+	return url
 }
 
 // UTMParameters contains UTM tracking parameters for the broadcast
@@ -351,6 +397,16 @@ func (b *Broadcast) Validate() error {
 		return fmt.Errorf("invalid broadcast status: %s", b.Status)
 	}
 
+	b.TrackingMode = canonicalBroadcastTrackingMode(b.TrackingMode)
+	switch b.TrackingMode {
+	case "", BroadcastTrackingModeNoTracking:
+	default:
+		return fmt.Errorf("invalid tracking_mode %q: must be %q or %q", b.TrackingMode, notifuse_mjml.TrackingModeInherit, BroadcastTrackingModeNoTracking)
+	}
+	if b.TrackingMode == BroadcastTrackingModeNoTracking && b.TestSettings.Enabled && b.TestSettings.AutoSendWinner {
+		return fmt.Errorf("tracking_mode %q cannot be used with an automatically selected A/B test winner: the winner is chosen on opens or clicks", BroadcastTrackingModeNoTracking)
+	}
+
 	// Validate test settings if enabled
 	if b.TestSettings.Enabled {
 		if b.TestSettings.SamplePercentage <= 0 || b.TestSettings.SamplePercentage > 100 {
@@ -393,6 +449,16 @@ func (b *Broadcast) Validate() error {
 				return fmt.Errorf("template_id is required for variation %d", i+1)
 			}
 		}
+	}
+
+	// A variation's sender is looked up by its template, so one template cannot be sent
+	// from two senders.
+	senderByTemplate := make(map[string]string, len(b.TestSettings.Variations))
+	for _, variation := range b.TestSettings.Variations {
+		if previous, seen := senderByTemplate[variation.TemplateID]; seen && previous != variation.SenderID {
+			return fmt.Errorf("template %s is used by two variations with different senders", variation.TemplateID)
+		}
+		senderByTemplate[variation.TemplateID] = variation.SenderID
 	}
 
 	// Validate audience settings
@@ -446,6 +512,7 @@ type CreateBroadcastRequest struct {
 	UTMParameters *UTMParameters        `json:"utm_parameters,omitempty"`
 	Metadata      MapOfAny              `json:"metadata,omitempty"`
 	DataFeed      *DataFeedSettings     `json:"data_feed,omitempty"`
+	TrackingMode  string                `json:"tracking_mode,omitempty"`
 
 	// Written by UnmarshalJSON only. A request assembled in Go has no wire body to read
 	// presence from, so it keeps the exclude_unsubscribed value it was given.
@@ -498,6 +565,7 @@ func (r *CreateBroadcastRequest) Validate() (*Broadcast, error) {
 		UTMParameters: r.UTMParameters,
 		Metadata:      r.Metadata,
 		DataFeed:      r.DataFeed,
+		TrackingMode:  r.TrackingMode,
 		CreatedAt:     time.Now().UTC(),
 		UpdatedAt:     time.Now().UTC(),
 	}
@@ -538,6 +606,8 @@ type UpdateBroadcastRequest struct {
 	UTMParameters *UTMParameters        `json:"utm_parameters,omitempty"`
 	Metadata      MapOfAny              `json:"metadata,omitempty"`
 	DataFeed      *DataFeedSettings     `json:"data_feed,omitempty"`
+	// TrackingMode is a patch: nil leaves the stored mode alone.
+	TrackingMode *string `json:"tracking_mode,omitempty"`
 
 	// Written by UnmarshalJSON only. A request assembled in Go has no wire body to read
 	// presence from, so these stay false and every field is applied — what a caller
@@ -591,6 +661,68 @@ func (r *UpdateBroadcastRequest) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// TestSettingsProvided reports whether the update carries test_settings, which hold the
+// variations and their senders; without it the stored ones stand.
+func (r *UpdateBroadcastRequest) TestSettingsProvided() bool {
+	return !r.testSettingsOmitted
+}
+
+// VariationSenderID returns the sender chosen on the broadcast for the variation sending
+// templateID, or "" when the template's sender applies.
+func (b *Broadcast) VariationSenderID(templateID string) string {
+	if b == nil {
+		return ""
+	}
+	for _, variation := range b.TestSettings.Variations {
+		if variation.TemplateID == templateID {
+			return variation.SenderID
+		}
+	}
+	return ""
+}
+
+// VariationsToSend returns the variations a broadcast can still send: the winning one
+// once a winner is chosen, every one before.
+func (b *Broadcast) VariationsToSend() []BroadcastVariation {
+	if b.WinningTemplate != nil {
+		for _, variation := range b.TestSettings.Variations {
+			if variation.TemplateID == *b.WinningTemplate {
+				return []BroadcastVariation{variation}
+			}
+		}
+	}
+	return b.TestSettings.Variations
+}
+
+// CheckVariationSenders returns a ValidationError when a variation chooses a sender that
+// is not one of provider's, the workspace's marketing email integration. Variations that
+// keep their template's sender need no integration.
+func CheckVariationSenders(provider *EmailProvider, variations []BroadcastVariation) error {
+	for _, variation := range variations {
+		if variation.SenderID == "" {
+			continue
+		}
+		if provider == nil {
+			return NewValidationError(fmt.Sprintf("the variation sending template %s chooses a sender, but the workspace has no marketing email integration", variation.TemplateID))
+		}
+		if !provider.HasSender(variation.SenderID) {
+			return NewValidationError(fmt.Sprintf("sender %s, chosen for the variation sending template %s, is not a sender of the marketing email integration", variation.SenderID, variation.TemplateID))
+		}
+	}
+	return nil
+}
+
+// HasStartedSending reports whether part of the audience may already have received the
+// broadcast: it is neither a draft nor scheduled, or it has a start date. A broadcast
+// scheduled for later leaves the scheduled status at its task's first sending run, which
+// records started_at; one already sending at the upgrade keeps it until its next run.
+func (b *Broadcast) HasStartedSending() bool {
+	if b.StartedAt != nil {
+		return true
+	}
+	return b.Status != BroadcastStatusDraft && b.Status != BroadcastStatusScheduled
+}
+
 // Validate validates the update broadcast request
 func (r *UpdateBroadcastRequest) Validate(existingBroadcast *Broadcast) (*Broadcast, error) {
 	if r.WorkspaceID != existingBroadcast.WorkspaceID {
@@ -618,7 +750,14 @@ func (r *UpdateBroadcastRequest) Validate(existingBroadcast *Broadcast) (*Broadc
 	// decision about who the next send reaches and only the list is one Validate would
 	// object to losing. Every key stays writable: a list retargets, an empty segments
 	// array widens back to the whole list, and an explicit false switches the
-	// unsubscribed exclusion off.
+	// unsubscribed exclusion off, until the broadcast has started sending (HasStartedSending):
+	// past that point, as for tracking_mode, part of the audience already received the email
+	// as it was.
+	if !r.audienceExcludeUnsubscribedOmitted &&
+		r.Audience.ExcludeUnsubscribed != existingBroadcast.Audience.ExcludeUnsubscribed &&
+		existingBroadcast.HasStartedSending() {
+		return nil, fmt.Errorf("exclude_unsubscribed can only be changed on a draft or scheduled broadcast")
+	}
 	if !r.audienceListOmitted {
 		existingBroadcast.Audience.List = r.Audience.List
 	}
@@ -643,6 +782,15 @@ func (r *UpdateBroadcastRequest) Validate(existingBroadcast *Broadcast) (*Broadc
 
 	if r.Metadata != nil {
 		existingBroadcast.Metadata = r.Metadata
+	}
+
+	if r.TrackingMode != nil {
+		mode := canonicalBroadcastTrackingMode(*r.TrackingMode)
+		if mode != existingBroadcast.TrackingMode && existingBroadcast.HasStartedSending() {
+			// Part of the audience already received the email as it was.
+			return nil, fmt.Errorf("tracking_mode can only be changed on a draft or scheduled broadcast")
+		}
+		existingBroadcast.TrackingMode = mode
 	}
 
 	// Handle data_feed update - preserve fetched data if only updating settings
@@ -831,6 +979,25 @@ func (r *CancelBroadcastRequest) Validate() error {
 	return nil
 }
 
+// UnscheduleBroadcastRequest defines the request to send a scheduled broadcast back to draft
+type UnscheduleBroadcastRequest struct {
+	WorkspaceID string `json:"workspace_id"`
+	ID          string `json:"id"`
+}
+
+// Validate validates the unschedule broadcast request
+func (r *UnscheduleBroadcastRequest) Validate() error {
+	if r.WorkspaceID == "" {
+		return fmt.Errorf("workspace_id is required")
+	}
+
+	if r.ID == "" {
+		return fmt.Errorf("broadcast id is required")
+	}
+
+	return nil
+}
+
 // DeleteBroadcastRequest defines the request to delete a broadcast
 type DeleteBroadcastRequest struct {
 	WorkspaceID string `json:"workspace_id"`
@@ -864,12 +1031,61 @@ type ListBroadcastsParams struct {
 	Limit         int
 	Offset        int
 	WithTemplates bool // Whether to fetch and include template details for each variation
+	// WithStatusCounts also counts the broadcasts of each status, under every filter but
+	// the status one.
+	WithStatusCounts bool
+	// StartedAfter keeps the broadcasts that started at or after this instant; one that
+	// never started is left out.
+	StartedAfter *time.Time
 }
 
 // BroadcastListResponse defines the response for listing broadcasts
 type BroadcastListResponse struct {
 	Broadcasts []*Broadcast `json:"broadcasts"`
 	TotalCount int          `json:"total_count"`
+	// StatusCounts is set only with ListBroadcastsParams.WithStatusCounts. A status without
+	// broadcast is absent.
+	StatusCounts map[BroadcastStatus]int `json:"status_counts,omitempty"`
+}
+
+// EstimateAudienceRequest is the body of broadcasts.estimateAudience.
+type EstimateAudienceRequest struct {
+	WorkspaceID string           `json:"workspace_id"`
+	Audience    AudienceSettings `json:"audience"`
+}
+
+// UnmarshalJSON reads an omitted or null exclude_unsubscribed as true, as
+// broadcasts.create does, so the estimate counts what that broadcast would send to.
+func (r *EstimateAudienceRequest) UnmarshalJSON(data []byte) error {
+	type alias EstimateAudienceRequest
+	if err := json.Unmarshal(data, (*alias)(r)); err != nil {
+		return err
+	}
+	var sent map[string]json.RawMessage
+	if err := json.Unmarshal(data, &sent); err != nil {
+		return err
+	}
+	var audience map[string]json.RawMessage
+	if !jsonKeyOmitted(sent, "audience") {
+		if err := json.Unmarshal(sent["audience"], &audience); err != nil {
+			return err
+		}
+	}
+	if jsonKeyOmitted(audience, "exclude_unsubscribed") {
+		r.Audience.ExcludeUnsubscribed = true
+	}
+	return nil
+}
+
+// Validate checks the request. The number of segments is not capped, as for a send.
+func (r *EstimateAudienceRequest) Validate() error {
+	if r.WorkspaceID == "" {
+		return fmt.Errorf("workspace_id is required")
+	}
+	if r.Audience.List == "" {
+		return fmt.Errorf("audience.list is required")
+	}
+	return nil
 }
 
 // SendToIndividualRequest defines the request to send a broadcast to an individual
@@ -910,6 +1126,10 @@ type GetBroadcastsRequest struct {
 	Limit         int    `json:"limit,omitempty"`
 	Offset        int    `json:"offset,omitempty"`
 	WithTemplates bool   `json:"with_templates,omitempty"`
+	// WithStatusCounts asks for the count of each status (with_status_counts).
+	WithStatusCounts bool `json:"with_status_counts,omitempty"`
+	// StartedAfter is the started_after instant, in UTC.
+	StartedAfter *time.Time `json:"started_after,omitempty"`
 }
 
 // FromURLParams parses URL query parameters into the request
@@ -995,6 +1215,23 @@ func (r *GetBroadcastsRequest) FromURLParams(values url.Values) error {
 		}
 	}
 
+	if v := values.Get("with_status_counts"); v != "" {
+		var err error
+		r.WithStatusCounts, err = ParseBoolParam(v)
+		if err != nil {
+			return fmt.Errorf("invalid with_status_counts parameter: %w", err)
+		}
+	}
+
+	if v := values.Get("started_after"); v != "" {
+		startedAfter, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			return fmt.Errorf("invalid started_after parameter: must be an RFC 3339 date-time")
+		}
+		startedAfter = startedAfter.UTC()
+		r.StartedAfter = &startedAfter
+	}
+
 	return nil
 }
 
@@ -1073,8 +1310,12 @@ type VariationResult struct {
 	Delivered    int     `json:"delivered"`  // Total delivered emails (ESP-dependent, may not be available)
 	Opens        int     `json:"opens"`
 	Clicks       int     `json:"clicks"`
-	OpenRate     float64 `json:"open_rate"`  // Opens / Recipients
-	ClickRate    float64 `json:"click_rate"` // Clicks / Recipients
+	OpenRate     float64 `json:"open_rate"`  // Opens / OpensTracked
+	ClickRate    float64 `json:"click_rate"` // Clicks / ClicksTracked
+	// Sends whose email was tracked for opens and for clicks. A rate with no
+	// tracked send is 0 and says nothing.
+	OpensTracked  int `json:"opens_tracked"`
+	ClicksTracked int `json:"clicks_tracked"`
 }
 
 // TestResultsResponse represents the response for A/B test results
@@ -1207,19 +1448,30 @@ type TestRecipientFeedResponse struct {
 	ContactEmail string `json:"contact_email,omitempty"`
 }
 
+// GetBroadcastOptions says what BroadcastService.GetBroadcast adds to the broadcast it reads.
+type GetBroadcastOptions struct {
+	// WithTemplates sets each variation's template, as ListBroadcasts does: only for a member
+	// with Templates read, the others get the variations without their templates.
+	WithTemplates bool
+}
+
 // BroadcastService defines the interface for broadcast operations
 type BroadcastService interface {
 	// CreateBroadcast creates a new broadcast
 	CreateBroadcast(ctx context.Context, request *CreateBroadcastRequest) (*Broadcast, error)
 
-	// GetBroadcast retrieves a broadcast by ID
-	GetBroadcast(ctx context.Context, workspaceID, id string) (*Broadcast, error)
+	// GetBroadcast retrieves a broadcast by ID, with what opts asks for
+	GetBroadcast(ctx context.Context, workspaceID, id string, opts GetBroadcastOptions) (*Broadcast, error)
 
 	// UpdateBroadcast updates an existing broadcast
 	UpdateBroadcast(ctx context.Context, request *UpdateBroadcastRequest) (*Broadcast, error)
 
 	// ListBroadcasts retrieves a list of broadcasts with pagination
 	ListBroadcasts(ctx context.Context, params ListBroadcastsParams) (*BroadcastListResponse, error)
+
+	// EstimateAudience counts the contacts a broadcast with this audience would send to,
+	// with the count the send itself uses.
+	EstimateAudience(ctx context.Context, workspaceID string, audience AudienceSettings) (int, error)
 
 	// ScheduleBroadcast schedules a broadcast for sending
 	ScheduleBroadcast(ctx context.Context, request *ScheduleBroadcastRequest) error
@@ -1236,6 +1488,9 @@ type BroadcastService interface {
 
 	// CancelBroadcast cancels a scheduled broadcast
 	CancelBroadcast(ctx context.Context, request *CancelBroadcastRequest) error
+
+	// UnscheduleBroadcast sends a scheduled broadcast whose sending has not started back to draft
+	UnscheduleBroadcast(ctx context.Context, request *UnscheduleBroadcastRequest) error
 
 	// DeleteBroadcast deletes a broadcast
 	DeleteBroadcast(ctx context.Context, request *DeleteBroadcastRequest) error
@@ -1281,6 +1536,10 @@ type BroadcastRepository interface {
 	// Transaction-aware methods
 	CreateBroadcastTx(ctx context.Context, tx *sql.Tx, broadcast *Broadcast) error
 	GetBroadcastTx(ctx context.Context, tx *sql.Tx, workspaceID, broadcastID string) (*Broadcast, error)
+	// GetBroadcastForUpdateTx is GetBroadcastTx with the row locked (FOR UPDATE)
+	// until the transaction ends: writers that read the broadcast and then write
+	// a decision based on it, such as choosing an A/B winner, take turns.
+	GetBroadcastForUpdateTx(ctx context.Context, tx *sql.Tx, workspaceID, broadcastID string) (*Broadcast, error)
 	UpdateBroadcastTx(ctx context.Context, tx *sql.Tx, broadcast *Broadcast) error
 	// UpdateBroadcastStatusTx updates only status-lifecycle fields (status,
 	// timestamps, pause_reason). Unlike UpdateBroadcastTx, it does not reject
@@ -1293,8 +1552,25 @@ type BroadcastRepository interface {
 	// row it writes, so one of those statuses committed after the caller's read
 	// is kept. It reports whether it wrote.
 	UpdateBroadcastStatusUnless(ctx context.Context, broadcast *Broadcast, unless []BroadcastStatus) (bool, error)
+	// MarkBroadcastStarted writes startedAt as the broadcast's start date if it has none
+	// yet, and touches no other column. A start date already stored is kept.
+	MarkBroadcastStarted(ctx context.Context, workspaceID, broadcastID string, startedAt time.Time) error
+	// StartScheduledBroadcast moves a broadcast that is still scheduled to the status its
+	// sending starts in: testing for an A/B test with no winner yet, processing otherwise. It
+	// decides on the row it writes and touches only the status and updated_at, and reports
+	// whether the broadcast was still scheduled.
+	StartScheduledBroadcast(ctx context.Context, workspaceID, broadcastID string, at time.Time) (bool, error)
+
+	// AddTestPauseTx adds seconds to test_paused_seconds of a broadcast still paused since
+	// pausedAt, inside tx, and reports whether it did: a resume counts the time an A/B test
+	// waiting for its winner spent paused, once.
+	AddTestPauseTx(ctx context.Context, tx *sql.Tx, workspaceID, broadcastID string, pausedAt time.Time, seconds int) (bool, error)
 	DeleteBroadcastTx(ctx context.Context, tx *sql.Tx, workspaceID, broadcastID string) error
 	ListBroadcastsTx(ctx context.Context, tx *sql.Tx, params ListBroadcastsParams) (*BroadcastListResponse, error)
+	// HasSendActivityTx reports whether the broadcast has an email in the queue or in the
+	// message history: proof that its sending started, whatever its status and start date
+	// say. A send to one recipient records no broadcast_id, so it does not count.
+	HasSendActivityTx(ctx context.Context, tx *sql.Tx, broadcastID string) (bool, error)
 }
 
 // ErrBroadcastNotFound is an error type for when a broadcast is not found
@@ -1314,4 +1590,17 @@ func (b *Broadcast) SetTemplateForVariation(variationIndex int, template *Templa
 	}
 
 	b.TestSettings.Variations[variationIndex].Template = template
+}
+
+// ErrImportedBroadcastNotSendable is returned when a campaign imported from another
+// platform is asked to be sent. It was sent there; it must never be sent from here.
+var ErrImportedBroadcastNotSendable = fmt.Errorf("this campaign was imported from Mailchimp and cannot be sent")
+
+// IsImported reports whether the broadcast was imported from another platform.
+func (b *Broadcast) IsImported() bool {
+	if b == nil || b.Metadata == nil {
+		return false
+	}
+	_, ok := b.Metadata["mailchimp"]
+	return ok
 }

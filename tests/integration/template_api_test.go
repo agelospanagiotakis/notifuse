@@ -3,7 +3,9 @@ package integration
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/Notifuse/notifuse/config"
 	"github.com/Notifuse/notifuse/internal/app"
+	"github.com/Notifuse/notifuse/internal/domain"
 	"github.com/Notifuse/notifuse/tests/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -346,6 +349,27 @@ func TestTemplateCompileWithSubject(t *testing.T) {
 		assert.Equal(t, "Welcome Pierre", *body.SubjectPreview)
 	}
 	assert.NotNil(t, body.HTML, "response should still include compiled HTML")
+
+	// subject_only renders the subject and preview text alone: no body is sent, none compiled.
+	subjectOnly, err := client.CompileTemplate(map[string]interface{}{
+		"workspace_id":    workspaceID,
+		"message_id":      "preview",
+		"subject":         "Hi {{ contact.first_name }}",
+		"subject_preview": "Welcome {{ contact.first_name }}",
+		"test_data":       map[string]interface{}{"contact": map[string]interface{}{"first_name": "Pierre"}},
+		"subject_only":    true,
+	})
+	require.NoError(t, err)
+	defer func() { _ = subjectOnly.Body.Close() }()
+	require.Equal(t, http.StatusOK, subjectOnly.StatusCode, "a subject-only compile needs no body")
+	var raw map[string]interface{}
+	require.NoError(t, json.NewDecoder(subjectOnly.Body).Decode(&raw))
+	assert.Equal(t, true, raw["success"])
+	assert.Equal(t, "Hi Pierre", raw["subject"])
+	assert.Equal(t, "Welcome Pierre", raw["subject_preview"])
+	assert.NotContains(t, raw, "html")
+	assert.NotContains(t, raw, "mjml")
+	assert.NotContains(t, raw, "text")
 }
 
 // TestTemplateCompileInjectsWorkspaceURLs verifies the compile endpoint exposes
@@ -1014,4 +1038,471 @@ func TestTemplateNameLength(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusBadRequest, tooLongCreateResp.StatusCode)
 	assert.Equal(t, "invalid create template request: name length must be between 1 and 255", decode(tooLongCreateResp)["error"])
+}
+
+// TestTemplateCustomText covers the custom plain-text version through the API: stored and
+// returned per language, cleared by an update without it, and refused when its Liquid
+// does not parse or it is over the size limit.
+func TestTemplateCustomText(t *testing.T) {
+	testutil.SkipIfShort(t)
+	testutil.SetupTestEnvironment()
+	defer testutil.CleanupTestEnvironment()
+
+	suite := testutil.NewIntegrationTestSuite(t, func(cfg *config.Config) testutil.AppInterface {
+		return app.NewApp(cfg)
+	})
+	defer func() { suite.Cleanup() }()
+
+	client := suite.APIClient
+	factory := suite.DataFactory
+	user, err := factory.CreateUser()
+	require.NoError(t, err)
+	workspace, err := factory.CreateWorkspace(testutil.WithWorkspaceDefaultLanguage("en", []string{"en", "fr"}))
+	require.NoError(t, err)
+	require.NoError(t, factory.AddUserToWorkspace(user.ID, workspace.ID, "owner"))
+	require.NoError(t, client.Login(user.Email, "password"))
+	client.SetWorkspaceID(workspace.ID)
+
+	mjmlSrc := "<mjml><mj-body><mj-section><mj-column><mj-text>Hi</mj-text></mj-column></mj-section></mj-body></mjml>"
+	templateID := fmt.Sprintf("text-%d", time.Now().UnixNano())
+	payload := func(text, frText interface{}) map[string]interface{} {
+		email := map[string]interface{}{"editor_mode": "code", "mjml_source": mjmlSrc, "subject": "Hello"}
+		if text != nil {
+			email["text"] = text
+		}
+		fr := map[string]interface{}{"editor_mode": "code", "mjml_source": mjmlSrc, "subject": "Bonjour", "subject_preview": "Salut"}
+		if frText != nil {
+			fr["text"] = frText
+		}
+		return map[string]interface{}{
+			"workspace_id": workspace.ID,
+			"id":           templateID,
+			"name":         "Custom text",
+			"channel":      "email",
+			"category":     "marketing",
+			"email":        email,
+			"translations": map[string]interface{}{"fr": map[string]interface{}{"email": fr}},
+		}
+	}
+	decode := func(resp *http.Response) map[string]interface{} {
+		defer func() { _ = resp.Body.Close() }()
+		var body map[string]interface{}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+		return body
+	}
+	stored := func() (text, frText interface{}) {
+		resp, err := client.Get("/api/templates.get", map[string]string{"workspace_id": workspace.ID, "id": templateID})
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		tpl := decode(resp)["template"].(map[string]interface{})
+		email := tpl["email"].(map[string]interface{})
+		translations, _ := tpl["translations"].(map[string]interface{})
+		fr := translations["fr"].(map[string]interface{})["email"].(map[string]interface{})
+		return email["text"], fr["text"]
+	}
+
+	createResp, err := client.CreateTemplate(payload("Hi {{ contact.first_name }}\r\n{{ unsubscribe_url }}", "Salut {{ contact.first_name }}"))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, createResp.StatusCode, "create: %v", decode(createResp))
+	_ = createResp.Body.Close()
+
+	t.Run("the text of each language is stored, line breaks normalised", func(t *testing.T) {
+		text, frText := stored()
+		assert.Equal(t, "Hi {{ contact.first_name }}\n{{ unsubscribe_url }}", text)
+		assert.Equal(t, "Salut {{ contact.first_name }}", frText)
+	})
+
+	t.Run("an update without a text goes back to the automatic version", func(t *testing.T) {
+		resp, err := client.UpdateTemplate(payload(nil, nil))
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode, "update: %v", decode(resp))
+		_ = resp.Body.Close()
+		text, frText := stored()
+		assert.Nil(t, text)
+		assert.Nil(t, frText)
+	})
+
+	t.Run("a text that only holds whitespace is the automatic version", func(t *testing.T) {
+		resp, err := client.UpdateTemplate(payload(" \r\n ", nil))
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode, "update: %v", decode(resp))
+		_ = resp.Body.Close()
+		text, _ := stored()
+		assert.Nil(t, text)
+	})
+
+	t.Run("a text whose Liquid does not parse is refused, naming the text version", func(t *testing.T) {
+		resp, err := client.UpdateTemplate(payload("Hi {% if %}", nil))
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		assert.Contains(t, decode(resp)["error"], "text version")
+
+		resp, err = client.UpdateTemplate(payload(nil, "Salut {% for %}"))
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		assert.Contains(t, decode(resp)["error"], "text version")
+	})
+
+	t.Run("a text over 64 KiB is refused", func(t *testing.T) {
+		resp, err := client.UpdateTemplate(payload(strings.Repeat("a", 64*1024+1), nil))
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		assert.Contains(t, decode(resp)["error"], "text version")
+
+		resp, err = client.UpdateTemplate(payload(strings.Repeat("a", 64*1024), nil))
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode, "the limit itself is accepted")
+		_ = resp.Body.Close()
+	})
+}
+
+// TestTemplateIntegrationManagedDelete pins templates.delete's answers: 400 with the reason for a
+// template managed by an integration, which stays, and 403 naming the permission for a member
+// without Templates write.
+func TestTemplateIntegrationManagedDelete(t *testing.T) {
+	testutil.SkipIfShort(t)
+	testutil.SetupTestEnvironment()
+	defer testutil.CleanupTestEnvironment()
+
+	suite := testutil.NewIntegrationTestSuite(t, func(cfg *config.Config) testutil.AppInterface {
+		return app.NewApp(cfg)
+	})
+	defer func() { suite.Cleanup() }()
+
+	factory := suite.DataFactory
+	workspace, err := factory.CreateWorkspace()
+	require.NoError(t, err)
+
+	memberClient := func(t *testing.T, perms domain.UserPermissions) *testutil.APIClient {
+		t.Helper()
+		member, err := factory.CreateUser()
+		require.NoError(t, err)
+		require.NoError(t, factory.AddUserToWorkspaceWithPermissions(member.ID, workspace.ID, "member", perms))
+		c := testutil.NewAPIClient(suite.ServerManager.GetURL())
+		require.NoError(t, c.Login(member.Email, "password"))
+		c.SetWorkspaceID(workspace.ID)
+		return c
+	}
+	decode := func(t *testing.T, resp *http.Response) map[string]interface{} {
+		t.Helper()
+		defer func() { _ = resp.Body.Close() }()
+		var body map[string]interface{}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+		return body
+	}
+
+	integrationID := "supabase-managed"
+	managed, err := factory.CreateTemplate(workspace.ID, func(tpl *domain.Template) {
+		tpl.IntegrationID = &integrationID
+	})
+	require.NoError(t, err)
+
+	t.Run("a managed template is refused with 400 and stays", func(t *testing.T) {
+		c := memberClient(t, domain.UserPermissions{domain.PermissionResourceTemplates: {Read: true, Write: true}})
+		resp, err := c.DeleteTemplate(workspace.ID, managed.ID)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		assert.Contains(t, decode(t, resp)["error"], "cannot delete integration-managed template")
+
+		// templates.delete only sets deleted_at, and templates.get still answers a deleted
+		// template: check the mark, not the status.
+		getResp, err := c.Get("/api/templates.get", map[string]string{"workspace_id": workspace.ID, "id": managed.ID})
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, getResp.StatusCode)
+		stored, ok := decode(t, getResp)["template"].(map[string]interface{})
+		require.True(t, ok, "templates.get must return the template")
+		assert.Nil(t, stored["deleted_at"], "the refused delete must not soft-delete the template")
+	})
+
+	t.Run("a member without templates write gets 403 naming it", func(t *testing.T) {
+		other, err := factory.CreateTemplate(workspace.ID)
+		require.NoError(t, err)
+		c := memberClient(t, domain.UserPermissions{domain.PermissionResourceTemplates: {Read: true}})
+		resp, err := c.DeleteTemplate(workspace.ID, other.ID)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusForbidden, resp.StatusCode)
+		body := decode(t, resp)
+		assert.Equal(t, string(domain.PermissionResourceTemplates), body["resource"])
+		assert.Equal(t, string(domain.PermissionTypeWrite), body["permission"])
+	})
+}
+
+// TestTemplateCompilePreviewLinksFollowTestContact sends the test data the template editor
+// sends — links the console made for john.doe@example.com — with another test contact, and
+// reads the links back from the compiled email: they name the test contact, as a send names its
+// contact, and keep the preview signature.
+func TestTemplateCompilePreviewLinksFollowTestContact(t *testing.T) {
+	testutil.SkipIfShort(t)
+	testutil.SetupTestEnvironment()
+	defer testutil.CleanupTestEnvironment()
+
+	suite := testutil.NewIntegrationTestSuite(t, func(cfg *config.Config) testutil.AppInterface {
+		return app.NewApp(cfg)
+	})
+	defer func() { suite.Cleanup() }()
+
+	client := suite.APIClient
+	token := performCompleteSignInFlow(t, client, "test@example.com")
+	client.SetToken(token)
+	workspaceID := createTestWorkspaceWithWebsite(t, client, "Preview Links Test", "https://app.example.com")
+
+	johnDoeLink := "https://ignored.example.com/notification-center?action=unsubscribe&email=john.doe@example.com&lid=newsletter&lname=Newsletter&wid=" + workspaceID + "&mid=preview&email_hmac=abc123"
+	compileReq := map[string]interface{}{
+		"workspace_id": workspaceID,
+		"message_id":   "preview",
+		"test_data": map[string]interface{}{
+			"contact":         map[string]interface{}{"first_name": "Emma", "email": "emma.clarke@example.com"},
+			"list":            map[string]interface{}{"id": "newsletter", "name": "Newsletter"},
+			"unsubscribe_url": johnDoeLink,
+		},
+		"visual_editor_tree": map[string]interface{}{
+			"id": "mjml-1", "type": "mjml", "attributes": map[string]interface{}{},
+			"children": []interface{}{map[string]interface{}{
+				"id": "body-1", "type": "mj-body", "attributes": map[string]interface{}{},
+				"children": []interface{}{map[string]interface{}{
+					"id": "section-1", "type": "mj-section", "attributes": map[string]interface{}{},
+					"children": []interface{}{map[string]interface{}{
+						"id": "column-1", "type": "mj-column", "attributes": map[string]interface{}{},
+						"children": []interface{}{map[string]interface{}{
+							"id": "text-1", "type": "mj-text", "attributes": map[string]interface{}{},
+							"content": `<a href="{{ unsubscribe_url }}">Unsubscribe</a>`,
+						}},
+					}},
+				}},
+			}},
+		},
+	}
+
+	resp, err := client.CompileTemplate(compileReq)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body struct {
+		Success  bool                   `json:"success"`
+		HTML     *string                `json:"html"`
+		TestData map[string]interface{} `json:"test_data"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.True(t, body.Success)
+	require.NotNil(t, body.HTML)
+
+	link, ok := body.TestData["unsubscribe_url"].(string)
+	require.True(t, ok)
+	parsed, err := url.Parse(link)
+	require.NoError(t, err)
+	query := parsed.Query()
+	assert.Equal(t, "emma.clarke@example.com", query.Get("email"), "the link names the test contact")
+	assert.Equal(t, "abc123", query.Get("email_hmac"), "a preview link stays preview-signed")
+	assert.Equal(t, "preview", query.Get("mid"))
+	assert.Equal(t, "newsletter", query.Get("lid"))
+	assert.NotContains(t, *body.HTML, "john.doe", "the email itself carries the rebuilt link")
+}
+
+// TestTemplateCompileHeadingStyles compiles, through the API, a tree as the console
+// saves it once a Text block holds a heading: the heading styles in an inline
+// mj-style the editor manages. The compiled heading carries its level's rules and
+// its own style, and the values comment stays out of the email.
+func TestTemplateCompileHeadingStyles(t *testing.T) {
+	testutil.SkipIfShort(t)
+	testutil.SetupTestEnvironment()
+	defer testutil.CleanupTestEnvironment()
+
+	suite := testutil.NewIntegrationTestSuite(t, func(cfg *config.Config) testutil.AppInterface {
+		return app.NewApp(cfg)
+	})
+	defer func() { suite.Cleanup() }()
+
+	client := suite.APIClient
+	token := performCompleteSignInFlow(t, client, "test@example.com")
+	client.SetToken(token)
+	workspaceID := createTestWorkspace(t, client, "Heading Styles Workspace")
+
+	managed := "/* notifuse:headings {\"2\":{\"fontSize\":\"22px\"}} */\n" +
+		"h2 { font-family: Georgia, serif; font-size: 22px; font-weight: bold; line-height: 1.3; color: #222222; margin: 0px 0 8px }"
+	compileReq := map[string]interface{}{
+		"workspace_id": workspaceID,
+		"message_id":   "preview",
+		"visual_editor_tree": map[string]interface{}{
+			"id": "mjml-1", "type": "mjml", "attributes": map[string]interface{}{},
+			"children": []interface{}{
+				map[string]interface{}{
+					"id": "head-1", "type": "mj-head", "attributes": map[string]interface{}{},
+					"children": []interface{}{
+						map[string]interface{}{
+							"id": "style-1", "type": "mj-style",
+							"attributes": map[string]interface{}{"inline": "inline"},
+							"content":    managed,
+						},
+					},
+				},
+				map[string]interface{}{
+					"id": "body-1", "type": "mj-body", "attributes": map[string]interface{}{},
+					"children": []interface{}{
+						map[string]interface{}{
+							"id": "section-1", "type": "mj-section", "attributes": map[string]interface{}{},
+							"children": []interface{}{
+								map[string]interface{}{
+									"id": "column-1", "type": "mj-column", "attributes": map[string]interface{}{},
+									"children": []interface{}{
+										map[string]interface{}{
+											"id": "text-1", "type": "mj-text", "attributes": map[string]interface{}{},
+											"content": `<h2 style="text-align: center">Title</h2><p>Body text</p>`,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	resp, err := client.CompileTemplate(compileReq)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body struct {
+		Success bool    `json:"success"`
+		HTML    *string `json:"html"`
+		Text    *string `json:"text"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.True(t, body.Success)
+	require.NotNil(t, body.HTML)
+
+	start := strings.Index(*body.HTML, `<h2 style="`)
+	require.GreaterOrEqual(t, start, 0, "the heading is compiled with an inline style")
+	end := strings.Index((*body.HTML)[start:], `">`)
+	style := strings.ReplaceAll((*body.HTML)[start:start+end], " ", "")
+	for _, declaration := range []string{"font-size:22px", "font-family:Georgia,serif", "color:#222222", "text-align:center"} {
+		assert.Contains(t, style, declaration)
+	}
+	assert.NotContains(t, *body.HTML, "notifuse:headings")
+	if assert.NotNil(t, body.Text, "the preview returns the automatic text version") {
+		assert.Contains(t, *body.Text, "Title")
+	}
+}
+
+// TestTemplateCompileWorkLimits verifies, from an API client, the two bounds on the work of a
+// compilation: a request body over 1 MiB is refused before it is parsed, and a tree of many
+// costly Liquid blocks stops on the email's work budget within seconds instead of running each
+// block to its own limit.
+func TestTemplateCompileWorkLimits(t *testing.T) {
+	testutil.SkipIfShort(t)
+	testutil.SetupTestEnvironment()
+	defer testutil.CleanupTestEnvironment()
+
+	suite := testutil.NewIntegrationTestSuite(t, func(cfg *config.Config) testutil.AppInterface {
+		return app.NewApp(cfg)
+	})
+	defer func() { suite.Cleanup() }()
+
+	client := suite.APIClient
+	token := performCompleteSignInFlow(t, client, "test@example.com")
+	client.SetToken(token)
+	workspaceID := createTestWorkspace(t, client, "Compile Work Limits Workspace")
+
+	tree := func(blocks []interface{}) map[string]interface{} {
+		return map[string]interface{}{
+			"id": "mjml-1", "type": "mjml", "attributes": map[string]interface{}{},
+			"children": []interface{}{map[string]interface{}{
+				"id": "body-1", "type": "mj-body", "attributes": map[string]interface{}{},
+				"children": []interface{}{map[string]interface{}{
+					"id": "section-1", "type": "mj-section", "attributes": map[string]interface{}{},
+					"children": []interface{}{map[string]interface{}{
+						"id": "column-1", "type": "mj-column", "attributes": map[string]interface{}{},
+						"children": blocks,
+					}},
+				}},
+			}},
+		}
+	}
+	data := map[string]interface{}{"contact": map[string]interface{}{"first_name": "Ann"}}
+
+	t.Run("a body over 1 MiB is refused", func(t *testing.T) {
+		big := []interface{}{map[string]interface{}{
+			"id": "text-1", "type": "mj-text", "attributes": map[string]interface{}{},
+			"content": strings.Repeat("a", 1<<20),
+		}}
+		resp, err := client.CompileTemplate(map[string]interface{}{
+			"workspace_id": workspaceID, "message_id": "preview", "test_data": data, "visual_editor_tree": tree(big),
+		})
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		assert.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
+	})
+
+	t.Run("costly blocks stop on the email's work budget", func(t *testing.T) {
+		blocks := make([]interface{}, 100)
+		for i := range blocks {
+			blocks[i] = map[string]interface{}{
+				"id": fmt.Sprintf("text-%d", i), "type": "mj-text", "attributes": map[string]interface{}{},
+				"content": "{% for i in (1..4999990) %}{% endfor %}",
+			}
+		}
+		start := time.Now()
+		resp, err := client.CompileTemplate(map[string]interface{}{
+			"workspace_id": workspaceID, "message_id": "preview", "test_data": data, "visual_editor_tree": tree(blocks),
+		})
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		raw, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		assert.Less(t, time.Since(start), 15*time.Second)
+		assert.Contains(t, string(raw), "work budget of the email", "status %d, body %s", resp.StatusCode, raw)
+	})
+}
+
+// TestTemplateCompileLiquidMarkers verifies that the MJML export marks mj-liquid blocks and
+// display conditions only when liquid_markers is sent with preserve_liquid, so the visual
+// editor's MJML import can rebuild them.
+func TestTemplateCompileLiquidMarkers(t *testing.T) {
+	testutil.SkipIfShort(t)
+	testutil.SetupTestEnvironment()
+	defer testutil.CleanupTestEnvironment()
+
+	suite := testutil.NewIntegrationTestSuite(t, func(cfg *config.Config) testutil.AppInterface {
+		return app.NewApp(cfg)
+	})
+	defer func() { suite.Cleanup() }()
+
+	client := suite.APIClient
+	token := performCompleteSignInFlow(t, client, "test@example.com")
+	client.SetToken(token)
+	workspaceID := createTestWorkspace(t, client, "Liquid Markers Workspace")
+
+	const tree = `{"id":"root","type":"mjml","children":[{"id":"body","type":"mj-body","children":[
+		{"id":"sec","type":"mj-section","children":[{"id":"col","type":"mj-column","children":[
+			{"id":"txt","type":"mj-text","content":"<p>VIP</p>","display_condition":{"match":"all","rules":[{"variable":"contact.custom_string_1","operator":"eq","value":"50%"}]}},
+			{"id":"liq","type":"mj-liquid","content":"{% for i in (1..2) %}<mj-text>{{ i }}</mj-text>{% endfor %}"}
+		]}]}]}]}`
+
+	compile := func(flags string) string {
+		body := `{"workspace_id":"` + workspaceID + `","message_id":"export",` + flags + `"visual_editor_tree":` + tree + `}`
+		var payload map[string]interface{}
+		require.NoError(t, json.Unmarshal([]byte(body), &payload))
+		resp, err := client.CompileTemplate(payload)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var out struct {
+			Success bool    `json:"success"`
+			MJML    *string `json:"mjml"`
+		}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+		require.True(t, out.Success)
+		require.NotNil(t, out.MJML)
+		return *out.MJML
+	}
+
+	marked := compile(`"preserve_liquid":true,"liquid_markers":true,`)
+	assert.Contains(t, marked, "{% comment %}notifuse:liquid{% endcomment %}{% for i in (1..2) %}<mj-text>{{ i }}</mj-text>{% endfor %}{% comment %}/notifuse:liquid{% endcomment %}")
+	assert.Contains(t, marked, `{% comment %}notifuse:condition {"match":"all","rules":[{"variable":"contact.custom_string_1","operator":"eq","value":"50\u0025"}]}{% endcomment %}`)
+	assert.Contains(t, marked, "{% comment %}/notifuse:condition{% endcomment %}")
+
+	assert.NotContains(t, compile(`"preserve_liquid":true,`), "notifuse:")
+	assert.NotContains(t, compile(`"liquid_markers":true,`), "notifuse:")
 }

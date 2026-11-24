@@ -4,31 +4,51 @@ import '@testing-library/jest-dom/vitest'
 import { i18n } from '@lingui/core'
 import { I18nProvider } from '@lingui/react'
 import { ReactNode } from 'react'
+import { generateMessageId } from '@lingui/message-utils/generateMessageId'
 
 // Initialize i18n for tests
 i18n.load('en', {})
 i18n.activate('en')
 
+interface MessageDescriptorInput {
+  id?: string
+  message: string
+  context?: string
+  values?: Record<string, unknown>
+}
+
 // Mock @lingui/react/macro since it requires Babel transformation
 // The macro transforms t`text` into i18n._('text') at build time
-// This mock simulates the real behavior by using i18n._ for translations
+// This mock simulates the real behavior by using i18n._ for translations.
+// Created once, as the real `t` keeps its identity between renders: a new function on every
+// render would rerun the effects and memos that depend on it, which the app never does.
+const t = (strings: TemplateStringsArray | MessageDescriptorInput, ...values: unknown[]) => {
+  // A descriptor (t({ message, context })): resolved with its id, its context and its values. A
+  // context gives the message the id the macro generates, so a catalog tells "Open" (action) from
+  // "Open"; without one the id is the message, as for the tagged form below.
+  if (!Array.isArray(strings)) {
+    const { id, message, context, values: descriptorValues } = strings as MessageDescriptorInput
+    return i18n._({
+      id: id ?? (context ? generateMessageId(message, context) : message),
+      message,
+      values: descriptorValues
+    })
+  }
+  // Reconstruct the template literal to get the message ID
+  const messageId = (strings as TemplateStringsArray).reduce((result, str, idx) => {
+    return result + str + (values[idx] !== undefined ? `{${idx}}` : '')
+  }, '')
+  // Use i18n._ to get the translation (simulates real macro behavior)
+  // The values are passed as an object with numeric keys
+  const valuesObj = values.reduce<Record<string, unknown>>((acc, val, idx) => {
+    acc[idx] = val
+    return acc
+  }, {})
+  return i18n._(messageId, valuesObj)
+}
+
 vi.mock('@lingui/react/macro', () => ({
-  useLingui: () => ({
-    t: (strings: TemplateStringsArray, ...values: unknown[]) => {
-      // Reconstruct the template literal to get the message ID
-      const messageId = strings.reduce((result, str, idx) => {
-        return result + str + (values[idx] !== undefined ? `{${idx}}` : '')
-      }, '')
-      // Use i18n._ to get the translation (simulates real macro behavior)
-      // The values are passed as an object with numeric keys
-      const valuesObj = values.reduce<Record<string, unknown>>((acc, val, idx) => {
-        acc[idx] = val
-        return acc
-      }, {})
-      return i18n._(messageId, valuesObj)
-    },
-    i18n,
-  }),
+  useLingui: () => ({ t, i18n }),
   Trans: ({ children }: { children: ReactNode }) => children,
   // Plural macro fallback: pick `one` for 1, `other` otherwise, and replace `#`
   // with the value (matches real macro behavior well enough for tests).
@@ -43,7 +63,13 @@ vi.mock('@lingui/react/macro', () => ({
 // any call. The real macro turns msg`…` into a message descriptor, naming each placeholder after
 // the label in `${{ name: value }}`; reproduce enough of one that i18n._() renders it.
 vi.mock('@lingui/core/macro', () => ({
-  msg: (strings: TemplateStringsArray, ...placeholders: unknown[]) => {
+  msg: (strings: TemplateStringsArray | { message: string; context?: string }, ...placeholders: unknown[]) => {
+    // A descriptor (msg({ message, context })): as for t() above, a context gives the message the
+    // id the macro generates; without one the message is its own id, as for the tagged form.
+    if (!Array.isArray(strings)) {
+      const { message, context } = strings as { message: string; context?: string }
+      return { id: context ? generateMessageId(message, context) : message, message }
+    }
     const names = placeholders.map((placeholder, idx) =>
       placeholder && typeof placeholder === 'object'
         ? Object.keys(placeholder)[0]
@@ -89,7 +115,12 @@ const localStorageMock = (() => {
     }),
     clear: vi.fn(() => {
       store = {}
-    })
+    }),
+    // The rest of the Storage API, for code that walks its keys
+    key: vi.fn((index: number) => Object.keys(store)[index] ?? null),
+    get length() {
+      return Object.keys(store).length
+    }
   }
 })()
 

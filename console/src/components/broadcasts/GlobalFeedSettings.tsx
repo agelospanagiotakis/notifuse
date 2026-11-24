@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Switch, Input, Button, Space, Typography, App, Spin, Form, Modal, Alert, Tooltip } from 'antd'
+import { Input, Button, Space, Typography, App, Spin, Form, Modal, Alert, Tooltip } from 'antd'
 import { useLingui } from '@lingui/react/macro'
 import { CheckCircleOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import { Highlight, themes } from 'prism-react-renderer'
@@ -39,6 +39,8 @@ export function GlobalFeedSettings({
   const [localFetchedData, setLocalFetchedData] = useState<Record<string, unknown> | null>(null)
   const [localFetchedAt, setLocalFetchedAt] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
+  // A feed just switched on has no URL yet: "URL is required" waits until the field is left empty.
+  const [urlTouched, setUrlTouched] = useState(false)
 
   const settings: GlobalFeedSettingsType = value || {
     enabled: false,
@@ -81,46 +83,44 @@ export function GlobalFeedSettings({
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <Text strong>{t`Global Data Feed`}</Text>
-        <Switch
-          checked={settings.enabled}
-          onChange={(checked) => handleChange('enabled', checked)}
-          disabled={disabled}
-        />
-      </div>
-
       {settings.enabled ? (
         <div className="space-y-4">
           <Form.Item
             label={
               <Space size={4}>
-                <span>{t`Global feed URL`}</span>
+                <span>{t`Feed URL`}</span>
                 <Tooltip title={t`The URL must be publicly accessible. A POST request will be sent with broadcast and list information.`}>
                   <QuestionCircleOutlined className="text-gray-400 cursor-help" />
                 </Tooltip>
               </Space>
             }
             required
-            validateStatus={settings.enabled && !settings.url ? 'error' : undefined}
-            help={settings.enabled && !settings.url ? t`URL is required` : undefined}
+            colon={false}
+            validateStatus={urlTouched && !settings.url ? 'error' : undefined}
+            help={urlTouched && !settings.url ? t`URL is required` : undefined}
           >
             <Space.Compact className="w-full">
               <Input
                 placeholder="https://api.example.com/broadcast-data"
                 value={settings.url}
                 onChange={(e) => handleChange('url', e.target.value)}
+                onBlur={() => setUrlTouched(true)}
                 disabled={disabled}
               />
-              <Button
-                type="primary"
-                ghost
-                onClick={() => refreshMutation.mutate()}
-                loading={refreshMutation.isPending}
-                disabled={disabled || !settings.url || !broadcastId}
-              >
-                {t`Test`}
-              </Button>
+              {/* The test calls the feed for a stored broadcast; a disabled button fires no mouse event, hence the span. */}
+              <Tooltip title={broadcastId ? undefined : t`Save the broadcast first`}>
+                <span className="inline-flex">
+                  <Button
+                    type="primary"
+                    ghost
+                    onClick={() => refreshMutation.mutate()}
+                    loading={refreshMutation.isPending}
+                    disabled={disabled || !settings.url || !broadcastId}
+                  >
+                    {t`Test`}
+                  </Button>
+                </span>
+              </Tooltip>
             </Space.Compact>
           </Form.Item>
 
@@ -181,11 +181,7 @@ export function GlobalFeedSettings({
             </div>
           </Modal>
         </div>
-      ) : (
-        <Text type="secondary">
-          {t`Enable to fetch global data that will be available to all recipients in this broadcast. The data will be accessible in your templates using the "global_feed" variable.`}
-        </Text>
-      )}
+      ) : null}
     </div>
   )
 }

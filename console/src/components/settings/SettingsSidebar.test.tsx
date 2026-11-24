@@ -1,33 +1,107 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
-import { SettingsSidebar, SETTINGS_SECTIONS, SettingsSection } from './SettingsSidebar'
+import { generateMessageId } from '@lingui/message-utils/generateMessageId'
+import { render, screen, fireEvent, within } from '@testing-library/react'
+import {
+  SettingsSidebar,
+  SETTINGS_SECTIONS,
+  SETTINGS_GROUPS,
+  SettingsSection
+} from './SettingsSidebar'
 
 // Menu keys are strings until the onClick handler casts them to SettingsSection, so a key that no
 // longer matches a section compiles, renders, and routes to a page that will never resolve. These
 // tests walk the menu the way a user does — clicking, not reading the source — so the cast is
 // exercised rather than trusted.
-const renderSidebar = () => {
+const renderSidebar = ({
+  isOwner = true,
+  isRoot = true,
+  active = 'general' as SettingsSection
+} = {}) => {
   const onSectionChange = vi.fn<(section: SettingsSection) => void>()
-  // isOwner and isRoot both true so the two conditional entries (danger zone, licence) are in
-  // the menu and get walked like the rest.
   render(
     <SettingsSidebar
-      activeSection="team"
+      activeSection={active}
       onSectionChange={onSectionChange}
-      isOwner={true}
-      isRoot={true}
+      isOwner={isOwner}
+      isRoot={isRoot}
     />
   )
   return onSectionChange
 }
 
+describe('SETTINGS_GROUPS', () => {
+  it('names the Sending group as a section, not as a state in progress', () => {
+    expect(SETTINGS_GROUPS[1].title.id).toBe(generateMessageId('Sending', 'section'))
+  })
+
+  // Written out rather than derived: this list is what makes a settings URL valid.
+  it('groups the sections, each once, in menu order', () => {
+    expect(SETTINGS_GROUPS.map((group) => [...group.sections])).toEqual([
+      ['general', 'team'],
+      ['integrations', 'webhooks', 'smtp-bridge'],
+      ['custom-fields', 'blog', 'archive', 'import', 'web-analytics'],
+      ['security', 'audit-logs', 'licence', 'danger-zone']
+    ])
+    expect(SETTINGS_SECTIONS).toEqual([
+      'general',
+      'team',
+      'integrations',
+      'webhooks',
+      'smtp-bridge',
+      'custom-fields',
+      'blog',
+      'archive',
+      'import',
+      'web-analytics',
+      'security',
+      'audit-logs',
+      'licence',
+      'danger-zone'
+    ])
+  })
+})
+
 describe('SettingsSidebar', () => {
+  it('groups the entries under Workspace, Sending, Content and Security', () => {
+    renderSidebar()
+    for (const title of ['Workspace', 'Sending', 'Content', 'Security']) {
+      expect(screen.getByText(title)).toBeInTheDocument()
+    }
+    const labels = screen.getAllByRole('button').map((button) => button.textContent)
+    expect(labels).toEqual([
+      'General',
+      'Team & API keys',
+      'Integrations',
+      'Webhooks',
+      'SMTP bridge',
+      'Custom fields',
+      'Blog',
+      'Archive',
+      'Import from Mailchimp',
+      'Web analytics',
+      'Password sign-in',
+      'Audit log',
+      'Licence',
+      'Danger zone'
+    ])
+  })
+
+  it('marks the active section as the current page, and draws Danger zone in the danger tone', () => {
+    renderSidebar({ active: 'team' })
+    expect(screen.getByRole('button', { name: 'Team & API keys' })).toHaveAttribute(
+      'aria-current',
+      'page'
+    )
+    expect(screen.getByRole('button', { name: 'Integrations' })).not.toHaveAttribute('aria-current')
+    expect(screen.getByRole('button', { name: 'Danger zone' }).className).toContain(
+      'text-danger-fg'
+    )
+  })
+
   it('reports a valid section for every entry it renders', () => {
     const onSectionChange = renderSidebar()
-    const entries = screen.getAllByRole('menuitem')
-
+    const entries = screen.getAllByRole('button')
     entries.forEach((entry) => fireEvent.click(entry))
-
     const reported = onSectionChange.mock.calls.map(([section]) => section)
     expect(reported).toHaveLength(entries.length)
     expect(reported.filter((section) => !SETTINGS_SECTIONS.includes(section))).toEqual([])
@@ -35,24 +109,31 @@ describe('SettingsSidebar', () => {
 
   it('reports the section of the entry that was clicked', () => {
     const onSectionChange = renderSidebar()
-
     fireEvent.click(screen.getByText('Integrations'))
-
     expect(onSectionChange).toHaveBeenCalledWith('integrations')
   })
 
-  // Retention is an owner's decision, so the entry is an owner's; everyone else reads the log
-  // under Logs → Audit logs.
-  it('offers Audit logs to owners and to nobody else', () => {
-    const onSectionChange = vi.fn<(section: SettingsSection) => void>()
-    const { unmount } = render(
-      <SettingsSidebar activeSection="team" onSectionChange={onSectionChange} isOwner={false} isRoot={false} />
-    )
-    expect(screen.queryByText('Audit logs')).not.toBeInTheDocument()
-    unmount()
+  // Retention and deletion are an owner's decisions; the licence covers the deployment, root only.
+  it('offers Audit log and Danger zone to owners, Licence to root', () => {
+    renderSidebar({ isOwner: true, isRoot: false })
+    expect(screen.getByText('Audit log')).toBeInTheDocument()
+    expect(screen.getByText('Danger zone')).toBeInTheDocument()
+    expect(screen.queryByText('Licence')).not.toBeInTheDocument()
+  })
 
-    render(<SettingsSidebar activeSection="team" onSectionChange={onSectionChange} isOwner={true} isRoot={false} />)
-    fireEvent.click(screen.getByText('Audit logs'))
-    expect(onSectionChange).toHaveBeenCalledWith('audit-logs')
+  it('offers Licence alone in Security to a root member who is not owner', () => {
+    renderSidebar({ isOwner: false, isRoot: true })
+    expect(screen.getByText('Security')).toBeInTheDocument()
+    expect(screen.getByText('Licence')).toBeInTheDocument()
+    expect(screen.queryByText('Audit log')).not.toBeInTheDocument()
+  })
+
+  it('keeps Security for a member who is neither owner nor root, for Password sign-in alone', () => {
+    renderSidebar({ isOwner: false, isRoot: false })
+    expect(screen.getByText('Security')).toBeInTheDocument()
+    expect(screen.getByText('Password sign-in')).toBeInTheDocument()
+    expect(screen.queryByText('Audit log')).not.toBeInTheDocument()
+    expect(screen.queryByText('Danger zone')).not.toBeInTheDocument()
+    expect(within(document.body).getByText('General')).toBeInTheDocument()
   })
 })

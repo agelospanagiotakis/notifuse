@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -30,6 +31,7 @@ const (
 	EmailProviderKindMailgun   EmailProviderKind = "mailgun"
 	EmailProviderKindMailjet   EmailProviderKind = "mailjet"
 	EmailProviderKindSendGrid  EmailProviderKind = "sendgrid"
+	EmailProviderKindResend    EmailProviderKind = "resend"
 )
 
 // transactionalOnlyProviderKinds lists provider kinds that may only be used for
@@ -73,6 +75,7 @@ type EmailProvider struct {
 	Mailgun            *MailgunSettings   `json:"mailgun,omitempty"`
 	Mailjet            *MailjetSettings   `json:"mailjet,omitempty"`
 	SendGrid           *SendGridSettings  `json:"sendgrid,omitempty"`
+	Resend             *ResendSettings    `json:"resend,omitempty"`
 	Senders            []EmailSender      `json:"senders"`
 	RateLimitPerMinute int                `json:"rate_limit_per_minute"`
 }
@@ -148,6 +151,11 @@ func (e *EmailProvider) Validate(passphrase string) error {
 			return fmt.Errorf("sendgrid settings required when email provider kind is sendgrid")
 		}
 		return e.SendGrid.Validate(passphrase)
+	case EmailProviderKindResend:
+		if e.Resend == nil {
+			return fmt.Errorf("resend settings required when email provider kind is resend")
+		}
+		return e.Resend.Validate(passphrase)
 	default:
 		return fmt.Errorf("invalid email provider kind: %s", e.Kind)
 	}
@@ -170,6 +178,43 @@ func (e *EmailProvider) GetSender(id string) *EmailSender {
 	}
 
 	return nil
+}
+
+// ErrSenderNotFound is returned when a sender chosen for a send is not one of the
+// integration's senders.
+var ErrSenderNotFound = errors.New("sender not found")
+
+// HasSender reports whether the integration has a sender with this ID.
+func (e *EmailProvider) HasSender(id string) bool {
+	if id == "" {
+		return false
+	}
+	for i := range e.Senders {
+		if e.Senders[i].ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// ResolveSender returns the sender an email leaves from. A sender chosen for this send
+// (a broadcast variation's, or a transactional email_options.sender_id) must be one of
+// the integration's senders and never falls back: sending from another address than the
+// one chosen is never right. Without one, the template's sender applies, else the
+// integration's default, as GetSender does.
+func (e *EmailProvider) ResolveSender(chosenID string, templateSenderID string) (*EmailSender, error) {
+	if chosenID != "" {
+		for i := range e.Senders {
+			if e.Senders[i].ID == chosenID {
+				return &e.Senders[i], nil
+			}
+		}
+		return nil, fmt.Errorf("%w: %s", ErrSenderNotFound, chosenID)
+	}
+	if sender := e.GetSender(templateSenderID); sender != nil {
+		return sender, nil
+	}
+	return nil, errors.New("no sender configured for email provider")
 }
 
 // EncryptSecretKeys encrypts all secret keys in the email provider
@@ -246,6 +291,15 @@ func (e *EmailProvider) EncryptSecretKeys(passphrase string) error {
 		e.SendGrid.APIKey = ""
 	}
 
+	if e.Kind == EmailProviderKindResend && e.Resend != nil {
+		if err := e.Resend.EncryptSecrets(passphrase); err != nil {
+			return err
+		}
+		// never persist the plaintext copies
+		e.Resend.Password = ""
+		e.Resend.WebhookSecret = ""
+	}
+
 	return nil
 }
 
@@ -318,16 +372,25 @@ func (e *EmailProvider) DecryptSecretKeys(passphrase string) error {
 		}
 	}
 
+	if e.Kind == EmailProviderKindResend && e.Resend != nil {
+		if err := e.Resend.DecryptSecrets(passphrase); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
 type EmailOptions struct {
-	FromName           *string      `json:"from_name,omitempty"`       // Override default sender from name
-	Subject            *string      `json:"subject,omitempty"`         // Override template subject
-	SubjectPreview     *string      `json:"subject_preview,omitempty"` // Override template preheader
-	CC                 []string     `json:"cc,omitempty"`
-	BCC                []string     `json:"bcc,omitempty"`
-	ReplyTo            string       `json:"reply_to,omitempty"`
+	FromName       *string  `json:"from_name,omitempty"`       // Override default sender from name
+	Subject        *string  `json:"subject,omitempty"`         // Override template subject
+	SubjectPreview *string  `json:"subject_preview,omitempty"` // Override template preheader
+	CC             []string `json:"cc,omitempty"`
+	BCC            []string `json:"bcc,omitempty"`
+	ReplyTo        string   `json:"reply_to,omitempty"`
+	// SenderID picks one of the integration's senders for this message, in place of the
+	// template's. Request-only: message history does not store the From.
+	SenderID           string       `json:"sender_id,omitempty"`
 	Attachments        []Attachment `json:"attachments,omitempty"`
 	ListUnsubscribeURL string       `json:"list_unsubscribe_url,omitempty"` // RFC-8058 one-click unsubscribe URL
 }
@@ -371,6 +434,11 @@ type SendEmailProviderRequest struct {
 	Content       string         `validate:"required"`
 	Provider      *EmailProvider `validate:"required"`
 	EmailOptions  EmailOptions
+
+	// TextContent is the text/plain alternative sent with Content. Optional: when it is
+	// empty, EmailService.SendEmail generates it from Content, the final HTML, so its links
+	// are the links the HTML carries (tracked or not, as decided for the recipient).
+	TextContent string
 
 	// CapturedMessageID, when non-nil, is written by providers that OVERWRITE the RFC
 	// Message-ID at send time (e.g. Amazon SES) with the provider-returned MessageId, so
@@ -461,7 +529,7 @@ type EmailServiceInterface interface {
 	TestEmailProvider(ctx context.Context, workspaceID string, integrationID string, provider EmailProvider, to string) error
 	SendEmail(ctx context.Context, request SendEmailProviderRequest, isMarketing bool) error
 	SendEmailForTemplate(ctx context.Context, request SendEmailRequest) error
-	VisitLink(ctx context.Context, messageID string, workspaceID string, clickedURL string, requestHost string) error
+	VisitLink(ctx context.Context, messageID string, workspaceID string, clickedURL string, ownHosts []string, verified bool) error
 	OpenEmail(ctx context.Context, messageID string, workspaceID string) error
 }
 

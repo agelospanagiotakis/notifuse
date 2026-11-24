@@ -4,40 +4,62 @@ import { waitForLoading, waitForSuccessMessage } from '../fixtures/test-utils'
 import { API_PATTERNS } from '../fixtures/request-capture'
 import { testListData } from '../fixtures/form-data'
 import { logCapturedRequests } from '../fixtures/payload-assertions'
+import { mockTemplates } from '../fixtures/mock-data'
 
 const WORKSPACE_ID = 'test-workspace'
 
 // antd 6 renamed `.ant-drawer-content` out of existence; the drawer's `role="dialog"`
 // node now carries the title as its accessible name, so every drawer is addressed by
 // role + name instead of by class.
-const createListDrawer = (page: Page) =>
-  page.getByRole('dialog', { name: 'Create New List', exact: true })
+const createListDrawer = (page: Page) => page.getByRole('dialog', { name: 'New list', exact: true })
 
-const editListDrawer = (page: Page) => page.getByRole('dialog', { name: 'Edit List', exact: true })
+const editListDrawer = (page: Page) => page.getByRole('dialog', { name: 'Edit list', exact: true })
 
-/** Open the create drawer from the page-level "Create List" button. */
+/**
+ * The window lists the Opt-in templates alone, and the mock templates have none: this one answers
+ * templates.list with Welcome Email as an Opt-in template.
+ */
+async function withOptinTemplate(page: Page) {
+  await page.route('**/api/templates.list*', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ templates: mockTemplates.map((tpl) => ({ ...tpl, category: 'opt_in' })) })
+    })
+  )
+}
+
+/** The confirmation template window, opened from the card's « Choose », and a template picked in it. */
+async function pickTemplate(page: Page, drawer: Locator, name: string) {
+  await drawer.getByRole('button', { name: 'Choose', exact: true }).click()
+  const picker = page.getByRole('dialog', { name: /Choose a template/ })
+  await expect(picker).toBeVisible()
+  await picker.getByRole('button', { name: new RegExp(`^${name}`) }).dblclick()
+  await expect(picker).toBeHidden()
+}
+
+const CONTACTS_URL = `/console/workspace/${WORKSPACE_ID}/contacts`
+
+/** The rail row of a list, found by its name (the row also carries its active count). */
+const railList = (page: Page, listName: string) =>
+  page.locator('[data-rail-item]').filter({ hasText: listName })
+
+/**
+ * Open the create drawer from the Contacts rail: « New list » beside the Lists title, or
+ * « Create your first list » in an empty rail.
+ */
 async function openCreateDrawer(page: Page): Promise<Locator> {
-  await page.getByRole('button', { name: 'Create List', exact: true }).click()
+  const newList = page.getByRole('button', { name: 'New list', exact: true })
+  const firstList = page.getByRole('button', { name: 'Create your first list', exact: true })
+  await newList.or(firstList).first().click()
   const drawer = createListDrawer(page)
   await expect(drawer).toBeVisible()
   return drawer
 }
 
-/**
- * Open the edit drawer of a list card. The card is picked by its title so the
- * locator only resolves once the list has loaded, and the card's edit control is
- * an icon-only button, so it is identified by the icon it renders.
- */
+/** Open a list's view from the rail, then its edit drawer from the settings bar. */
 async function openEditDrawer(page: Page, listName = 'Newsletter'): Promise<Locator> {
-  const card = page
-    .locator('.ant-card')
-    .filter({ has: page.locator('.ant-card-head-title', { hasText: listName }) })
-
-  await card
-    .locator('button')
-    .filter({ has: page.locator('svg[data-icon="pen-to-square"]') })
-    .click()
-
+  await railList(page, listName).click()
+  await page.getByRole('button', { name: 'Edit list', exact: true }).click()
   const drawer = editListDrawer(page)
   await expect(drawer).toBeVisible()
   return drawer
@@ -45,30 +67,28 @@ async function openEditDrawer(page: Page, listName = 'Newsletter'): Promise<Loca
 
 test.describe('Lists Feature', () => {
   test.describe('Page Load & Empty State', () => {
-    test('loads lists page and shows empty state', async ({ authenticatedPage }) => {
+    test('the former Lists page opens Contacts, whose rail offers a first list', async ({
+      authenticatedPage
+    }) => {
       const page = authenticatedPage
 
       await page.goto(`/console/workspace/${WORKSPACE_ID}/lists`)
       await waitForLoading(page)
 
-      await expect(page.getByText('No lists found')).toBeVisible()
-      await expect(page.getByText('Create your first list to get started')).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Create List', exact: true })).toBeVisible()
+      await expect(page).toHaveURL(/\/contacts/)
+      await expect(page.getByRole('button', { name: 'Create your first list', exact: true })).toBeVisible()
     })
 
-    test('loads lists page with data', async ({ authenticatedPageWithData }) => {
+    test('lists the lists in the rail, by name', async ({ authenticatedPageWithData }) => {
       const page = authenticatedPageWithData
 
-      await page.goto(`/console/workspace/${WORKSPACE_ID}/lists`)
+      await page.goto(CONTACTS_URL)
       await waitForLoading(page)
 
-      // One card per mocked list, titled with the list name
-      await expect(page.locator('.ant-card')).toHaveCount(3)
-      await expect(page.locator('.ant-card-head-title')).toHaveText([
-        'Newsletter',
-        'Marketing Updates',
-        'Beta Testers'
-      ])
+      for (const name of ['Beta Testers', 'Marketing Updates', 'Newsletter']) {
+        await expect(railList(page, name)).toBeVisible()
+      }
+      await expect(page.getByRole('button', { name: 'New list', exact: true })).toBeVisible()
     })
   })
 
@@ -76,49 +96,58 @@ test.describe('Lists Feature', () => {
     test('opens create list form', async ({ authenticatedPage }) => {
       const page = authenticatedPage
 
-      await page.goto(`/console/workspace/${WORKSPACE_ID}/lists`)
+      await page.goto(CONTACTS_URL)
       await waitForLoading(page)
 
       const drawer = await openCreateDrawer(page)
 
       await expect(drawer.getByLabel('Name', { exact: true })).toBeVisible()
-      await expect(drawer.getByLabel('List ID', { exact: true })).toBeVisible()
+      // The ID is derived from the name and shown under it until « Modify » opens it
+      await expect(drawer.getByText('ID derived from the name')).toBeVisible()
+      await expect(drawer.getByRole('button', { name: 'Create list', exact: true })).toBeVisible()
     })
 
     test('fills and submits list form', async ({ authenticatedPage }) => {
       const page = authenticatedPage
 
-      await page.goto(`/console/workspace/${WORKSPACE_ID}/lists`)
+      await page.goto(CONTACTS_URL)
       await waitForLoading(page)
 
       const drawer = await openCreateDrawer(page)
 
       await drawer.getByLabel('Name', { exact: true }).fill('Test Newsletter List')
 
-      // The ID is derived from the name: lowercased, non-alphanumerics stripped
-      await expect(drawer.getByLabel('List ID', { exact: true })).toHaveValue('testnewsletterlist')
+      // The ID is derived from the name: lowercased, non-alphanumerics stripped, then checked
+      await expect(drawer.getByText('testnewsletterlist', { exact: true })).toBeVisible()
+      await expect(drawer.getByText('available', { exact: true })).toBeVisible()
 
       await drawer
         .getByLabel('Description', { exact: true })
         .fill('A test newsletter list with all fields')
 
-      await drawer.getByRole('button', { name: 'Create', exact: true }).click()
+      await drawer.getByRole('button', { name: 'Create list', exact: true }).click()
 
       await waitForSuccessMessage(page)
       await expect(drawer).toBeHidden()
+      // The new list opens, without the close guard stopping the navigation
+      await expect(page).toHaveURL(/list_id=/)
+      await expect(page.getByText('Discard your changes?')).toHaveCount(0)
     })
 
     test('views list details', async ({ authenticatedPageWithData }) => {
       const page = authenticatedPageWithData
 
-      await page.goto(`/console/workspace/${WORKSPACE_ID}/lists`)
+      await page.goto(CONTACTS_URL)
       await waitForLoading(page)
+      await railList(page, 'Newsletter').click()
 
-      // The card body carries the list's descriptions rather than opening a detail view
-      const details = page.locator('.ant-card').first().locator('.ant-descriptions')
-      await expect(details).toContainText('list-1')
-      await expect(details).toContainText('Monthly newsletter subscribers')
-      await expect(details).toContainText('Public')
+      await expect(page).toHaveURL(/list_id=list-1/)
+      await expect(page.getByRole('heading', { name: 'Newsletter' })).toBeVisible()
+      await expect(page.getByText('Monthly newsletter subscribers')).toBeVisible()
+      // The settings bar: visibility, opt-in and the list's ID
+      await expect(page.getByText('Public', { exact: true })).toBeVisible()
+      await expect(page.getByText('Double opt-in', { exact: true })).toBeVisible()
+      await expect(page.getByText('list-1', { exact: true })).toBeVisible()
     })
   })
 
@@ -126,39 +155,39 @@ test.describe('Lists Feature', () => {
     test('shows double opt-in setting', async ({ authenticatedPage }) => {
       const page = authenticatedPage
 
-      await page.goto(`/console/workspace/${WORKSPACE_ID}/lists`)
+      await page.goto(CONTACTS_URL)
       await waitForLoading(page)
 
       const drawer = await openCreateDrawer(page)
 
-      const doubleOptIn = drawer.getByRole('switch', { name: 'Double Opt-in' })
+      const doubleOptIn = drawer.getByRole('switch', { name: 'Double opt-in' })
       await expect(doubleOptIn).toBeVisible()
       await expect(doubleOptIn).not.toBeChecked()
 
-      // Turning it on is what pulls in the confirmation template field
+      // Turning it on is what pulls in the confirmation template card
       await doubleOptIn.click()
       await expect(doubleOptIn).toBeChecked()
-      await expect(drawer.getByPlaceholder('Select confirmation email template')).toBeVisible()
+      await expect(drawer.getByText('Choose a confirmation template', { exact: true }).first()).toBeVisible()
     })
 
     // The template picker only has something to show when the workspace has
     // templates, so this case runs against the populated fixture.
     test('shows template selection options', async ({ authenticatedPageWithData }) => {
       const page = authenticatedPageWithData
+      await withOptinTemplate(page)
 
-      await page.goto(`/console/workspace/${WORKSPACE_ID}/lists`)
+      await page.goto(CONTACTS_URL)
       await waitForLoading(page)
 
       const drawer = await openCreateDrawer(page)
-      await drawer.getByRole('switch', { name: 'Double Opt-in' }).click()
+      await drawer.getByRole('switch', { name: 'Double opt-in' }).click()
 
-      // The template field opens a picker listing the workspace templates
-      await drawer.getByPlaceholder('Select confirmation email template').click()
+      // The card's « Choose » opens the window listing the workspace templates
+      await drawer.getByRole('button', { name: 'Choose', exact: true }).click()
 
-      const picker = page.getByRole('dialog', { name: 'Select Template', exact: true })
+      const picker = page.getByRole('dialog', { name: /Choose a template/ })
       await expect(picker).toBeVisible()
-      await expect(picker.getByText('Welcome Email')).toBeVisible()
-      await expect(picker.getByRole('button', { name: 'Select', exact: true })).toHaveCount(3)
+      await expect(picker.getByRole('button', { name: /^Welcome Email/ })).toBeVisible()
     })
   })
 
@@ -166,14 +195,15 @@ test.describe('Lists Feature', () => {
     test('displays subscriber counts', async ({ authenticatedPageWithData }) => {
       const page = authenticatedPageWithData
 
-      await page.goto(`/console/workspace/${WORKSPACE_ID}/lists`)
+      await page.goto(CONTACTS_URL)
       await waitForLoading(page)
+      await railList(page, 'Newsletter').click()
 
-      // Each card pulls its own counters from /api/lists.stats
-      const stats = page.locator('.ant-card').first().locator('.ant-statistic')
-      await expect(stats.filter({ hasText: 'Active' })).toContainText('150')
-      await expect(stats.filter({ hasText: 'Pending' })).toContainText('25')
-      await expect(stats.filter({ hasText: 'Unsub' })).toContainText('10')
+      // The list's KPI strip reads /api/lists.stats
+      const cells = page.locator('[data-kpi-strip] [data-kpi-cell]')
+      await expect(cells.filter({ hasText: 'Active' })).toContainText('150')
+      await expect(cells.filter({ hasText: 'Pending' })).toContainText('25')
+      await expect(cells.filter({ hasText: 'Unsubscribed' })).toContainText('10')
     })
   })
 
@@ -181,7 +211,7 @@ test.describe('Lists Feature', () => {
     test('edit list drawer shows existing list name', async ({ authenticatedPageWithData }) => {
       const page = authenticatedPageWithData
 
-      await page.goto(`/console/workspace/${WORKSPACE_ID}/lists`)
+      await page.goto(CONTACTS_URL)
       await waitForLoading(page)
 
       const drawer = await openEditDrawer(page)
@@ -192,21 +222,21 @@ test.describe('Lists Feature', () => {
     test('edit list preserves list ID', async ({ authenticatedPageWithData }) => {
       const page = authenticatedPageWithData
 
-      await page.goto(`/console/workspace/${WORKSPACE_ID}/lists`)
+      await page.goto(CONTACTS_URL)
       await waitForLoading(page)
 
       const drawer = await openEditDrawer(page)
 
-      const idInput = drawer.getByLabel('List ID', { exact: true })
-      await expect(idInput).toHaveValue('list-1')
-      // The ID is the list's key, so editing an existing list cannot change it
-      await expect(idInput).toBeDisabled()
+      // The ID is the list's key, so editing an existing list shows it read-only, with a copy button
+      await expect(drawer.getByText('list-1', { exact: true })).toBeVisible()
+      await expect(drawer.getByLabel('ID', { exact: true })).toHaveCount(0)
+      await expect(drawer.getByRole('button', { name: 'Copy', exact: true })).toBeVisible()
     })
 
     test('edit list preserves description', async ({ authenticatedPageWithData }) => {
       const page = authenticatedPageWithData
 
-      await page.goto(`/console/workspace/${WORKSPACE_ID}/lists`)
+      await page.goto(CONTACTS_URL)
       await waitForLoading(page)
 
       const drawer = await openEditDrawer(page)
@@ -219,14 +249,16 @@ test.describe('Lists Feature', () => {
     test('edit list preserves double opt-in setting', async ({ authenticatedPageWithData }) => {
       const page = authenticatedPageWithData
 
-      await page.goto(`/console/workspace/${WORKSPACE_ID}/lists`)
+      await page.goto(CONTACTS_URL)
       await waitForLoading(page)
 
       const drawer = await openEditDrawer(page)
 
       // The first mocked list is both public and double opt-in
-      await expect(drawer.getByRole('switch', { name: 'Double Opt-in' })).toBeChecked()
-      await expect(drawer.getByRole('switch', { name: 'Public' })).toBeChecked()
+      await expect(drawer.getByRole('switch', { name: 'Double opt-in' })).toBeChecked()
+      await expect(drawer.getByRole('switch', { name: 'Public list' })).toBeChecked()
+      // Public: the list's row as the notification center shows it
+      await expect(drawer.getByRole('region', { name: 'In the notification center' })).toContainText('Newsletter')
     })
   })
 
@@ -234,32 +266,32 @@ test.describe('Lists Feature', () => {
     test('requires list name', async ({ authenticatedPage }) => {
       const page = authenticatedPage
 
-      await page.goto(`/console/workspace/${WORKSPACE_ID}/lists`)
+      await page.goto(CONTACTS_URL)
       await waitForLoading(page)
 
       const drawer = await openCreateDrawer(page)
 
-      await drawer.getByRole('button', { name: 'Create', exact: true }).click()
+      await drawer.getByRole('button', { name: 'Create list', exact: true }).click()
 
       await expect(drawer.getByText('Please enter a list name')).toBeVisible()
-      await expect(drawer.getByText('Please enter a list ID')).toBeVisible()
       expect(requestCapture.getRequestCount(API_PATTERNS.LIST_CREATE)).toBe(0)
     })
 
     test('validates list ID format', async ({ authenticatedPage }) => {
       const page = authenticatedPage
 
-      await page.goto(`/console/workspace/${WORKSPACE_ID}/lists`)
+      await page.goto(CONTACTS_URL)
       await waitForLoading(page)
 
       const drawer = await openCreateDrawer(page)
 
       await drawer.getByLabel('Name', { exact: true }).fill('Test List')
 
-      const idInput = drawer.getByLabel('List ID', { exact: true })
+      await drawer.getByRole('button', { name: 'Modify', exact: true }).click()
+      const idInput = drawer.getByLabel('ID', { exact: true })
       await idInput.fill('invalid@id!')
 
-      await drawer.getByRole('button', { name: 'Create', exact: true }).click()
+      await drawer.getByRole('button', { name: 'Create list', exact: true }).click()
 
       await expect(drawer.getByText('ID must be alphanumeric')).toBeVisible()
       expect(requestCapture.getRequestCount(API_PATTERNS.LIST_CREATE)).toBe(0)
@@ -267,25 +299,22 @@ test.describe('Lists Feature', () => {
   })
 
   test.describe('Navigation', () => {
-    test('navigates to lists from sidebar', async ({ authenticatedPage }) => {
+    test('reaches the lists from the Contacts entry of the sidebar', async ({ authenticatedPage }) => {
       const page = authenticatedPage
 
-      // Start at dashboard
       await page.goto(`/console/workspace/${WORKSPACE_ID}/`)
       await waitForLoading(page)
 
-      // Click lists link in sidebar
-      const listsLink = page.locator('a[href*="lists"], [data-menu-id*="lists"]').first()
-      await listsLink.click()
+      await page.locator('a[href*="/contacts"]').first().click()
 
-      // Should be on lists page
-      await expect(page).toHaveURL(/lists/)
+      await expect(page).toHaveURL(/contacts/)
+      await expect(page.getByRole('button', { name: 'Create your first list', exact: true })).toBeVisible()
     })
 
     test('can close create form', async ({ authenticatedPage }) => {
       const page = authenticatedPage
 
-      await page.goto(`/console/workspace/${WORKSPACE_ID}/lists`)
+      await page.goto(CONTACTS_URL)
       await waitForLoading(page)
 
       const drawer = await openCreateDrawer(page)
@@ -293,6 +322,70 @@ test.describe('Lists Feature', () => {
       await drawer.getByRole('button', { name: 'Close', exact: true }).click()
 
       await expect(drawer).toBeHidden()
+    })
+
+    test('asks before closing with unsaved changes', async ({ authenticatedPage }) => {
+      const page = authenticatedPage
+
+      await page.goto(CONTACTS_URL)
+      await waitForLoading(page)
+
+      const drawer = await openCreateDrawer(page)
+      await drawer.getByLabel('Name', { exact: true }).fill('Half done')
+      await drawer.getByRole('button', { name: 'Close', exact: true }).click()
+
+      const confirm = page.getByRole('dialog', { name: 'Discard your changes?' })
+      await confirm.getByRole('button', { name: 'Keep editing', exact: true }).click()
+      await expect(drawer.getByLabel('Name', { exact: true })).toHaveValue('Half done')
+
+      await drawer.getByRole('button', { name: 'Cancel', exact: true }).click()
+      await confirm.getByRole('button', { name: 'Discard', exact: true }).click()
+      await expect(drawer).toBeHidden()
+    })
+
+    // Escape in the template window closes that window only: antd closes its top layer.
+    test('closes only the template window on Escape', async ({ authenticatedPageWithData }) => {
+      const page = authenticatedPageWithData
+      await withOptinTemplate(page)
+
+      await page.goto(CONTACTS_URL)
+      await waitForLoading(page)
+
+      const drawer = await openCreateDrawer(page)
+      await drawer.getByRole('switch', { name: 'Double opt-in' }).click()
+      await drawer.getByRole('button', { name: 'Choose', exact: true }).click()
+      const picker = page.getByRole('dialog', { name: /Choose a template/ })
+      await expect(picker).toBeVisible()
+
+      await page.keyboard.press('Escape')
+      await expect(picker).toBeHidden()
+      await expect(drawer).toBeVisible()
+      await expect(page.getByText('Discard your changes?')).toHaveCount(0)
+    })
+
+    test('refuses an ID another list has while typing', async ({ authenticatedPageWithData }) => {
+      const page = authenticatedPageWithData
+
+      await page.goto(CONTACTS_URL)
+      await waitForLoading(page)
+
+      // The mock lists' ids (list-1) are not valid list IDs, so the check never asks for them:
+      // here lists.get finds a list under any ID, as the server would for a taken one.
+      const TAKEN_ID = 'newsletter'
+      await page.route('**/api/lists.get*', (route) =>
+        route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({ list: { id: TAKEN_ID, name: 'Newsletter' } })
+        })
+      )
+
+      const drawer = await openCreateDrawer(page)
+      await drawer.getByLabel('Name', { exact: true }).fill('Another')
+      await drawer.getByRole('button', { name: 'Modify', exact: true }).click()
+      await drawer.getByLabel('ID', { exact: true }).fill(TAKEN_ID)
+
+      await expect(drawer.getByText(`A list already has the ID “${TAKEN_ID}”. Change it.`)).toBeVisible()
+      await expect(drawer.getByRole('button', { name: 'Create list', exact: true })).toBeDisabled()
     })
   })
 
@@ -302,8 +395,9 @@ test.describe('Lists Feature', () => {
       authenticatedPageWithData
     }) => {
       const page = authenticatedPageWithData
+      await withOptinTemplate(page)
 
-      await page.goto(`/console/workspace/${WORKSPACE_ID}/lists`)
+      await page.goto(CONTACTS_URL)
       await waitForLoading(page)
 
       const drawer = await openCreateDrawer(page)
@@ -311,31 +405,23 @@ test.describe('Lists Feature', () => {
       await drawer.getByLabel('Name', { exact: true }).fill(testListData.name)
       await drawer.getByLabel('Description', { exact: true }).fill(testListData.description || '')
 
-      const publicSwitch = drawer.getByRole('switch', { name: 'Public' })
+      const publicSwitch = drawer.getByRole('switch', { name: 'Public list' })
       if (testListData.is_public) {
         await publicSwitch.click()
       }
       await expect(publicSwitch).toBeChecked({ checked: !!testListData.is_public })
 
-      const doubleOptInSwitch = drawer.getByRole('switch', { name: 'Double Opt-in' })
+      const doubleOptInSwitch = drawer.getByRole('switch', { name: 'Double opt-in' })
       if (testListData.is_double_optin) {
         await doubleOptInSwitch.click()
       }
       await expect(doubleOptInSwitch).toBeChecked({ checked: !!testListData.is_double_optin })
 
       // Double opt-in makes the confirmation template a required field
-      await drawer.getByPlaceholder('Select confirmation email template').click()
-      const picker = page.getByRole('dialog', { name: 'Select Template', exact: true })
-      await picker
-        .getByRole('listitem')
-        .filter({ hasText: 'Welcome Email' })
-        .getByRole('button', { name: 'Select', exact: true })
-        .click()
-      await expect(drawer.getByPlaceholder('Select confirmation email template')).toHaveValue(
-        'Welcome Email'
-      )
+      await pickTemplate(page, drawer, 'Welcome Email')
+      await expect(drawer.locator('[data-template-card]')).toContainText('Welcome Email')
 
-      await drawer.getByRole('button', { name: 'Create', exact: true }).click()
+      await drawer.getByRole('button', { name: 'Create list', exact: true }).click()
 
       await expect
         .poll(() => requestCapture.getRequestCount(API_PATTERNS.LIST_CREATE))
@@ -358,7 +444,7 @@ test.describe('Lists Feature', () => {
     test('verifies list configuration settings in payload', async ({ authenticatedPage }) => {
       const page = authenticatedPage
 
-      await page.goto(`/console/workspace/${WORKSPACE_ID}/lists`)
+      await page.goto(CONTACTS_URL)
       await waitForLoading(page)
 
       const drawer = await openCreateDrawer(page)
@@ -366,7 +452,7 @@ test.describe('Lists Feature', () => {
       await drawer.getByLabel('Name', { exact: true }).fill('Configuration Test List')
 
       // Both toggles left at their defaults: the payload must spell them out as false
-      await drawer.getByRole('button', { name: 'Create', exact: true }).click()
+      await drawer.getByRole('button', { name: 'Create list', exact: true }).click()
 
       await expect
         .poll(() => requestCapture.getRequestCount(API_PATTERNS.LIST_CREATE))

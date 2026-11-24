@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -84,8 +85,74 @@ func InitializeDatabase(db *sql.DB, rootEmails []string) error {
 	return nil
 }
 
-// InitializeWorkspaceDatabase creates the necessary tables for a workspace database
+// InitializeWorkspaceDatabase creates the necessary tables for a workspace database, in
+// one transaction: a failure partway leaves no partial schema. Running it again over a
+// complete schema is harmless (every statement is IF NOT EXISTS, CREATE OR REPLACE, or
+// a DROP TRIGGER IF EXISTS before its CREATE TRIGGER).
 func InitializeWorkspaceDatabase(db *sql.DB) error {
+	return InitializeWorkspaceDatabaseContext(context.Background(), db)
+}
+
+// InitializeWorkspaceDatabaseContext is InitializeWorkspaceDatabase under ctx, which
+// bounds the whole initialisation.
+func InitializeWorkspaceDatabaseContext(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin workspace schema transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	// A role-level statement_timeout or transaction_timeout would otherwise apply to
+	// the whole initialisation; the bound is ctx. transaction_timeout exists from
+	// PostgreSQL 17 only, hence the guard.
+	for _, statement := range workspaceSchemaTransactionSettings {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("failed to prepare workspace schema transaction: %w", err)
+		}
+	}
+
+	if err := runWorkspaceSchema(ctx, tx); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit workspace schema: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+var workspaceSchemaTransactionSettings = []string{
+	`SET LOCAL statement_timeout = 0`,
+	`SELECT set_config('transaction_timeout', '0', true) WHERE current_setting('transaction_timeout', true) IS NOT NULL`,
+}
+
+// workspaceSchemaGroup is a run of workspace schema statements sharing an error message.
+type workspaceSchemaGroup struct {
+	failure    string
+	statements []string
+}
+
+// runWorkspaceSchema runs every workspace schema statement on tx.
+func runWorkspaceSchema(ctx context.Context, tx *sql.Tx) error {
+	for _, group := range workspaceSchemaGroups(time.Now()) {
+		for _, query := range group.statements {
+			if _, err := tx.ExecContext(ctx, query); err != nil {
+				return fmt.Errorf("%s: %w", group.failure, err)
+			}
+		}
+	}
+	return nil
+}
+
+// workspaceSchemaGroups lists the workspace schema statements in the order they run,
+// with the web analytics partitions of now's month and the next.
+func workspaceSchemaGroups(now time.Time) []workspaceSchemaGroup {
 	// Create workspace tables
 	queries := []string{
 		`CREATE TABLE IF NOT EXISTS contacts (
@@ -126,7 +193,11 @@ func InitializeWorkspaceDatabase(db *sql.DB) error {
 			created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			db_created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			db_updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+			db_updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			tracking_opens_consent VARCHAR(10),
+			tracking_clicks_consent VARCHAR(10),
+			tracking_consent_updated_at TIMESTAMPTZ,
+			tracking_consent_source VARCHAR(50)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_contacts_external_id ON contacts(external_id)`,
 		`CREATE TABLE IF NOT EXISTS lists (
@@ -183,6 +254,7 @@ func InitializeWorkspaceDatabase(db *sql.DB) error {
 			winner_sent_at TIMESTAMP WITH TIME ZONE,
 			test_phase_recipient_count INTEGER DEFAULT 0,
 			winner_phase_recipient_count INTEGER DEFAULT 0,
+			` + schema.BroadcastTestPausedSecondsColumn + `,
 			enqueued_count INTEGER DEFAULT 0,
 			created_at TIMESTAMP WITH TIME ZONE NOT NULL,
 			updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -192,6 +264,7 @@ func InitializeWorkspaceDatabase(db *sql.DB) error {
 			paused_at TIMESTAMP WITH TIME ZONE,
 			pause_reason TEXT,
 			data_feed JSONB,
+			tracking_mode VARCHAR(20),
 			PRIMARY KEY (id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS message_history (
@@ -219,6 +292,8 @@ func InitializeWorkspaceDatabase(db *sql.DB) error {
 			bounced_at TIMESTAMP WITH TIME ZONE,
 			complained_at TIMESTAMP WITH TIME ZONE,
 			unsubscribed_at TIMESTAMP WITH TIME ZONE,
+			opens_tracked BOOLEAN,
+			clicks_tracked BOOLEAN,
 			created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -229,6 +304,10 @@ func InitializeWorkspaceDatabase(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_message_history_template_id ON message_history(template_id, template_version)`,
 		`CREATE INDEX IF NOT EXISTS idx_message_history_created_at_id ON message_history(created_at DESC, id DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_message_history_smtp_message_id ON message_history(smtp_message_id) WHERE smtp_message_id IS NOT NULL`,
+		// The latest failed, bounced and complained messages, in messages.list order.
+		`CREATE INDEX IF NOT EXISTS idx_message_history_failed_recent ON message_history(created_at DESC, id DESC) WHERE failed_at IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_message_history_bounced_recent ON message_history(created_at DESC, id DESC) WHERE bounced_at IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_message_history_complained_recent ON message_history(created_at DESC, id DESC) WHERE complained_at IS NOT NULL`,
 		`CREATE TABLE IF NOT EXISTS transactional_notifications (
 			id VARCHAR(32) NOT NULL PRIMARY KEY,
 			name VARCHAR(255) NOT NULL,
@@ -291,7 +370,9 @@ func InitializeWorkspaceDatabase(db *sql.DB) error {
 			generated_args JSONB,
 			recompute_after TIMESTAMP WITH TIME ZONE,
 			db_created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			db_updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+			db_updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			` + schema.SegmentLastErrorColumn + `,
+			` + schema.SegmentLastErrorAtColumn + `
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_segments_status ON segments(status)`,
 		`CREATE TABLE IF NOT EXISTS contact_segments (
@@ -532,111 +613,27 @@ func InitializeWorkspaceDatabase(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_email_queue_integration ON email_queue(integration_id, status)`,
 	}
 
-	// Run all table creation queries
-	for _, query := range queries {
-		if _, err := db.Exec(query); err != nil {
-			return fmt.Errorf("failed to create workspace table: %w", err)
-		}
-	}
-
-	// Web analytics: partitioned parents (shared DDL with the v38 migration)
-	// plus the current and next monthly partitions so ingestion works
+	// The current and next monthly web analytics partitions, so ingestion works
 	// immediately; the maintenance worker keeps creating them afterwards.
-	for _, query := range schema.WebAnalyticsTableDefinitions() {
-		if _, err := db.Exec(query); err != nil {
-			return fmt.Errorf("failed to create web analytics table: %w", err)
-		}
-	}
-	// Annotations: dated markers drawn over the analytics charts (shared DDL
-	// with the v38 migration). Not partitioned, so no partition bootstrap.
-	for _, query := range schema.AnnotationsTableDefinitions() {
-		if _, err := db.Exec(query); err != nil {
-			return fmt.Errorf("failed to create annotations table: %w", err)
-		}
-	}
-	// Monthly usage snapshots and the index the timeline meter counts through
-	// (shared DDL with the v38 migration). Must run after contact_timeline
-	// above, since the index is on it.
-	for _, query := range schema.UsageTableDefinitions() {
-		if _, err := db.Exec(query); err != nil {
-			return fmt.Errorf("failed to create usage table: %w", err)
-		}
-	}
-
-	currentMonth := time.Now().UTC()
-	for _, month := range []time.Time{currentMonth, currentMonth.AddDate(0, 1, 0)} {
+	var partitions []string
+	for _, month := range schema.WebAnalyticsCurrentAndNextMonth(now) {
 		for _, table := range schema.WebAnalyticsTableNames {
-			if _, err := db.Exec(schema.WebAnalyticsPartitionDDL(table, month)); err != nil {
-				return fmt.Errorf("failed to create web analytics partition: %w", err)
-			}
+			partitions = append(partitions, schema.WebAnalyticsPartitionDDL(table, month))
 		}
 	}
 
 	// Create trigger functions and triggers for contact timeline
 	triggerQueries := []string{
-		// Contact changes trigger function
-		`CREATE OR REPLACE FUNCTION track_contact_changes()
-		RETURNS TRIGGER AS $$
-		DECLARE
-			changes_json JSONB := '{}'::jsonb;
-			op VARCHAR(20);
-		BEGIN
-			IF TG_OP = 'INSERT' THEN
-				op := 'insert';
-				changes_json := NULL;
-			ELSIF TG_OP = 'UPDATE' THEN
-				op := 'update';
-				IF OLD.external_id IS DISTINCT FROM NEW.external_id THEN changes_json := changes_json || jsonb_build_object('external_id', jsonb_build_object('old', OLD.external_id, 'new', NEW.external_id)); END IF;
-				IF OLD.timezone IS DISTINCT FROM NEW.timezone THEN changes_json := changes_json || jsonb_build_object('timezone', jsonb_build_object('old', OLD.timezone, 'new', NEW.timezone)); END IF;
-				IF OLD.language IS DISTINCT FROM NEW.language THEN changes_json := changes_json || jsonb_build_object('language', jsonb_build_object('old', OLD.language, 'new', NEW.language)); END IF;
-				IF OLD.first_name IS DISTINCT FROM NEW.first_name THEN changes_json := changes_json || jsonb_build_object('first_name', jsonb_build_object('old', OLD.first_name, 'new', NEW.first_name)); END IF;
-				IF OLD.last_name IS DISTINCT FROM NEW.last_name THEN changes_json := changes_json || jsonb_build_object('last_name', jsonb_build_object('old', OLD.last_name, 'new', NEW.last_name)); END IF;
-				IF OLD.full_name IS DISTINCT FROM NEW.full_name THEN changes_json := changes_json || jsonb_build_object('full_name', jsonb_build_object('old', OLD.full_name, 'new', NEW.full_name)); END IF;
-				IF OLD.phone IS DISTINCT FROM NEW.phone THEN changes_json := changes_json || jsonb_build_object('phone', jsonb_build_object('old', OLD.phone, 'new', NEW.phone)); END IF;
-				IF OLD.address_line_1 IS DISTINCT FROM NEW.address_line_1 THEN changes_json := changes_json || jsonb_build_object('address_line_1', jsonb_build_object('old', OLD.address_line_1, 'new', NEW.address_line_1)); END IF;
-				IF OLD.address_line_2 IS DISTINCT FROM NEW.address_line_2 THEN changes_json := changes_json || jsonb_build_object('address_line_2', jsonb_build_object('old', OLD.address_line_2, 'new', NEW.address_line_2)); END IF;
-				IF OLD.country IS DISTINCT FROM NEW.country THEN changes_json := changes_json || jsonb_build_object('country', jsonb_build_object('old', OLD.country, 'new', NEW.country)); END IF;
-				IF OLD.postcode IS DISTINCT FROM NEW.postcode THEN changes_json := changes_json || jsonb_build_object('postcode', jsonb_build_object('old', OLD.postcode, 'new', NEW.postcode)); END IF;
-				IF OLD.state IS DISTINCT FROM NEW.state THEN changes_json := changes_json || jsonb_build_object('state', jsonb_build_object('old', OLD.state, 'new', NEW.state)); END IF;
-				IF OLD.job_title IS DISTINCT FROM NEW.job_title THEN changes_json := changes_json || jsonb_build_object('job_title', jsonb_build_object('old', OLD.job_title, 'new', NEW.job_title)); END IF;
-				IF OLD.custom_string_1 IS DISTINCT FROM NEW.custom_string_1 THEN changes_json := changes_json || jsonb_build_object('custom_string_1', jsonb_build_object('old', OLD.custom_string_1, 'new', NEW.custom_string_1)); END IF;
-				IF OLD.custom_string_2 IS DISTINCT FROM NEW.custom_string_2 THEN changes_json := changes_json || jsonb_build_object('custom_string_2', jsonb_build_object('old', OLD.custom_string_2, 'new', NEW.custom_string_2)); END IF;
-				IF OLD.custom_string_3 IS DISTINCT FROM NEW.custom_string_3 THEN changes_json := changes_json || jsonb_build_object('custom_string_3', jsonb_build_object('old', OLD.custom_string_3, 'new', NEW.custom_string_3)); END IF;
-				IF OLD.custom_string_4 IS DISTINCT FROM NEW.custom_string_4 THEN changes_json := changes_json || jsonb_build_object('custom_string_4', jsonb_build_object('old', OLD.custom_string_4, 'new', NEW.custom_string_4)); END IF;
-				IF OLD.custom_string_5 IS DISTINCT FROM NEW.custom_string_5 THEN changes_json := changes_json || jsonb_build_object('custom_string_5', jsonb_build_object('old', OLD.custom_string_5, 'new', NEW.custom_string_5)); END IF;
-				IF OLD.custom_number_1 IS DISTINCT FROM NEW.custom_number_1 THEN changes_json := changes_json || jsonb_build_object('custom_number_1', jsonb_build_object('old', OLD.custom_number_1, 'new', NEW.custom_number_1)); END IF;
-				IF OLD.custom_number_2 IS DISTINCT FROM NEW.custom_number_2 THEN changes_json := changes_json || jsonb_build_object('custom_number_2', jsonb_build_object('old', OLD.custom_number_2, 'new', NEW.custom_number_2)); END IF;
-				IF OLD.custom_number_3 IS DISTINCT FROM NEW.custom_number_3 THEN changes_json := changes_json || jsonb_build_object('custom_number_3', jsonb_build_object('old', OLD.custom_number_3, 'new', NEW.custom_number_3)); END IF;
-				IF OLD.custom_number_4 IS DISTINCT FROM NEW.custom_number_4 THEN changes_json := changes_json || jsonb_build_object('custom_number_4', jsonb_build_object('old', OLD.custom_number_4, 'new', NEW.custom_number_4)); END IF;
-				IF OLD.custom_number_5 IS DISTINCT FROM NEW.custom_number_5 THEN changes_json := changes_json || jsonb_build_object('custom_number_5', jsonb_build_object('old', OLD.custom_number_5, 'new', NEW.custom_number_5)); END IF;
-				IF OLD.custom_datetime_1 IS DISTINCT FROM NEW.custom_datetime_1 THEN changes_json := changes_json || jsonb_build_object('custom_datetime_1', jsonb_build_object('old', OLD.custom_datetime_1, 'new', NEW.custom_datetime_1)); END IF;
-				IF OLD.custom_datetime_2 IS DISTINCT FROM NEW.custom_datetime_2 THEN changes_json := changes_json || jsonb_build_object('custom_datetime_2', jsonb_build_object('old', OLD.custom_datetime_2, 'new', NEW.custom_datetime_2)); END IF;
-				IF OLD.custom_datetime_3 IS DISTINCT FROM NEW.custom_datetime_3 THEN changes_json := changes_json || jsonb_build_object('custom_datetime_3', jsonb_build_object('old', OLD.custom_datetime_3, 'new', NEW.custom_datetime_3)); END IF;
-				IF OLD.custom_datetime_4 IS DISTINCT FROM NEW.custom_datetime_4 THEN changes_json := changes_json || jsonb_build_object('custom_datetime_4', jsonb_build_object('old', OLD.custom_datetime_4, 'new', NEW.custom_datetime_4)); END IF;
-				IF OLD.custom_datetime_5 IS DISTINCT FROM NEW.custom_datetime_5 THEN changes_json := changes_json || jsonb_build_object('custom_datetime_5', jsonb_build_object('old', OLD.custom_datetime_5, 'new', NEW.custom_datetime_5)); END IF;
-				IF OLD.custom_json_1 IS DISTINCT FROM NEW.custom_json_1 THEN changes_json := changes_json || jsonb_build_object('custom_json_1', jsonb_build_object('old', OLD.custom_json_1, 'new', NEW.custom_json_1)); END IF;
-				IF OLD.custom_json_2 IS DISTINCT FROM NEW.custom_json_2 THEN changes_json := changes_json || jsonb_build_object('custom_json_2', jsonb_build_object('old', OLD.custom_json_2, 'new', NEW.custom_json_2)); END IF;
-				IF OLD.custom_json_3 IS DISTINCT FROM NEW.custom_json_3 THEN changes_json := changes_json || jsonb_build_object('custom_json_3', jsonb_build_object('old', OLD.custom_json_3, 'new', NEW.custom_json_3)); END IF;
-				IF OLD.custom_json_4 IS DISTINCT FROM NEW.custom_json_4 THEN changes_json := changes_json || jsonb_build_object('custom_json_4', jsonb_build_object('old', OLD.custom_json_4, 'new', NEW.custom_json_4)); END IF;
-				IF OLD.custom_json_5 IS DISTINCT FROM NEW.custom_json_5 THEN changes_json := changes_json || jsonb_build_object('custom_json_5', jsonb_build_object('old', OLD.custom_json_5, 'new', NEW.custom_json_5)); END IF;
-				IF changes_json = '{}'::jsonb THEN RETURN NEW; END IF;
-			END IF;
-		IF TG_OP = 'INSERT' THEN
-			INSERT INTO contact_timeline (email, operation, entity_type, kind, changes, created_at)
-			VALUES (NEW.email, op, 'contact', 'contact.created', changes_json, NEW.created_at);
-		ELSE
-			INSERT INTO contact_timeline (email, operation, entity_type, kind, changes, created_at)
-			VALUES (NEW.email, op, 'contact', 'contact.updated', changes_json, NEW.updated_at);
-		END IF;
-			RETURN NEW;
-		END;
-		$$ LANGUAGE plpgsql;`,
+		// Contact changes trigger function, shared with the v43 migration so a
+		// fresh workspace and an upgraded one record the same changes.
+		schema.TrackContactChangesFunction(),
 		// Contact list changes trigger function - uses semantic event kinds (list.subscribed, list.confirmed, etc.),
 		// shared with the v42 migration so a fresh workspace and an upgraded one record the same events.
 		schema.TrackContactListChangesFunction(),
 		// Complaint and hard bounce list status, then the message history changes trigger
-		// function that applies it before writing the timeline. Both are shared with the v42
-		// migration so a fresh workspace and an upgraded one record the same statuses.
+		// function that applies it before writing the timeline. The first is shared with the
+		// v42 migration, the second with v44, so a fresh workspace and an upgraded one record
+		// the same statuses and the same link clicks.
 		schema.ApplyMessageStatusToContactListsFunction(),
 		schema.TrackMessageHistoryChangesFunction(),
 		// Inbound webhook event changes trigger function
@@ -830,19 +827,57 @@ func InitializeWorkspaceDatabase(db *sql.DB) error {
 		schema.WebhookCustomEventsTriggerFunction(),
 		`DROP TRIGGER IF EXISTS webhook_custom_events ON custom_events`,
 		`CREATE TRIGGER webhook_custom_events AFTER INSERT OR UPDATE ON custom_events FOR EACH ROW EXECUTE FUNCTION webhook_custom_events_trigger()`,
-		// Automation enroll contact function, shared with the v38 migration so an
-		// upgraded workspace and a fresh one enrol identically.
-		schema.AutomationEnrollContactFunction(),
+		// Automation enrolment functions, shared with the v44 migration so an upgraded
+		// workspace and a fresh one enrol identically: the five-argument one the generated
+		// triggers call, then the four-argument relay to it.
+		schema.AutomationEnrollContactWithTriggerFunction(),
+		schema.AutomationEnrollContactRelayFunction(),
 	}
 
-	for _, query := range triggerQueries {
-		if _, err := db.Exec(query); err != nil {
-			return fmt.Errorf("failed to create workspace triggers: %w", err)
-		}
+	return []workspaceSchemaGroup{
+		{failure: "failed to create workspace table", statements: queries},
+		// Web analytics: partitioned parents (shared DDL with the v38 migration).
+		{failure: "failed to create web analytics table", statements: schema.WebAnalyticsTableDefinitions()},
+		// Annotations: dated markers drawn over the analytics charts (shared DDL with
+		// the v38 migration). Not partitioned, so no partition bootstrap.
+		{failure: "failed to create annotations table", statements: schema.AnnotationsTableDefinitions()},
+		// Monthly usage snapshots and the index the timeline meter counts through
+		// (shared DDL with the v38 migration). Must run after contact_timeline above,
+		// since the index is on it.
+		{failure: "failed to create usage table", statements: schema.UsageTableDefinitions()},
+		{failure: "failed to create web analytics partition", statements: partitions},
+		{failure: "failed to create workspace triggers", statements: triggerQueries},
 	}
-
-	return nil
 }
+
+// WorkspaceDatabaseHoldsTables reports whether a workspace database holds a table,
+// view, materialised view, sequence or foreign table of its own: outside the system
+// schemas (pg_catalog, pg_toast*, other sessions' pg_temp_*, which pg_class lists; user
+// schemas cannot start with pg_) and information_schema, and not created by an
+// extension.
+func WorkspaceDatabaseHoldsTables(ctx context.Context, db *sql.DB) (bool, error) {
+	var holds bool
+	err := db.QueryRowContext(ctx, workspaceDatabaseHoldsTablesQuery).Scan(&holds)
+	if err != nil {
+		return false, fmt.Errorf("failed to check whether the workspace database holds tables: %w", err)
+	}
+	return holds, nil
+}
+
+const workspaceDatabaseHoldsTablesQuery = `SELECT EXISTS (
+	SELECT 1
+	FROM pg_class c
+	JOIN pg_namespace n ON n.oid = c.relnamespace
+	WHERE c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+	AND n.nspname <> 'information_schema'
+	AND n.nspname NOT LIKE 'pg\_%'
+	AND NOT EXISTS (
+		SELECT 1 FROM pg_depend d
+		WHERE d.classid = 'pg_class'::regclass
+		AND d.objid = c.oid
+		AND d.deptype = 'e'
+	)
+)`
 
 // CleanDatabase drops all tables in reverse order
 func CleanDatabase(db *sql.DB) error {

@@ -1,9 +1,9 @@
 import React from 'react'
 import { useLingui } from '@lingui/react/macro'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faLock, faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons'
-import { Select, Radio, Tooltip } from 'antd'
-import type { MJMLComponentType, MJGroupAttributes, MergedBlockAttributes } from '../types'
+import { faLock } from '@fortawesome/free-solid-svg-icons'
+import { Alert } from 'antd'
+import type { EmailBlock, MJMLComponentType, MJGroupAttributes, MergedBlockAttributes } from '../types'
 import {
   BaseEmailBlock,
   type OnUpdateAttributesFunction,
@@ -11,116 +11,149 @@ import {
 } from './BaseEmailBlock'
 import { MJML_COMPONENT_DEFAULTS } from '../mjml-defaults'
 import { EmailBlockClass } from '../EmailBlockClass'
-import InputLayout from '../ui/InputLayout'
-import BackgroundInput from '../ui/BackgroundInput'
-import StringPopoverInput from '../ui/StringPopoverInput'
-import WidthInput from '../ui/WidthInput'
-import PanelLayout from '../panels/PanelLayout'
+import {
+  findParentSection,
+  groupChildWidth,
+  parseWidth,
+  sectionChildWidth,
+  sectionShare
+} from '../utils/sectionChildWidth'
+import { bodyWidthOf, sectionOverflow } from '../utils/columnWidths'
+import { gutterCells, sectionGutterWidth } from '../utils/sectionGutter'
+import { SettingsRow } from '../ui/fields/SettingsRow'
+import { SettingsSection } from '../ui/fields/SettingsSections'
+import { NumberUnitField } from '../ui/fields/NumberUnitField'
+import { SegmentedField } from '../ui/fields/SegmentedField'
+import { useDirectionOptions, useVerticalAlignOptions } from '../ui/fields/segmentedOptions'
+import { BackgroundFields, type BackgroundValues } from '../ui/fields/BackgroundFields'
+import { AdvancedSection } from './AdvancedSection'
+import { panelFields, useEmailColors } from './panelFields'
 
 // Functional component for settings panel with i18n support
 interface MjGroupSettingsPanelProps {
+  blockId: string
   currentAttributes: MJGroupAttributes
   blockDefaults: MergedBlockAttributes
   onUpdate: OnUpdateAttributesFunction
+  emailTree?: EmailBlock
+  /** Width the group takes without one: its share of the section, when it is in one */
+  sectionShareWidth?: string
+  /** How far, in percent, the section's columns and groups go past its width; 0 when they fit */
+  sectionOverflow?: number
 }
 
+const GROUP_BACKGROUND = [
+  'backgroundColor',
+  'backgroundUrl',
+  'backgroundSize',
+  'backgroundRepeat',
+  'backgroundPosition',
+  'backgroundPositionX',
+  'backgroundPositionY'
+] as const
+
 const MjGroupSettingsPanel: React.FC<MjGroupSettingsPanelProps> = ({
+  blockId,
   currentAttributes,
   blockDefaults,
-  onUpdate
+  onUpdate,
+  emailTree,
+  sectionShareWidth,
+  sectionOverflow = 0
 }) => {
-  const { t } = useLingui()
-
-  const handleAttributeChange = (key: string, value: unknown) => {
-    onUpdate({ [key]: value })
-  }
-
-  const handleBackgroundChange = (backgroundValues: Record<string, unknown>) => {
-    onUpdate(backgroundValues)
-  }
+  const { t, i18n } = useLingui()
+  const over = new Intl.NumberFormat(i18n.locale, { maximumFractionDigits: 2 }).format(sectionOverflow)
+  const f = panelFields(blockId, currentAttributes as Record<string, unknown>, blockDefaults as Record<string, unknown>, onUpdate)
+  const colors = useEmailColors(emailTree)
+  const verticalAlignOptions = useVerticalAlignOptions()
+  const directionOptions = useDirectionOptions()
+  const background = Object.fromEntries(GROUP_BACKGROUND.map((key) => [key, f.value(key)])) as BackgroundValues
+  const inheritedBackground = Object.fromEntries(
+    GROUP_BACKGROUND.map((key) => [key, f.inherited(key)])
+  ) as BackgroundValues
 
   return (
-    <PanelLayout title={t`Group Attributes`}>
-      <div className="space-y-4">
-        {/* Layout Settings */}
-        <InputLayout label={t`Width`}>
-          <WidthInput
-            value={currentAttributes.width}
-            onChange={(value) => onUpdate({ width: value })}
-            placeholder={blockDefaults.width || '100%'}
+    <>
+      <SettingsSection
+        sectionKey="mj-group:layout"
+        title={t`Layout`}
+        first
+        setCount={f.setCount('width', 'verticalAlign', 'height', 'direction')}
+        summary={[f.value('width'), f.value('verticalAlign'), f.value('direction')].filter(Boolean).join(' · ')}
+      >
+        <SettingsRow
+          label={t`Width`}
+          help={t`In percent or pixels. Empty: the group's share of the section.`}
+          isSet={f.isSet('width')}
+          onReset={f.reset('width')}
+          alert={
+            sectionOverflow > 0 ? (
+              <Alert
+                type="warning"
+                showIcon
+                title={t`The section's columns and groups go ${over}% past its width: in the email, the last ones move to a new line.`}
+              />
+            ) : undefined
+          }
+        >
+          <NumberUnitField
+            aria-label={t`Group width`}
+            value={f.value('width')}
+            inherited={f.inherited('width') ?? sectionShareWidth}
+            units={['%', 'px']}
+            step={{ '%': 1, px: 10 }}
+            coalesceBase={f.base('width')}
+            onChange={f.write('width')}
           />
-        </InputLayout>
-
-        <InputLayout label={t`Vertical Align`}>
-          <Select
-            size="small"
-            value={currentAttributes.verticalAlign || blockDefaults.verticalAlign || 'top'}
-            onChange={(value) => handleAttributeChange('verticalAlign', value)}
-            options={[
-              { value: 'top', label: t`Top` },
-              { value: 'middle', label: t`Middle` },
-              { value: 'bottom', label: t`Bottom` }
-            ]}
-            style={{ width: '100%' }}
+        </SettingsRow>
+        <SettingsRow label={t`Vertical alignment`} isSet={f.isSet('verticalAlign')} onReset={f.reset('verticalAlign')}>
+          <SegmentedField
+            aria-label={t`Vertical alignment`}
+            value={f.value('verticalAlign')}
+            inherited={f.inherited('verticalAlign')}
+            options={verticalAlignOptions}
+            onChange={f.write('verticalAlign')}
           />
-        </InputLayout>
-
-        <InputLayout label={t`Height`}>
-          <StringPopoverInput
-            value={currentAttributes.height || ''}
-            onChange={(value) => handleAttributeChange('height', value || undefined)}
-            placeholder={t`auto`}
-            buttonText={t`Set height`}
+        </SettingsRow>
+        <SettingsRow label={t`Height`} isSet={f.isSet('height')} onReset={f.reset('height')}>
+          <NumberUnitField
+            aria-label={t`Group height`}
+            mode="height"
+            value={f.value('height')}
+            inherited={f.inherited('height')}
+            placeholder={t`Auto`}
+            step={10}
+            coalesceBase={f.base('height')}
+            onChange={f.write('height')}
           />
-        </InputLayout>
+        </SettingsRow>
+        <SettingsRow label={t`Direction`} isSet={f.isSet('direction')} onReset={f.reset('direction')}>
+          <SegmentedField
+            aria-label={t`Direction`}
+            value={f.value('direction')}
+            inherited={f.inherited('direction')}
+            options={directionOptions}
+            onChange={f.write('direction')}
+          />
+        </SettingsRow>
+      </SettingsSection>
 
-        {/* Background Settings */}
-        <BackgroundInput
-          value={{
-            backgroundColor: currentAttributes.backgroundColor,
-            backgroundUrl: currentAttributes.backgroundUrl,
-            backgroundSize: currentAttributes.backgroundSize,
-            backgroundRepeat: currentAttributes.backgroundRepeat,
-            backgroundPosition: currentAttributes.backgroundPosition,
-            backgroundPositionX: currentAttributes.backgroundPositionX,
-            backgroundPositionY: currentAttributes.backgroundPositionY
-          }}
-          onChange={handleBackgroundChange}
+      <SettingsSection
+        sectionKey="mj-group:background"
+        title={t`Background`}
+        setCount={f.setCount(...GROUP_BACKGROUND)}
+        summary={background.backgroundUrl ? t`Image` : background.backgroundColor}
+      >
+        <BackgroundFields
+          value={background}
+          inherited={inheritedBackground}
+          emailColors={colors}
+          onChange={(updates, options) => f.writeMany({ ...updates }, options)}
         />
+      </SettingsSection>
 
-        {/* Direction Settings */}
-        <InputLayout label={t`Text Direction`}>
-          <Radio.Group
-            size="small"
-            value={currentAttributes.direction || blockDefaults.direction || 'ltr'}
-            onChange={(e) => handleAttributeChange('direction', e.target.value)}
-          >
-            <Radio.Button value="ltr">
-              <Tooltip title={t`Left to Right`}>
-                <FontAwesomeIcon icon={faArrowRight} style={{ marginRight: 4 }} />
-                LTR
-              </Tooltip>
-            </Radio.Button>
-            <Radio.Button value="rtl">
-              <Tooltip title={t`Right to Left`}>
-                <FontAwesomeIcon icon={faArrowLeft} style={{ marginRight: 4 }} />
-                RTL
-              </Tooltip>
-            </Radio.Button>
-          </Radio.Group>
-        </InputLayout>
-
-        {/* Advanced Settings */}
-        <InputLayout label={t`CSS Class`} help={t`Custom CSS class for styling`}>
-          <StringPopoverInput
-            value={currentAttributes.cssClass}
-            onChange={(value) => handleAttributeChange('cssClass', value)}
-            placeholder={t`my-custom-class`}
-            buttonText={t`Set Value`}
-          />
-        </InputLayout>
-      </div>
-    </PanelLayout>
+      <AdvancedSection type="mj-group" fields={f} />
+    </>
   )
 }
 
@@ -241,15 +274,27 @@ export class MjGroupBlock extends BaseEmailBlock {
    */
   renderSettingsPanel(
     onUpdate: OnUpdateAttributesFunction,
-    blockDefaults: MergedBlockAttributes
+    blockDefaults: MergedBlockAttributes,
+    emailTree?: EmailBlock
   ): React.ReactNode {
     const currentAttributes = this.block.attributes as MJGroupAttributes
+    const section = emailTree ? findParentSection(emailTree, this.block.id) : null
 
     return (
       <MjGroupSettingsPanel
+        blockId={this.block.id}
         currentAttributes={currentAttributes}
         blockDefaults={blockDefaults}
         onUpdate={onUpdate}
+        emailTree={emailTree}
+        sectionShareWidth={section ? sectionShare(section) : undefined}
+        sectionOverflow={
+          section && emailTree
+            ? sectionOverflow(section, EmailBlockClass.extractAttributeDefaults(emailTree), {
+                bodyWidth: bodyWidthOf(emailTree)
+              })
+            : 0
+        }
       />
     )
   }
@@ -289,7 +334,8 @@ export class MjGroupBlock extends BaseEmailBlock {
     const groupStyle: React.CSSProperties = {
       display: 'flex',
       flexDirection: attrs.direction === 'rtl' ? 'row-reverse' : 'row',
-      width: attrs.width,
+      // The section cell carries the group's width; the group fills it
+      width: '100%',
       verticalAlign: attrs.verticalAlign as React.CSSProperties['verticalAlign'],
       backgroundColor: attrs.backgroundColor,
       alignItems:
@@ -304,6 +350,24 @@ export class MjGroupBlock extends BaseEmailBlock {
     // Render child columns
     const children = this.block.children || []
 
+    // The section's gutter reaches the columns of its groups too, measured against the group's width, in the
+    // group's direction (see sectionGutter.ts)
+    const section = emailTree ? findParentSection(emailTree, this.block.id) : null
+    const gutters = (() => {
+      if (!section) return children.map(() => null)
+      const sectionAttrs = EmailBlockClass.mergeWithAllDefaults(
+        'mj-section',
+        section.attributes as Record<string, unknown>,
+        attributeDefaults
+      )
+      const sectionWidth = sectionGutterWidth(emailTree as EmailBlock, section, attributeDefaults)
+      const width = parseWidth(sectionChildWidth(this.block, section, attributeDefaults))
+      const groupWidthPx = !width ? 0 : width.unit === '%' ? (sectionWidth * width.amount) / 100 : width.amount
+      return gutterCells(children, sectionAttrs.gutter, groupWidthPx, attrs.direction, (child) =>
+        groupChildWidth(child, this.block)
+      )
+    })()
+
     return (
       <div
         key={key}
@@ -315,22 +379,52 @@ export class MjGroupBlock extends BaseEmailBlock {
         {children.length === 0 ? (
           <MjGroupEmptyPlaceholder />
         ) : (
-          children.map((child) => (
-            <React.Fragment key={child.id}>
-              {EmailBlockClass.renderEmailBlock(
-                child,
-                attributeDefaults,
-                selectedBlockId,
-                onSelectBlock,
-                emailTree,
-                onUpdateBlock,
-                onCloneBlock,
-                onDeleteBlock,
-                onSave,
-                savedBlocks
-              )}
-            </React.Fragment>
-          ))
+          children.map((child, index) => {
+            const rendered = EmailBlockClass.renderEmailBlock(
+              child,
+              attributeDefaults,
+              selectedBlockId,
+              onSelectBlock,
+              emailTree,
+              onUpdateBlock,
+              onCloneBlock,
+              onDeleteBlock,
+              onSave,
+              savedBlocks
+            )
+            // Each column takes its width in the group, as in the email, rather than an equal part of the row
+            const gutter = gutters[index]
+            if (gutter) {
+              return (
+                <div
+                  key={child.id}
+                  data-group-column-width={gutter.width}
+                  style={{
+                    flex: `0 1 ${gutter.width}`,
+                    maxWidth: gutter.width,
+                    minWidth: 0,
+                    paddingLeft: gutter.paddingLeft,
+                    paddingRight: gutter.paddingRight,
+                    boxSizing: 'border-box'
+                  }}
+                >
+                  {rendered}
+                </div>
+              )
+            }
+            const width = groupChildWidth(child, this.block)
+            return width ? (
+              <div
+                key={child.id}
+                data-group-column-width={width}
+                style={{ flex: `0 1 ${width}`, maxWidth: width, minWidth: 0 }}
+              >
+                {rendered}
+              </div>
+            ) : (
+              <React.Fragment key={child.id}>{rendered}</React.Fragment>
+            )
+          })
         )}
       </div>
     )

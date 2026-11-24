@@ -24,9 +24,56 @@ vi.mock('../context', () => ({
 // The tree editor is exercised by its own tests; here it only needs to be identifiable and
 // able to report a change back, so the panel's wiring is what gets asserted.
 vi.mock('../../segment/input', () => ({
-  TreeNodeInput: ({ onChange }: { onChange: (tree: TreeNode) => void }) => (
-    <button data-testid="tree-editor" onClick={() => onChange(contactsTree)}>
+  TreeNodeInput: ({
+    onChange
+  }: {
+    onChange: (tree: TreeNode) => void
+  }) => (
+    <button
+      data-testid="tree-editor"
+      onClick={() => onChange(contactsTree)}
+    >
       tree editor
+    </button>
+  )
+}))
+
+// The selectors query the API; here they only need to show their value and report a choice.
+vi.mock('../../segment/BroadcastSelectorInput', () => ({
+  default: ({ value, onChange }: { value?: string | null; onChange?: (v: string | null) => void }) => (
+    <button data-testid="broadcast-selector" onClick={() => onChange?.('bc-1')}>
+      broadcast:{value ?? 'any'}
+    </button>
+  )
+}))
+vi.mock('../../templates/TemplateSelectorInput', () => ({
+  default: ({
+    value,
+    onChange,
+    canReadTemplates,
+    disabled,
+    anyLabel,
+    subtitle,
+    sendsWith
+  }: {
+    value?: string | null
+    onChange?: (v: string | null) => void
+    canReadTemplates?: boolean
+    disabled?: boolean
+    anyLabel?: string
+    subtitle?: string
+    sendsWith?: unknown
+  }) => (
+    <button
+      data-testid="template-selector"
+      data-sends-with={JSON.stringify(sendsWith ?? null)}
+      data-any-label={anyLabel}
+      data-subtitle={subtitle}
+      data-can-read-templates={String(canReadTemplates)}
+      data-disabled={String(!!disabled)}
+      onClick={() => onChange?.('tpl-1')}
+    >
+      template:{value ?? 'any'}
     </button>
   )
 }))
@@ -75,12 +122,21 @@ interface TriggerConfigLike {
   event_kind?: string
   frequency?: 'once' | 'every_time'
   conditions?: TreeNode
+  link_url?: string
+  broadcast_id?: string
+  template_id?: string
 }
 
-const renderForm = (config: TriggerConfigLike, onChange = vi.fn()) => {
+const renderForm = (config: TriggerConfigLike, onChange = vi.fn(), canReadTemplates?: boolean, readOnly?: boolean) => {
   render(
     <I18nProvider i18n={i18n}>
-      <TriggerConfigForm config={config} onChange={onChange} workspaceId="ws1" />
+      <TriggerConfigForm
+        config={config}
+        onChange={onChange}
+        workspaceId="ws1"
+        canReadTemplates={canReadTemplates}
+        readOnly={readOnly}
+      />
     </I18nProvider>
   )
   return onChange
@@ -173,11 +229,12 @@ describe('TriggerConfigForm guidance', () => {
 })
 
 describe('TriggerConfigForm existing controls', () => {
-  it('still renders the trigger event and frequency controls', () => {
+  // The frequency moved to the editor's settings column (EditorSettings).
+  it('renders the trigger event, and no frequency control', () => {
     renderForm({ event_kind: 'contact.created', frequency: 'once' })
 
     expect(screen.getByText('Trigger Event')).toBeInTheDocument()
-    expect(screen.getByText('Frequency')).toBeInTheDocument()
+    expect(screen.queryByText('Frequency')).not.toBeInTheDocument()
   })
 
   // The field filter and the entry conditions are different things, and the panel shows both
@@ -187,5 +244,105 @@ describe('TriggerConfigForm existing controls', () => {
 
     expect(screen.getByText('Trigger on specific field changes')).toBeInTheDocument()
     expect(screen.getByText('Entry conditions')).toBeInTheDocument()
+  })
+})
+
+describe('TriggerConfigForm tracking consent fields', () => {
+  it('offers the tracking consents as fields a contact update can trigger on', async () => {
+    renderForm({ event_kind: 'contact.updated', frequency: 'once' })
+
+    const fieldFilter = screen.getByText('Trigger on specific field changes').closest('.ant-form-item') as HTMLElement
+    // The option list is virtualised: narrow it so the consent group is rendered.
+    await userEvent.type(within(fieldFilter).getByRole('combobox'), 'Tracking')
+
+    expect(await screen.findByText('Opens Tracking Consent')).toBeInTheDocument()
+    expect(screen.getByText('Clicks Tracking Consent')).toBeInTheDocument()
+  })
+})
+
+describe('TriggerConfigForm link click filters', () => {
+  it('shows the link, broadcast and template filters for a link click', () => {
+    renderForm({ event_kind: 'email.link_clicked', frequency: 'every_time', link_url: '/pricing', broadcast_id: 'bc-9' })
+
+    expect(screen.getByText('Clicked link contains')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('/pricing')).toBeInTheDocument()
+    expect(screen.getByTestId('broadcast-selector')).toHaveTextContent('broadcast:bc-9')
+    expect(screen.getByTestId('template-selector')).toHaveTextContent('template:any')
+    // An empty template filter means every template: the window offers it as a row.
+    expect(screen.getByTestId('template-selector').dataset.anyLabel).toBe('Any template')
+    expect(screen.getByTestId('template-selector').dataset.subtitle).toBe('Only links in emails sent with this template.')
+    // A filter sends nothing: the window names no sender.
+    expect(screen.getByTestId('template-selector').dataset.sendsWith).toBe('null')
+    expect(screen.getByText(/does not start it again/)).toBeInTheDocument()
+  })
+
+  // Without Templates read the template filter shows the stored ID, locked.
+  it.each([
+    { given: false, passed: 'false' },
+    { given: true, passed: 'true' },
+    { given: undefined, passed: 'true' }
+  ])('gives the template filter Templates read $given', ({ given, passed }) => {
+    renderForm({ event_kind: 'email.link_clicked', frequency: 'every_time', template_id: 'tpl-9' }, vi.fn(), given)
+
+    expect(screen.getByTestId('template-selector').getAttribute('data-can-read-templates')).toBe(passed)
+  })
+
+  it('shows none of them for a plain email click', () => {
+    renderForm({ event_kind: 'email.clicked', frequency: 'once' })
+
+    expect(screen.queryByText('Clicked link contains')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('broadcast-selector')).not.toBeInTheDocument()
+  })
+
+  it('emits each filter it is given', async () => {
+    const onChange = renderForm({ event_kind: 'email.link_clicked', frequency: 'every_time' })
+
+    await userEvent.type(screen.getByPlaceholderText('e.g. /pricing'), 'p')
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ link_url: 'p' }))
+
+    await userEvent.click(screen.getByTestId('broadcast-selector'))
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ broadcast_id: 'bc-1' }))
+
+    await userEvent.click(screen.getByTestId('template-selector'))
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ template_id: 'tpl-1' }))
+  })
+
+  it('warns that a link click fires often', async () => {
+    renderForm({ event_kind: 'email.link_clicked', frequency: 'once', conditions: contactsTree })
+    await userEvent.click(screen.getByText('Edit'))
+    expect(screen.getByText(/evaluated for every matching event/)).toBeInTheDocument()
+  })
+})
+
+describe('TriggerConfigForm event change', () => {
+  it('drops the link click filters when the event changes', async () => {
+    // email.clicked takes none of them: the server would refuse the trigger.
+    const onChange = renderForm({
+      event_kind: 'email.link_clicked',
+      frequency: 'every_time',
+      link_url: '/pricing',
+      broadcast_id: 'bc-9',
+      template_id: 'tpl-9'
+    })
+
+    await userEvent.click(screen.getByRole('combobox'))
+    await userEvent.click(await screen.findByRole('menuitemcheckbox', { name: 'Clicked' }))
+
+    const emitted = onChange.mock.calls[onChange.mock.calls.length - 1][0]
+    expect(emitted.event_kind).toBe('email.clicked')
+    expect(emitted.link_url).toBeUndefined()
+    expect(emitted.broadcast_id).toBeUndefined()
+    expect(emitted.template_id).toBeUndefined()
+  })
+})
+
+// The template field sets its own `disabled`, which wins over the read-only ConfigProvider.
+describe('TriggerConfigForm read-only', () => {
+  it.each([
+    { readOnly: true, passed: 'true' },
+    { readOnly: false, passed: 'false' }
+  ])('locks the link template when read-only is $readOnly', ({ readOnly, passed }) => {
+    renderForm({ event_kind: 'email.link_clicked', frequency: 'once' }, vi.fn(), true, readOnly)
+    expect(screen.getByTestId('template-selector').dataset.disabled).toBe(passed)
   })
 })

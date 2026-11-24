@@ -1,22 +1,35 @@
 import React from 'react'
 import { useLingui } from '@lingui/react/macro'
-import type { MJMLComponentType } from '../types'
-import { BaseEmailBlock } from './BaseEmailBlock'
+import type { EmailBlock, MJMLComponentType, MergedBlockAttributes } from '../types'
+import { BaseEmailBlock, type OnUpdateAttributesFunction } from './BaseEmailBlock'
 import { MJML_COMPONENT_DEFAULTS } from '../mjml-defaults'
-import PanelLayout from '../panels/PanelLayout'
+import { SettingsSection } from '../ui/fields/SettingsSections'
+import HeadingStylesInput from '../ui/HeadingStylesInput'
+import { headingSetCount } from '../utils/headingStyles'
 
-// Functional component for settings panel with i18n support
-const MjAttributesSettingsPanel: React.FC = () => {
+// The panel of mj-attributes: the heading styles, then where the defaults of each block type are set
+const MjAttributesSettingsPanel: React.FC<{
+  emailTree?: EmailBlock
+  onUpdateBlock?: (blockId: string, block: EmailBlock, options?: { coalesceKey?: string }) => void
+}> = ({ emailTree, onUpdateBlock }) => {
   const { t } = useLingui()
 
   return (
-    <PanelLayout title={t`Default Attributes`}>
-      <div className="text-sm text-gray-500 text-center py-8">
-        {t`No settings available for the attributes container.`}
-        <br />
-        {t`Add child elements for specific components (mj-text, mj-button, etc.) to set their default values.`}
-      </div>
-    </PanelLayout>
+    <>
+      <SettingsSection
+        sectionKey="mj-attributes:headings"
+        title={t`Headings`}
+        first
+        setCount={emailTree ? headingSetCount(emailTree) : 0}
+      >
+        <HeadingStylesInput emailTree={emailTree} onUpdateBlock={onUpdateBlock} />
+      </SettingsSection>
+      <SettingsSection sectionKey="mj-attributes:types" title={t`Default attributes`} first>
+        <p className="m-0 text-xs text-ink-3">
+          {t`Add child elements for specific components (mj-text, mj-button, etc.) to set their default values.`}
+        </p>
+      </SettingsSection>
+    </>
   )
 }
 
@@ -61,8 +74,13 @@ export class MjAttributesBlock extends BaseEmailBlock {
   /**
    * Render the settings panel for the attributes block
    */
-  renderSettingsPanel(): React.ReactNode {
-    return <MjAttributesSettingsPanel />
+  renderSettingsPanel(
+    _onUpdate: OnUpdateAttributesFunction,
+    _defaults: MergedBlockAttributes,
+    emailTree?: EmailBlock,
+    onUpdateBlock?: (blockId: string, block: EmailBlock, options?: { coalesceKey?: string }) => void
+  ): React.ReactNode {
+    return <MjAttributesSettingsPanel emailTree={emailTree} onUpdateBlock={onUpdateBlock} />
   }
 
   getEdit(): React.ReactNode {

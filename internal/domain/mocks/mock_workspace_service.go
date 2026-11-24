@@ -415,3 +415,33 @@ func (mr *MockWorkspaceServiceInterfaceMockRecorder) UpdateWorkspace(arg0, arg1,
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWorkspace", reflect.TypeOf((*MockWorkspaceServiceInterface)(nil).UpdateWorkspace), arg0, arg1, arg2, arg3)
 }
+
+// UserOwnsAWorkspace mocks base method.
+func (m *MockWorkspaceServiceInterface) UserOwnsAWorkspace(arg0 context.Context, arg1 string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UserOwnsAWorkspace", arg0, arg1)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UserOwnsAWorkspace indicates an expected call of UserOwnsAWorkspace.
+func (mr *MockWorkspaceServiceInterfaceMockRecorder) UserOwnsAWorkspace(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserOwnsAWorkspace", reflect.TypeOf((*MockWorkspaceServiceInterface)(nil).UserOwnsAWorkspace), arg0, arg1)
+}
+
+// SetUserPassword mocks base method.
+func (m *MockWorkspaceServiceInterface) SetUserPassword(arg0 context.Context, arg1 domain.SetUserPasswordRequest) (*domain.SetUserPasswordResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetUserPassword", arg0, arg1)
+	ret0, _ := ret[0].(*domain.SetUserPasswordResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetUserPassword indicates an expected call of SetUserPassword.
+func (mr *MockWorkspaceServiceInterfaceMockRecorder) SetUserPassword(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserPassword", reflect.TypeOf((*MockWorkspaceServiceInterface)(nil).SetUserPassword), arg0, arg1)
+}

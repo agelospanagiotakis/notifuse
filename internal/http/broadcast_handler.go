@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -22,16 +23,14 @@ func (e *MissingParameterError) Error() string {
 
 type BroadcastHandler struct {
 	service      domain.BroadcastService
-	templateSvc  domain.TemplateService
 	logger       logger.Logger
 	getJWTSecret func() ([]byte, error)
 	isDemo       bool
 }
 
-func NewBroadcastHandler(service domain.BroadcastService, templateSvc domain.TemplateService, getJWTSecret func() ([]byte, error), logger logger.Logger, isDemo bool) *BroadcastHandler {
+func NewBroadcastHandler(service domain.BroadcastService, getJWTSecret func() ([]byte, error), logger logger.Logger, isDemo bool) *BroadcastHandler {
 	return &BroadcastHandler{
 		service:      service,
-		templateSvc:  templateSvc,
 		logger:       logger,
 		getJWTSecret: getJWTSecret,
 		isDemo:       isDemo,
@@ -47,6 +46,7 @@ func (h *BroadcastHandler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Register RPC-style endpoints with dot notation
 	mux.Handle("/api/broadcasts.list", requireAuth(http.HandlerFunc(h.HandleList)))
+	mux.Handle("/api/broadcasts.estimateAudience", requireAuth(http.HandlerFunc(h.HandleEstimateAudience)))
 	mux.Handle("/api/broadcasts.get", requireAuth(http.HandlerFunc(h.HandleGet)))
 	mux.Handle("/api/broadcasts.create", requireAuth(http.HandlerFunc(h.HandleCreate)))
 	mux.Handle("/api/broadcasts.update", requireAuth(http.HandlerFunc(h.HandleUpdate)))
@@ -54,8 +54,10 @@ func (h *BroadcastHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/broadcasts.pause", requireAuth(http.HandlerFunc(h.HandlePause)))
 	mux.Handle("/api/broadcasts.resume", requireAuth(http.HandlerFunc(h.HandleResume)))
 	mux.Handle("/api/broadcasts.cancel", requireAuth(http.HandlerFunc(h.HandleCancel)))
+	// Blocked in demo as schedule is: a demo broadcast sent back to draft could not be scheduled again.
+	mux.Handle("/api/broadcasts.unschedule", restrictedInDemo(requireAuth(http.HandlerFunc(h.HandleUnschedule))))
 	mux.Handle("/api/broadcasts.retryFailed", restrictedInDemo(requireAuth(http.HandlerFunc(h.HandleRetryFailed))))
-	mux.Handle("/api/broadcasts.sendToIndividual", requireAuth(http.HandlerFunc(h.HandleSendToIndividual)))
+	mux.Handle("/api/broadcasts.sendToIndividual", restrictedInDemo(requireAuth(http.HandlerFunc(h.HandleSendToIndividual))))
 	mux.Handle("/api/broadcasts.delete", requireAuth(http.HandlerFunc(h.HandleDelete)))
 	// A/B Testing endpoints
 	mux.Handle("/api/broadcasts.getTestResults", requireAuth(http.HandlerFunc(h.HandleGetTestResults)))
@@ -80,12 +82,14 @@ func (h *BroadcastHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	params := domain.ListBroadcastsParams{
-		WorkspaceID:   req.WorkspaceID,
-		Status:        domain.BroadcastStatus(req.Status),
-		Search:        req.Search,
-		Limit:         req.Limit,
-		Offset:        req.Offset,
-		WithTemplates: req.WithTemplates,
+		WorkspaceID:      req.WorkspaceID,
+		Status:           domain.BroadcastStatus(req.Status),
+		Search:           req.Search,
+		Limit:            req.Limit,
+		Offset:           req.Offset,
+		WithTemplates:    req.WithTemplates,
+		WithStatusCounts: req.WithStatusCounts,
+		StartedAfter:     req.StartedAfter,
 	}
 	for _, s := range req.Statuses {
 		params.Statuses = append(params.Statuses, domain.BroadcastStatus(s))
@@ -109,10 +113,48 @@ func (h *BroadcastHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 		broadcasts = []*domain.Broadcast{}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	body := map[string]interface{}{
 		"broadcasts":  broadcasts,
 		"total_count": response.TotalCount,
-	})
+	}
+	// When asked for, status_counts is always an object, {} when nothing matches.
+	if req.WithStatusCounts {
+		statusCounts := response.StatusCounts
+		if statusCounts == nil {
+			statusCounts = map[domain.BroadcastStatus]int{}
+		}
+		body["status_counts"] = statusCounts
+	}
+	writeJSON(w, http.StatusOK, body)
+}
+
+// HandleEstimateAudience counts the recipients a broadcast with this audience would have.
+func (h *BroadcastHandler) HandleEstimateAudience(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		WriteJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req domain.EstimateAudienceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteJSONError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := req.Validate(); err != nil {
+		WriteJSONError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	count, err := h.service.EstimateAudience(r.Context(), req.WorkspaceID, req.Audience)
+	if err != nil {
+		if writePermissionError(w, err) {
+			return
+		}
+		h.logger.WithField("error", err.Error()).Error("Failed to estimate broadcast audience")
+		WriteJSONError(w, "Failed to estimate audience", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"count": count})
 }
 
 // HandleGet handles the broadcast get request
@@ -128,7 +170,7 @@ func (h *BroadcastHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	broadcast, err := h.service.GetBroadcast(r.Context(), req.WorkspaceID, req.ID)
+	broadcast, err := h.service.GetBroadcast(r.Context(), req.WorkspaceID, req.ID, domain.GetBroadcastOptions{WithTemplates: req.WithTemplates})
 	if err != nil {
 		if writePermissionError(w, err) {
 			return
@@ -140,30 +182,6 @@ func (h *BroadcastHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 		h.logger.WithField("error", err.Error()).Error("Failed to get broadcast")
 		WriteJSONError(w, "Failed to get broadcast", http.StatusInternalServerError)
 		return
-	}
-
-	// If WithTemplates is true, fetch template details for each variation
-	if req.WithTemplates {
-		// Use the same logic as in ListBroadcasts to fetch templates
-		for i, variation := range broadcast.TestSettings.Variations {
-			if variation.TemplateID != "" {
-				// Fetch the template for this variation
-				template, err := h.templateSvc.GetTemplateByID(r.Context(), req.WorkspaceID, variation.TemplateID, 1)
-				if err != nil {
-					h.logger.WithFields(map[string]interface{}{
-						"error":        err,
-						"workspace_id": req.WorkspaceID,
-						"broadcast_id": broadcast.ID,
-						"template_id":  variation.TemplateID,
-					}).Warn("Failed to fetch template for broadcast variation")
-					// Continue with the next variation rather than failing the whole request
-					continue
-				}
-
-				// Assign the template to the variation
-				broadcast.SetTemplateForVariation(i, template)
-			}
-		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -196,6 +214,9 @@ func (h *BroadcastHandler) HandleCreate(w http.ResponseWriter, r *http.Request) 
 		if writePermissionError(w, err) {
 			return
 		}
+		if writeSenderError(w, err) {
+			return
+		}
 		h.logger.WithField("error", err.Error()).Error("Failed to create broadcast")
 		WriteJSONError(w, "Failed to create broadcast", http.StatusInternalServerError)
 		return
@@ -221,7 +242,7 @@ func (h *BroadcastHandler) HandleUpdate(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Get the existing broadcast to pass to Validate
-	existingBroadcast, err := h.service.GetBroadcast(r.Context(), req.WorkspaceID, req.ID)
+	existingBroadcast, err := h.service.GetBroadcast(r.Context(), req.WorkspaceID, req.ID, domain.GetBroadcastOptions{})
 	if err != nil {
 		if _, ok := err.(*domain.ErrBroadcastNotFound); ok {
 			WriteJSONError(w, "Broadcast not found", http.StatusNotFound)
@@ -241,6 +262,9 @@ func (h *BroadcastHandler) HandleUpdate(w http.ResponseWriter, r *http.Request) 
 	updatedBroadcast, err := h.service.UpdateBroadcast(r.Context(), &req)
 	if err != nil {
 		if writePermissionError(w, err) {
+			return
+		}
+		if writeSenderError(w, err) {
 			return
 		}
 		h.logger.WithField("error", err.Error()).Error("Failed to update broadcast")
@@ -277,8 +301,15 @@ func (h *BroadcastHandler) HandleSchedule(w http.ResponseWriter, r *http.Request
 		if writePermissionError(w, err) {
 			return
 		}
+		if writeSenderError(w, err) {
+			return
+		}
 		if _, ok := err.(*domain.ErrBroadcastNotFound); ok {
 			WriteJSONError(w, "Broadcast not found", http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, domain.ErrImportedBroadcastNotSendable) {
+			WriteJSONError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		h.logger.WithField("error", err.Error()).Error("Failed to schedule broadcast")
@@ -400,6 +431,9 @@ func (h *BroadcastHandler) HandleResume(w http.ResponseWriter, r *http.Request) 
 		if writePermissionError(w, err) {
 			return
 		}
+		if writeSenderError(w, err) {
+			return
+		}
 		if _, ok := err.(*domain.ErrBroadcastNotFound); ok {
 			WriteJSONError(w, "Broadcast not found", http.StatusNotFound)
 			return
@@ -452,6 +486,49 @@ func (h *BroadcastHandler) HandleCancel(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// HandleUnschedule sends a scheduled broadcast whose sending has not started back to draft.
+// A broadcast that has started sending, or is not scheduled, answers 400 with the reason.
+func (h *BroadcastHandler) HandleUnschedule(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		WriteJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req domain.UnscheduleBroadcastRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteJSONError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if err := req.Validate(); err != nil {
+		WriteJSONError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := h.service.UnscheduleBroadcast(r.Context(), &req); err != nil {
+		if writePermissionError(w, err) {
+			return
+		}
+		var notFound *domain.ErrBroadcastNotFound
+		if errors.As(err, &notFound) {
+			WriteJSONError(w, "Broadcast not found", http.StatusNotFound)
+			return
+		}
+		var validationErr domain.ValidationError
+		if errors.As(err, &validationErr) {
+			WriteJSONError(w, validationErr.Message, http.StatusBadRequest)
+			return
+		}
+		h.logger.WithField("error", err.Error()).Error("Failed to send the broadcast back to draft")
+		WriteJSONError(w, "Failed to send the broadcast back to draft", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+	})
+}
+
 // HandleSendToIndividual handles the broadcast send to individual request
 func (h *BroadcastHandler) HandleSendToIndividual(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -474,6 +551,12 @@ func (h *BroadcastHandler) HandleSendToIndividual(w http.ResponseWriter, r *http
 	err := h.service.SendToIndividual(r.Context(), &req)
 	if err != nil {
 		if writePermissionError(w, err) {
+			return
+		}
+		if writeSenderError(w, err) {
+			return
+		}
+		if writeTemplateRenderError(w, err) {
 			return
 		}
 		if _, ok := err.(*domain.ErrBroadcastNotFound); ok {
@@ -678,4 +761,21 @@ func (h *BroadcastHandler) HandleTestRecipientFeed(w http.ResponseWriter, r *htt
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+// writeSenderError answers 400 when a broadcast chooses a sender the marketing email integration
+// does not have: the caller fixes it by choosing another sender. The service reports that as a
+// domain.ValidationError, or as domain.ErrSenderNotFound on a send to one recipient; any
+// ValidationError is the caller's input, so all of them answer 400. It reports whether it wrote.
+func writeSenderError(w http.ResponseWriter, err error) bool {
+	var validationErr domain.ValidationError
+	if errors.As(err, &validationErr) {
+		WriteJSONError(w, validationErr.Error(), http.StatusBadRequest)
+		return true
+	}
+	if errors.Is(err, domain.ErrSenderNotFound) {
+		WriteJSONError(w, err.Error(), http.StatusBadRequest)
+		return true
+	}
+	return false
 }

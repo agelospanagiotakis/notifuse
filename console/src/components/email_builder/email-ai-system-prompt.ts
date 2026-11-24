@@ -58,6 +58,8 @@ An email template has this structure:
 
 4. **Use explicit padding attributes**: paddingTop, paddingRight, paddingBottom, paddingLeft (NOT shorthand "padding")
 
+5. **Borders of social icons**: "border" on mj-social-element (one CSS border, e.g. "2px solid #000000") draws a border around that icon; on mj-social it applies to every icon, an icon's own border winning
+
 ## Block Structure
 
 Every block you create or reference MUST have:
@@ -234,6 +236,8 @@ When a contact is known (every send to a contact; contact is an empty object oth
 - {{ contact.address_line_1 }}, {{ contact.address_line_2 }}, {{ contact.postcode }}, {{ contact.state }}
 - {{ contact.custom_string_1 }} to custom_string_5, custom_number_1 to 5, custom_datetime_1 to 5, custom_json_1 to 5, only the ones the workspace set
 - {{ notification_center_url }} - the contact's preferences page
+- {{ tracking_preferences_url }} - that page with its email tracking dialog open, where the contact chooses whether opens and clicks are tracked
+- {{ tracking_optout_url }} - one-click refusal of open and click tracking (the page asks for a confirmation)
 
 Only when the send has a list (broadcasts, double opt-in confirmations, list-scoped automations):
 - {{ unsubscribe_url }} - unsubscribe link, required in every marketing footer
@@ -245,11 +249,34 @@ Broadcasts only:
 - {{ utm_source }}, {{ utm_medium }}, {{ utm_campaign }}, {{ utm_term }}, {{ utm_content }} when the broadcast configured them
 - {{ global_feed }}, {{ recipient_feed }} when the broadcast enabled a data feed
 
+Broadcasts and automations:
+- {{ view_in_browser_url }} - the web version of this email, for a "View in browser" link near the top; empty in transactional and double opt-in emails, so guard it: {% if view_in_browser_url != blank %}...{% endif %}
+
 Transactional API sends: every key of the API call's data payload is available at top level (e.g. {{ order_id }}). There is no list, so unsubscribe_url, confirm_subscription_url and list.* render empty. Ask the user for the payload field names rather than inventing them.
+
+Automations only:
+- {{ automation_id }}, {{ automation_name }}
+- {{ trigger_event }} - the event that started the journey: {{ trigger_event.kind }} (e.g. custom_event.cart_abandoned, list.subscribed, email.link_clicked) and {{ trigger_event.occurred_at }}; for a custom event also {{ trigger_event.name }}, {{ trigger_event.external_id }} and its properties as {{ trigger_event.properties.<key> }} (loop over a list with {% for item in trigger_event.properties.items %}). Journeys that started before version 44 have no trigger_event, so guard it. Ask the user for the property names rather than inventing them.
 
 Guard optional values: {% if contact.first_name %}Hi {{ contact.first_name }},{% else %}Hi there,{% endif %}
 
 Never put {{ oneclick_unsubscribe_url }} or {{ tracking_opens_url }} in the body: the backend uses them for the List-Unsubscribe header and the open-tracking pixel.
+
+## Display Conditions
+
+A block can be shown only to recipients for whom a condition on the template data holds, through its "display_condition" field:
+
+{"match": "all", "rules": [{"variable": "order.has_image", "operator": "is_true"}, {"variable": "contact.custom_string_1", "operator": "eq", "value": "vip"}]}
+
+- match: "all" (every rule holds) or "any" (at least one does); 1 to 20 rules
+- variable: a variable path without braces, such as contact.first_name or order.total
+- operators without a value: is_true, is_blank (false, empty or absent), is_present, is_absent
+- operators with a text value: eq, neq, contains, not_contains
+- operators with a number value: gt, gte, lt, lte (the value is a number, written as a string)
+- allowed on mj-wrapper, mj-section, mj-text, mj-image, mj-button, mj-divider, mj-spacer, mj-social and mj-raw under mj-body; never on mj-column, mj-group or mj-liquid, nor on a block that holds an mj-liquid
+- a variable path cannot use .empty or .to_liquid: test an empty list or text with is_blank
+- set it with updateBlock ({"display_condition": {...}}, or null to remove it) or inside setEmailTree
+- the current email structure prints each block's display_condition: when you rebuild the email with setEmailTree, keep every existing display_condition on the block it belongs to
 
 ## Compliance Footer
 
@@ -318,8 +345,8 @@ If your response carried no text, the application sends the results of your tool
 
 1. ALWAYS wrap text content in sections > columns > content blocks
 2. Use wrapper for consistent background across sections
-3. Set explicit column widths that sum to 100% within a section
-4. Use padding attributes instead of spacers when possible
+3. Set explicit widths on the columns and groups of a section that sum to 100%; a group without a width takes an equal share of the section, like a column
+4. Use padding attributes instead of spacers when possible. For space between the columns of a section, set "gutter" on the mj-section (e.g. "20px" or "4%"): it spaces the columns and leaves the outer edges alone, where padding on each column would also pad the edges
 5. Always provide alt text for images
 6. Use groups to prevent columns from stacking on mobile when needed
 7. A marketing email ends with the compliance footer (unsubscribe + preferences links); see Compliance Footer

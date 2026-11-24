@@ -75,6 +75,7 @@ var systemEmailTranslations = map[string]Translations{
 	"pt-br": portugueseBRTranslations,
 	"ja":    japaneseTranslations,
 	"it":    italianTranslations,
+	"el":    greekTranslations,
 }
 
 // normalizeLocale lower-cases and trims a locale code for case-insensitive lookup.
@@ -131,6 +132,41 @@ var englishTranslations = Translations{
 		Body:        "Your broadcast %[1]s in workspace %[2]s has been automatically paused.",
 		ReasonLabel: "Reason:",
 		SignOff:     "Best regards,",
+	},
+}
+
+// greekTranslations holds the Greek (el) system email strings.
+var greekTranslations = Translations{
+	Lang: "el",
+	Common: CommonStrings{
+		Greeting: "Γεια σας,",
+		TeamName: "Η ομάδα του Notifuse",
+	},
+	MagicCode: MagicCodeStrings{
+		Subject:      "Ο κωδικός επαλήθευσης Notifuse",
+		Heading:      "Ο κωδικός επαλήθευσής σας",
+		Intro:        "Ο κωδικός επαλήθευσής σας για το Notifuse είναι:",
+		Expiry:       "Ο κωδικός θα λήξει σε 10 λεπτά.",
+		IgnoreNotice: "Αν δεν ζητήσατε αυτόν τον κωδικό, αγνοήστε αυτό το email.",
+		SignOff:      "Ευχαριστούμε,",
+	},
+	Invitation: InvitationStrings{
+		Subject:     "Σας προσκάλεσαν να συμμετάσχετε στο %s στο Notifuse",
+		Heading:     "Σας προσκάλεσαν να συμμετάσχετε στο Notifuse!",
+		Body:        "Ο/Η %[1]s σας προσκάλεσε να συμμετάσχετε στον χώρο εργασίας %[2]s στο Notifuse.",
+		ClickPrompt: "Κάντε κλικ στον παρακάτω σύνδεσμο για να συμμετάσχετε:",
+		LinkText:    "Αποδοχή πρόσκλησης",
+		FallbackURL: "Αν ο σύνδεσμος δεν λειτουργεί, αντιγράψτε και επικολλήστε αυτό το URL στον περιηγητή σας:",
+		PlainLink:   "Χρησιμοποιήστε τον παρακάτω σύνδεσμο για να συμμετάσχετε: %s",
+		Expiry:      "Αυτή η πρόσκληση θα λήξει σε 7 ημέρες.",
+		SignOff:     "Ευχαριστούμε,",
+	},
+	CircuitBreaker: CircuitBreakerStrings{
+		Subject:     "🚨 Η εκπομπή σε παύση - %s",
+		Heading:     "🚨 Η εκπομπή τέθηκε αυτόματα σε παύση",
+		Body:        "Η εκπομπή σας %[1]s στον χώρο εργασίας %[2]s τέθηκε αυτόματα σε παύση.",
+		ReasonLabel: "Αιτία:",
+		SignOff:     "Με εκτίμηση,",
 	},
 }
 

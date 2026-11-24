@@ -1,6 +1,8 @@
 package database
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -8,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Notifuse/notifuse/config"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -347,7 +350,7 @@ func TestEnsureWorkspaceDatabaseExists(t *testing.T) {
 		}
 		workspaceID := "test-workspace"
 
-		err := EnsureWorkspaceDatabaseExists(cfg, workspaceID)
+		err := EnsureWorkspaceDatabaseExists(context.Background(), cfg, workspaceID, nil)
 
 		assert.Error(t, err, "Should fail with invalid database configuration")
 		assert.Contains(t, err.Error(), "failed to ping PostgreSQL server")
@@ -366,7 +369,7 @@ func TestEnsureWorkspaceDatabaseExists(t *testing.T) {
 		}
 		workspaceID := "test-workspace-123"
 
-		err := EnsureWorkspaceDatabaseExists(cfg, workspaceID)
+		err := EnsureWorkspaceDatabaseExists(context.Background(), cfg, workspaceID, nil)
 
 		// Should fail due to invalid host, but we can verify the error message structure
 		assert.Error(t, err)
@@ -385,17 +388,17 @@ func TestEnsureWorkspaceDatabaseExists(t *testing.T) {
 			SSLMode:  "disable",
 		}
 
-		err := EnsureWorkspaceDatabaseExists(cfg, "AcmeCo")
+		err := EnsureWorkspaceDatabaseExists(context.Background(), cfg, "AcmeCo", nil)
 		assert.EqualError(t, err, "workspace database name must be lowercase: test_ws_AcmeCo")
 
 		cfg.Prefix = "Notifuse"
-		err = EnsureWorkspaceDatabaseExists(cfg, "acmeco")
+		err = EnsureWorkspaceDatabaseExists(context.Background(), cfg, "acmeco", nil)
 		assert.EqualError(t, err, "workspace database name must be lowercase: Notifuse_ws_acmeco")
 
 		// PostgreSQL folds only ASCII letters, so a name with another capital letter is
 		// created and opened as written, and goes on to the connection.
 		cfg.Prefix = "notifuseÜ"
-		err = EnsureWorkspaceDatabaseExists(cfg, "acmeco")
+		err = EnsureWorkspaceDatabaseExists(context.Background(), cfg, "acmeco", nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to ping PostgreSQL server")
 	})
@@ -412,7 +415,7 @@ func TestEnsureWorkspaceDatabaseExists(t *testing.T) {
 			SSLMode:  "disable",
 		}
 
-		err := EnsureWorkspaceDatabaseExists(cfg, "x template template0")
+		err := EnsureWorkspaceDatabaseExists(context.Background(), cfg, "x template template0", nil)
 		assert.EqualError(t, err, `invalid workspace ID for a database name: "x template template0"`)
 	})
 }
@@ -422,7 +425,7 @@ func TestEnsureSystemDatabaseExists(t *testing.T) {
 		invalidDSN := "invalid://dsn/format"
 		dbName := "testdb"
 
-		err := EnsureSystemDatabaseExists(invalidDSN, dbName)
+		err := EnsureSystemDatabaseExists(invalidDSN, dbName, false)
 
 		assert.Error(t, err, "Should fail with invalid DSN")
 		assert.Contains(t, err.Error(), "failed to ping PostgreSQL server")
@@ -432,7 +435,7 @@ func TestEnsureSystemDatabaseExists(t *testing.T) {
 		dsn := "postgres://invalid:invalid@nonexistent-host:9999/postgres?sslmode=disable"
 		dbName := "testdb"
 
-		err := EnsureSystemDatabaseExists(dsn, dbName)
+		err := EnsureSystemDatabaseExists(dsn, dbName, false)
 
 		assert.Error(t, err, "Should fail with invalid connection parameters")
 		assert.Contains(t, err.Error(), "failed to ping PostgreSQL server")
@@ -442,7 +445,7 @@ func TestEnsureSystemDatabaseExists(t *testing.T) {
 		dsn := "postgres://user:pass@localhost:5432/postgres?sslmode=disable"
 		dbName := ""
 
-		err := EnsureSystemDatabaseExists(dsn, dbName)
+		err := EnsureSystemDatabaseExists(dsn, dbName, false)
 
 		// Should fail when trying to connect, but tests the parameter handling
 		assert.Error(t, err)
@@ -536,4 +539,28 @@ func TestConnectionPoolSettings_Coverage(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestIsDataConversionError(t *testing.T) {
+	wrapTwice := func(err error) error {
+		return fmt.Errorf("outer: %w", fmt.Errorf("inner: %w", err))
+	}
+
+	for _, code := range []pq.ErrorCode{"22007", "22008", "22P02", "22003"} {
+		t.Run(string(code), func(t *testing.T) {
+			err := &pq.Error{Code: code, Message: "conversion"}
+			assert.True(t, IsDataConversionError(err))
+			assert.True(t, IsDataConversionError(wrapTwice(err)), "seen through two wraps")
+			assert.True(t, IsDataConversionError(errors.Join(errors.New("other"), wrapTwice(err))), "seen through errors.Join")
+		})
+	}
+
+	for _, code := range []pq.ErrorCode{"22021", "22023", "23505", "3D000"} {
+		t.Run(string(code)+" is not one", func(t *testing.T) {
+			assert.False(t, IsDataConversionError(wrapTwice(&pq.Error{Code: code})))
+		})
+	}
+
+	assert.False(t, IsDataConversionError(errors.New(`invalid input syntax for type numeric: "x"`)), "a plain error with the same text")
+	assert.False(t, IsDataConversionError(nil))
 }

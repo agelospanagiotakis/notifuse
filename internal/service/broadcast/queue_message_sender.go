@@ -5,6 +5,7 @@ import (
 	crand "crypto/rand"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	"github.com/Notifuse/notifuse/internal/domain"
@@ -25,6 +26,11 @@ type queueMessageSender struct {
 	logger             logger.Logger
 	config             *Config
 	apiEndpoint        string
+	// customTextWarned holds the template versions whose custom text could not be used
+	// and was already logged by this process, so the warning comes once per template
+	// version rather than once per recipient. A template version never changes, so the
+	// set only grows with the versions that failed.
+	customTextWarned sync.Map
 }
 
 // NewQueueMessageSender creates a new message sender that enqueues to the email queue
@@ -61,7 +67,7 @@ func (s *queueMessageSender) SendToRecipient(
 	integrationID string,
 	workspaceSecretKey string,
 	endpoint string,
-	trackingEnabled bool,
+	decision domain.EmailTrackingDecision,
 	webAnalytics *domain.WebAnalyticsSettings,
 	broadcast *domain.Broadcast,
 	messageID string,
@@ -74,7 +80,7 @@ func (s *queueMessageSender) SendToRecipient(
 	workspaceDefaultLanguage string,
 ) error {
 	// Build the email payload
-	entry, err := s.buildQueueEntry(ctx, workspaceID, integrationID, workspaceSecretKey, endpoint, trackingEnabled, webAnalytics, broadcast, messageID, email, template, data, emailProvider, contactLanguage, workspaceDefaultLanguage)
+	entry, err := s.buildQueueEntry(ctx, workspaceID, integrationID, workspaceSecretKey, endpoint, decision, webAnalytics, broadcast, messageID, email, template, data, emailProvider, contactLanguage, workspaceDefaultLanguage)
 	if err != nil {
 		return err
 	}
@@ -101,7 +107,7 @@ func (s *queueMessageSender) SendBatch(
 	workspaceSecretKey string,
 	endpoint string,
 	websiteURL string,
-	trackingEnabled bool,
+	trackingPolicy domain.EmailTrackingPolicy,
 	webAnalytics *domain.WebAnalyticsSettings,
 	broadcastID string,
 	recipients []*domain.ContactWithList,
@@ -118,6 +124,12 @@ func (s *queueMessageSender) SendBatch(
 	broadcast, err := s.broadcastRepo.GetBroadcast(ctx, workspaceID, broadcastID)
 	if err != nil {
 		return 0, len(recipients), fmt.Errorf("failed to get broadcast: %w", err)
+	}
+
+	// A sender chosen on a variation that has left the integration stops the batch before
+	// any recipient: the broadcast pauses and the batch is sent once the sender is fixed.
+	if senderErr := findUnavailableVariationSender(broadcast, templates, emailProvider); senderErr != nil {
+		return 0, 0, senderErr
 	}
 
 	// Build queue entries
@@ -162,17 +174,22 @@ func (s *queueMessageSender) SendBatch(
 		// Minting a second one here would encrypt a live per-recipient credential
 		// once more per contact in the batch loop and park it in a struct nothing
 		// reads.
+		//
+		// The tracking decision is applied here, before BuildTemplateData (which
+		// leaves tracking_opens_url empty when opens are not tracked), and the
+		// same decision goes to the compiler in buildQueueEntry.
+		decision := domain.ResolveEmailTracking(trackingPolicy, recipient.Contact, broadcast.TrackingMode)
 		trackingSettings := notifuse_mjml.TrackingSettings{
-			Endpoint:       endpoint,
-			EnableTracking: trackingEnabled,
-			UTMSource:      utmParams.Source,
-			UTMMedium:      utmParams.Medium,
-			UTMCampaign:    utmParams.Campaign,
-			UTMContent:     utmParams.Content,
-			UTMTerm:        utmParams.Term,
-			WorkspaceID:    workspaceID,
-			MessageID:      messageID,
+			Endpoint:    endpoint,
+			UTMSource:   utmParams.Source,
+			UTMMedium:   utmParams.Medium,
+			UTMCampaign: utmParams.Campaign,
+			UTMContent:  utmParams.Content,
+			UTMTerm:     utmParams.Term,
+			WorkspaceID: workspaceID,
+			MessageID:   messageID,
 		}
+		decision.Apply(&trackingSettings)
 
 		// Build template data with all system variables (unsubscribe_url, notification_center_url, etc.)
 		req := domain.TemplateDataRequest{
@@ -183,6 +200,7 @@ func (s *queueMessageSender) SendBatch(
 			MessageID:           messageID,
 			TrackingSettings:    trackingSettings,
 			Broadcast:           broadcast,
+			WebVersion:          true,
 		}
 		data, err := domain.BuildTemplateData(req)
 		if err != nil {
@@ -231,7 +249,7 @@ func (s *queueMessageSender) SendBatch(
 		}
 
 		// Build queue entry
-		entry, err := s.buildQueueEntry(ctx, workspaceID, integrationID, workspaceSecretKey, endpoint, trackingEnabled, webAnalytics, broadcast, messageID, recipient.Contact.Email, template, data, emailProvider, contactLanguage, workspaceDefaultLanguage)
+		entry, err := s.buildQueueEntry(ctx, workspaceID, integrationID, workspaceSecretKey, endpoint, decision, webAnalytics, broadcast, messageID, recipient.Contact.Email, template, data, emailProvider, contactLanguage, workspaceDefaultLanguage)
 		if err != nil {
 			s.logger.WithFields(map[string]interface{}{
 				"broadcast_id": broadcastID,
@@ -284,7 +302,7 @@ func (s *queueMessageSender) buildQueueEntry(
 	integrationID string,
 	workspaceSecretKey string,
 	endpoint string,
-	trackingEnabled bool,
+	decision domain.EmailTrackingDecision,
 	webAnalytics *domain.WebAnalyticsSettings,
 	broadcast *domain.Broadcast,
 	messageID string,
@@ -309,21 +327,26 @@ func (s *queueMessageSender) buildQueueEntry(
 	// This function builds one entry for one recipient, so the token minted
 	// here is that recipient's own. A mint failure is logged and the entry is
 	// built without it: an unidentified visit costs analytics precision, a
-	// dropped entry costs the email.
-	identifyToken, identifyAllowedHosts, identifyErr := mintIdentifyToken(email, workspaceSecretKey, webAnalytics)
-	if identifyErr != nil {
-		s.logger.WithFields(map[string]interface{}{
-			"broadcast_id": broadcast.ID,
-			"workspace_id": workspaceID,
-			"recipient":    email,
-			"error":        identifyErr.Error(),
-		}).Warn("Failed to mint web analytics identity token, enqueueing without it")
+	// dropped entry costs the email. No token is minted when the recipient's
+	// click consent does not allow it.
+	var identifyToken string
+	var identifyAllowedHosts []string
+	if decision.Identify {
+		var identifyErr error
+		identifyToken, identifyAllowedHosts, identifyErr = mintIdentifyToken(email, workspaceSecretKey, webAnalytics)
+		if identifyErr != nil {
+			s.logger.WithFields(map[string]interface{}{
+				"broadcast_id": broadcast.ID,
+				"workspace_id": workspaceID,
+				"recipient":    email,
+				"error":        identifyErr.Error(),
+			}).Warn("Failed to mint web analytics identity token, enqueueing without it")
+		}
 	}
 
 	// Build tracking settings
 	trackingSettings := notifuse_mjml.TrackingSettings{
 		Endpoint:             endpoint,
-		EnableTracking:       trackingEnabled,
 		UTMSource:            utmParams.Source,
 		UTMMedium:            utmParams.Medium,
 		UTMCampaign:          utmParams.Campaign,
@@ -333,18 +356,22 @@ func (s *queueMessageSender) buildQueueEntry(
 		MessageID:            messageID,
 		IdentifyToken:        identifyToken,
 		IdentifyAllowedHosts: identifyAllowedHosts,
+		SigningKey:           domain.TrackingSigningKey(workspaceSecretKey),
 	}
+	decision.Apply(&trackingSettings)
 
 	// Resolve language variant
-	emailContent := template.ResolveEmailContent(contactLanguage, workspaceDefaultLanguage)
+	renderedLanguage := template.ResolvedLanguage(contactLanguage, workspaceDefaultLanguage)
+	emailContent := template.EmailContentForLanguage(renderedLanguage)
 	if emailContent == nil {
 		return nil, fmt.Errorf("email content not available after language resolution")
 	}
 
-	// Get sender (use template's sender ID if specified, otherwise default)
-	sender := emailProvider.GetSender(emailContent.SenderID)
-	if sender == nil {
-		return nil, fmt.Errorf("no sender configured for email provider")
+	// The variation's sender wins over the template's; a chosen sender that has gone is an
+	// error rather than the default sender.
+	sender, err := emailProvider.ResolveSender(broadcast.VariationSenderID(template.ID), emailContent.SenderID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Compile template with the provided data
@@ -368,6 +395,25 @@ func (s *queueMessageSender) buildQueueEntry(
 		return nil, fmt.Errorf("%s", errMsg)
 	}
 	htmlContent := *compiledTemplate.HTML
+	if viewURL, ok := data["view_in_browser_url"].(string); ok && viewURL != "" {
+		htmlContent = notifuse_mjml.FillViewInBrowserLink(htmlContent, viewURL)
+	}
+	unsubURL, _ := data["unsubscribe_url"].(string)
+	prefsURL, _ := data["notification_center_url"].(string)
+	htmlContent = notifuse_mjml.RewriteMailchimpLinks(htmlContent, unsubURL, prefsURL)
+	htmlContent = notifuse_mjml.FillEmptyPreferenceLinks(htmlContent, prefsURL)
+	if compiledTemplate.TextError != "" {
+		key := fmt.Sprintf("%s/%s/%d", workspaceID, template.ID, template.Version)
+		if _, logged := s.customTextWarned.LoadOrStore(key, true); !logged {
+			s.logger.WithFields(map[string]interface{}{
+				"broadcast_id":     broadcast.ID,
+				"workspace_id":     workspaceID,
+				"template_id":      template.ID,
+				"template_version": template.Version,
+				"error":            compiledTemplate.TextError,
+			}).Warn("Custom text version could not be used, sending the automatic one")
+		}
+	}
 
 	// Process subject line through Liquid templating
 	subject, err := notifuse_mjml.ProcessLiquidTemplate(
@@ -406,23 +452,24 @@ func (s *queueMessageSender) buildQueueEntry(
 			FromName:           sender.Name,
 			Subject:            subject,
 			HTMLContent:        htmlContent,
+			TextContent:        compiledTemplate.CustomText(),
 			RateLimitPerMinute: emailProvider.RateLimitPerMinute,
 			EmailOptions: domain.EmailOptions{
 				ReplyTo: emailContent.ReplyTo,
 			},
-			TemplateVersion: int(template.Version),
-			ListID:          broadcast.Audience.List,
-			TemplateData:    data, // Store template data for message history
+			TemplateVersion:  int(template.Version),
+			ListID:           broadcast.Audience.List,
+			TemplateData:     data, // Store template data for message history
+			RenderedLanguage: &renderedLanguage,
 		},
 		MaxAttempts: 3,
 		CreatedAt:   time.Now().UTC(),
 		UpdatedAt:   time.Now().UTC(),
 	}
 
-	// Extract List-Unsubscribe URL from template data for RFC-8058 compliance (broadcast emails only)
-	if unsubscribeURL, ok := data["oneclick_unsubscribe_url"].(string); ok && unsubscribeURL != "" {
-		entry.Payload.EmailOptions.ListUnsubscribeURL = unsubscribeURL
-	}
+	entry.Payload.OpensTracked, entry.Payload.ClicksTracked = decision.TrackedFlags()
+
+	entry.Payload.EmailOptions.ListUnsubscribeURL = broadcast.ListUnsubscribeURL(data)
 
 	return entry, nil
 }

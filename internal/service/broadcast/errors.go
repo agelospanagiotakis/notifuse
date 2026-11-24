@@ -9,8 +9,9 @@ import (
 var (
 	// ErrRecipientSkipped is returned when a recipient is skipped due to feed error
 	ErrRecipientSkipped = errors.New("recipient skipped due to feed error")
-	// ErrBroadcastShouldPause is returned when broadcast should pause due to consecutive feed failures
-	ErrBroadcastShouldPause = errors.New("broadcast should pause due to consecutive feed failures")
+	// ErrBroadcastShouldPause is returned when a broadcast must pause until the user acts:
+	// consecutive data feed failures, or a chosen sender that left the integration
+	ErrBroadcastShouldPause = errors.New("broadcast should pause until the user acts")
 )
 
 // ErrorCode represents specific error conditions in the broadcast system

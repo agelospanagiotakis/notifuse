@@ -1,223 +1,138 @@
-import React, { useState, useEffect } from 'react'
-import { Card, Button, Table, Tag, Space, Tooltip } from 'antd'
-import { useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
+import { Link, useNavigate } from '@tanstack/react-router'
+import { Empty, Skeleton, Table } from 'antd'
 import { useLingui } from '@lingui/react/macro'
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faBan, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
-import { faHourglass, faFaceFrown, faCircleCheck } from '@fortawesome/free-regular-svg-icons'
-import { contactsApi, Contact, ListContactsRequest } from '../../services/api/contacts'
-import { listsApi } from '../../services/api/list'
-import { Workspace } from '../../services/api/types'
-import dayjs from '../../lib/dayjs'
+import { Panel } from '../layout'
+import type { Contact } from '../../services/api/contacts'
+import { BlockError } from './BlockError'
+import { DASHBOARD_REFRESH_MS } from './dashboardClient'
+import { latestContactsQuery } from './dashboardQueries'
+import { formatAge } from './dashboardFormat'
+import { openableRow } from './dashboardTable'
+import { hasOnlyOwnerContact } from './getStartedModel'
+import { ImportContactsAction } from './ImportContactsAction'
 
 interface NewContactsTableProps {
-  workspace: Workspace
+  workspaceId: string
+  /** Shows the import button of the empty card. */
+  canImport: boolean
+  /** Offers the workspace's lists in the import. */
+  canReadLists?: boolean
+  /**
+   * The owner's emails, lower-cased: a workspace starts with its creator as its only contact, and a
+   * card listing only them is as empty as one with none, so it offers the import too.
+   */
+  ownerEmails?: Set<string>
 }
 
-export const NewContactsTable: React.FC<NewContactsTableProps> = ({ workspace }) => {
-  const { t } = useLingui()
+const NO_OWNERS = new Set<string>()
+
+function contactName(contact: Contact): string {
+  const name = [contact.first_name, contact.last_name].filter(Boolean).join(' ').trim()
+  return name || contact.full_name?.trim() || ''
+}
+
+/** The five latest contacts, newest first as contacts.list returns them. */
+export function NewContactsTable({
+  workspaceId,
+  canImport,
+  canReadLists = false,
+  ownerEmails = NO_OWNERS
+}: NewContactsTableProps) {
+  const { t, i18n } = useLingui()
   const navigate = useNavigate()
-  const [contacts, setContacts] = useState<Contact[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
-  // Fetch lists for the current workspace
-  const { data: listsData } = useQuery({
-    queryKey: ['lists', workspace.id],
-    queryFn: () => listsApi.list({ workspace_id: workspace.id })
+  const contacts = useQuery({
+    ...latestContactsQuery(workspaceId),
+    refetchInterval: DASHBOARD_REFRESH_MS
   })
 
-  const buildParams = (): ListContactsRequest => ({
-    workspace_id: workspace.id,
-    limit: 5,
-    with_contact_lists: true
-  })
-
-  const fetchData = async () => {
-    try {
-      setLoading(true)
-      setError(null)
-
-      const params = buildParams()
-      const response = await contactsApi.list(params)
-      setContacts(response.contacts)
-    } catch (err) {
-      console.error('Failed to fetch new contacts data:', err)
-      setError(err instanceof Error ? err.message : t`Failed to fetch new contacts data`)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleViewMore = () => {
-    navigate({
+  // The contact's sheet, over the whole list: an email filter left a list of one behind it.
+  const openContact = (contact: Contact) =>
+    void navigate({
       to: '/console/workspace/$workspaceId/contacts',
-      params: { workspaceId: workspace.id }
+      params: { workspaceId },
+      search: { contact: contact.email }
     })
-  }
 
-  useEffect(() => {
-    fetchData()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace.id])
-
-  const columns = [
-    {
-      title: t`Email`,
-      dataIndex: 'email',
-      key: 'email',
-      render: (email: string) => <span className="text-sm">{email}</span>
-    },
-    {
-      title: t`Lists`,
-      key: 'lists',
-      render: (record: Contact) => (
-        <Space orientation="vertical" size={2}>
-          {record.contact_lists.map(
-            (list: { list_id: string; status?: string; created_at?: string }) => {
-              let color = 'blue'
-              let icon = null
-              let statusText = ''
-
-              // Match status to color and icon
-              switch (list.status) {
-                case 'active':
-                  color = 'green'
-                  icon = <FontAwesomeIcon icon={faCircleCheck} style={{ marginRight: '4px' }} />
-                  statusText = t`Active subscriber`
-                  break
-                case 'pending':
-                  color = 'blue'
-                  icon = <FontAwesomeIcon icon={faHourglass} style={{ marginRight: '4px' }} />
-                  statusText = t`Pending confirmation`
-                  break
-                case 'unsubscribed':
-                  color = 'gray'
-                  icon = <FontAwesomeIcon icon={faBan} style={{ marginRight: '4px' }} />
-                  statusText = t`Unsubscribed from list`
-                  break
-                case 'bounced':
-                  color = 'orange'
-                  icon = (
-                    <FontAwesomeIcon icon={faTriangleExclamation} style={{ marginRight: '4px' }} />
-                  )
-                  statusText = t`Email bounced`
-                  break
-                case 'complained':
-                  color = 'red'
-                  icon = <FontAwesomeIcon icon={faFaceFrown} style={{ marginRight: '4px' }} />
-                  statusText = t`Marked as spam`
-                  break
-                default:
-                  color = 'blue'
-                  statusText = t`Status unknown`
-                  break
-              }
-
-              // Find list name from listsData
-              const listData = listsData?.lists?.find((l) => l.id === list.list_id)
-              const listName = listData?.name || list.list_id
-
-              // Format creation date if available using workspace timezone
-              const creationDate = list.created_at
-                ? dayjs(list.created_at).tz(workspace.settings.timezone).format('LL - HH:mm')
-                : t`Unknown date`
-
-              const tooltipTitle = (
-                <>
-                  <div>
-                    <strong>{statusText}</strong>
-                  </div>
-                  <div>{t`Subscribed on`}: {creationDate}</div>
-                  <div>
-                    <small>{t`Timezone`}: {workspace.settings.timezone}</small>
-                  </div>
-                </>
-              )
-
-              return (
-                <Tooltip key={list.list_id} title={tooltipTitle}>
-                  <Tag
-                    variant="filled"
-                    color={color}
-                    style={{ marginBottom: '2px' }}
-                    className="text-xs"
-                  >
-                    {icon}
-                    {listName}
-                  </Tag>
-                </Tooltip>
-              )
-            }
-          )}
-        </Space>
-      )
-    },
-    {
-      title: t`Name`,
-      key: 'name',
-      render: (record: Contact) => {
-        const name = [record.first_name, record.last_name].filter(Boolean).join(' ')
-        return <span className="text-sm">{name || '-'}</span>
-      }
-    },
-    {
-      title: t`Language`,
-      dataIndex: 'language',
-      key: 'language',
-      render: (language: string) => <span className="text-sm">{language || '-'}</span>
-    },
-    {
-      title: t`Timezone`,
-      dataIndex: 'timezone',
-      key: 'timezone',
-      render: (timezone: string) => <span className="text-sm">{timezone || '-'}</span>
-    },
-    {
-      title: t`Country`,
-      dataIndex: 'country',
-      key: 'country',
-      render: (country: string) => <span className="text-sm">{country || '-'}</span>
-    },
-    {
-      title: t`Since`,
-      dataIndex: 'created_at',
-      key: 'created_at',
-      render: (date: string) => (
-        <span
-          className="text-xs text-gray-500"
-          title={dayjs(date).tz(workspace.settings.timezone).format('lll')}
-        >
-          {dayjs(date).fromNow()}
-        </span>
-      )
-    }
-  ]
-
-  const cardExtra = (
-    <Button type="link" size="small" onClick={handleViewMore}>
-      {t`View more`}
-    </Button>
+  const extra = (
+    <Link to="/console/workspace/$workspaceId/contacts" params={{ workspaceId }}>
+      {t`All contacts`}
+    </Link>
   )
 
-  return (
-    <Card title={t`Recent New Contacts`} extra={cardExtra}>
-      {error ? (
-        <div className="text-red-500 p-4">
-          <p>{t`Error`}: {error}</p>
+  const rows = contacts.data?.contacts ?? []
+  const now = new Date()
+  const importButton = canImport ? (
+    <ImportContactsAction workspaceId={workspaceId} canReadLists={canReadLists}>
+      {t`Import contacts`}
+    </ImportContactsAction>
+  ) : null
+  let body
+  if (contacts.isError && !contacts.data) {
+    body = <BlockError error={contacts.error} onRetry={() => void contacts.refetch()} />
+  } else if (contacts.isLoading) {
+    body = (
+      <div className="px-3.5 py-3">
+        <Skeleton active paragraph={{ rows: 3 }} title={false} />
+      </div>
+    )
+  } else if (rows.length === 0) {
+    body = (
+      <div className="py-4">
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t`No contact yet`}>
+          {importButton}
+        </Empty>
+      </div>
+    )
+  } else {
+    const ownerOnly = hasOnlyOwnerContact(rows, ownerEmails)
+    body = (
+      <>
+      <Table<Contact>
+        size="small"
+        showHeader={false}
+        pagination={false}
+        rowKey="email"
+        dataSource={rows}
+        onRow={(contact) => openableRow(() => openContact(contact))}
+        columns={[
+          {
+            key: 'age',
+            width: 96,
+            render: (_, contact) => (
+              <span className="whitespace-nowrap text-xs text-ink-3 tabular-nums">
+                {formatAge(contact.created_at, now, i18n.locale)}
+              </span>
+            )
+          },
+          {
+            key: 'email',
+            ellipsis: true,
+            render: (_, contact) => <span className="text-ink">{contact.email}</span>
+          },
+          {
+            key: 'name',
+            ellipsis: true,
+            render: (_, contact) => <span className="text-ink-3">{contactName(contact)}</span>
+          }
+        ]}
+      />
+      {ownerOnly ? (
+        <div className="flex flex-col gap-2 border-t border-line-soft bg-subtle px-3.5 py-2.5">
+          <span className="text-sm text-ink-2">
+            {t`Only you so far. Import a CSV, or add contacts from your app through the API.`}
+          </span>
+          {importButton ? <div>{importButton}</div> : null}
         </div>
-      ) : (
-        <Table
-          dataSource={contacts}
-          columns={columns}
-          rowKey="email"
-          pagination={false}
-          loading={loading}
-          size="small"
-          showHeader={true}
-        />
-      )}
-    </Card>
+      ) : null}
+      </>
+    )
+  }
+
+  return (
+    <Panel title={t`New contacts`} extra={extra} flush>
+      {body}
+    </Panel>
   )
 }

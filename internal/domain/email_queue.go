@@ -69,6 +69,10 @@ type EmailQueuePayload struct {
 	FromName    string `json:"from_name"`
 	Subject     string `json:"subject"`
 	HTMLContent string `json:"html_content"`
+	// TextContent is a custom plain-text version, rendered for this recipient. Empty for
+	// the automatic version, which the worker's SendEmail generates from HTMLContent; an
+	// entry queued before this field existed reads as empty and gets the automatic text.
+	TextContent string `json:"text_content,omitempty"`
 
 	// Options
 	EmailOptions EmailOptions `json:"email_options"`
@@ -89,6 +93,17 @@ type EmailQueuePayload struct {
 	// and records the recipient-visible Message-ID for reply matching. Absent for
 	// all other sends (the feature is free for everyone else).
 	ContactAutomationID *string `json:"contact_automation_id,omitempty"`
+
+	// OpensTracked and ClicksTracked record what the compiled HTML carries, for
+	// message_history. An entry queued before they existed has neither.
+	OpensTracked  *bool `json:"opens_tracked,omitempty"`
+	ClicksTracked *bool `json:"clicks_tracked,omitempty"`
+
+	// RenderedLanguage is the template translation the email was rendered in, "" for
+	// the base content (Template.ResolvedLanguage). The worker records it in the
+	// message's metadata, so the web version shows the language that was sent. An
+	// entry queued before it existed has none.
+	RenderedLanguage *string `json:"rendered_language,omitempty"`
 }
 
 // ToSendEmailProviderRequest converts the payload to a SendEmailProviderRequest
@@ -103,6 +118,7 @@ func (p *EmailQueuePayload) ToSendEmailProviderRequest(workspaceID, integrationI
 		To:            toEmail,
 		Subject:       p.Subject,
 		Content:       p.HTMLContent,
+		TextContent:   p.TextContent,
 		Provider:      provider,
 		EmailOptions:  p.EmailOptions,
 	}
@@ -172,6 +188,11 @@ type EmailQueueRepository interface {
 
 	// MarkAsFailed marks an entry as failed and schedules retry
 	MarkAsFailed(ctx context.Context, workspaceID string, id string, errorMsg string, nextRetryAt *time.Time) error
+
+	// ReleaseThrottled gives back a row whose send the provider refused for its pace:
+	// the row is due again at once and the attempt its claim counted is returned. Only
+	// a row still processing is changed.
+	ReleaseThrottled(ctx context.Context, workspaceID string, id string, errorMsg string) error
 
 	// Delete removes a queue entry
 	Delete(ctx context.Context, workspaceID string, entryID string) error

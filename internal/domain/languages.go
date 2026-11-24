@@ -58,6 +58,7 @@ var SupportedUILanguages = map[string]string{
 	"pt-BR": "Português (Brasil)",
 	"ja":    "日本語",
 	"it":    "Italiano",
+	"el":    "Ελληνικά",
 }
 
 // IsSupportedUILanguage checks if the code is a supported UI / system-email locale.

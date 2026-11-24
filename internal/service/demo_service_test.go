@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -97,7 +98,7 @@ func TestDemoService_DeleteAllWorkspaces(t *testing.T) {
 func TestDemoService_GenerateSampleContactsBatch(t *testing.T) {
 	svc := &DemoService{logger: logger.NewLoggerWithLevel("disabled")}
 
-	batch := svc.generateSampleContactsBatch(10, 100)
+	batch := svc.generateSampleContactsBatch(10, 100, map[string]bool{})
 	assert.Len(t, batch, 10)
 	for i, c := range batch {
 		assert.NotEmpty(t, c.Email)
@@ -177,6 +178,7 @@ func TestNewDemoService_Constructs(t *testing.T) {
 		nil, // webhookSubscriptionService
 		nil, // automationService
 		nil, // authService
+		nil, // settingRepo
 	)
 	assert.NotNil(t, svc)
 }
@@ -532,10 +534,12 @@ func TestDemoService_CreateSampleTemplates_Smoke(t *testing.T) {
 	}, nil).AnyTimes()
 
 	var created []string
+	var templates []*domain.Template
 	mockTemplateRepo.EXPECT().
 		CreateTemplate(ctx, "demo", gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, template *domain.Template) error {
 			created = append(created, template.ID)
+			templates = append(templates, template)
 			return nil
 		}).
 		AnyTimes()
@@ -543,77 +547,24 @@ func TestDemoService_CreateSampleTemplates_Smoke(t *testing.T) {
 	err := svc.createSampleTemplates(ctx, "demo")
 	assert.NoError(t, err)
 
+	// The console requires a preview text in every language: a demo template without one could
+	// not be duplicated and saved until each was typed in again.
+	for _, template := range templates {
+		if assert.NotNil(t, template.Email.SubjectPreview, "%s has no preview text", template.ID) {
+			assert.NotEmpty(t, *template.Email.SubjectPreview, "%s has no preview text", template.ID)
+		}
+		for lang, translation := range template.Translations {
+			if assert.NotNil(t, translation.Email.SubjectPreview, "%s (%s) has no preview text", template.ID, lang) {
+				assert.NotEmpty(t, *translation.Email.SubjectPreview, "%s (%s) has no preview text", template.ID, lang)
+			}
+		}
+	}
+
 	// A CreateTemplate failure is only Warn-logged, so an automation's email node can end up pointing
 	// at a template that was never created without anything failing.
 	assert.Subset(t, created, []string{
 		"newsletter-weekly", "newsletter-weekly-v2", "welcome-email", "password-reset",
 		demoTemplateCartRecoveryA, demoTemplateCartRecoveryB, demoTemplateOrderThankYou, demoTemplateWinbackOffer,
-	})
-}
-
-func TestDemoService_CreateNewsletterStructures_NotNil(t *testing.T) {
-	svc := &DemoService{logger: logger.NewLoggerWithLevel("disabled")}
-
-	b1 := svc.createNewsletterMJMLStructure(getNewsletterContents()["en"])
-	b2 := svc.createNewsletterV2MJMLStructure(getNewsletterV2Contents()["en"])
-	b3 := svc.createWelcomeMJMLStructure(getWelcomeContents()["en"])
-	b4 := svc.createPasswordResetMJMLStructure(getPasswordResetContents()["en"])
-
-	assert.NotNil(t, b1)
-	assert.NotNil(t, b2)
-	assert.NotNil(t, b3)
-	assert.NotNil(t, b4)
-	assert.Equal(t, notifuse_mjml.MJMLComponentMjml, b1.GetType())
-	assert.Equal(t, notifuse_mjml.MJMLComponentMjml, b2.GetType())
-	assert.Equal(t, notifuse_mjml.MJMLComponentMjml, b3.GetType())
-	assert.Equal(t, notifuse_mjml.MJMLComponentMjml, b4.GetType())
-}
-
-func TestDemoService_ContentFactories(t *testing.T) {
-	langs := []string{"en", "fr", "es"}
-
-	t.Run("newsletter contents", func(t *testing.T) {
-		contents := getNewsletterContents()
-		for _, lang := range langs {
-			c, ok := contents[lang]
-			assert.True(t, ok, "missing language: %s", lang)
-			assert.NotEmpty(t, c.title)
-			assert.NotEmpty(t, c.mainText)
-			assert.Equal(t, lang, c.lang)
-		}
-	})
-
-	t.Run("newsletter v2 contents", func(t *testing.T) {
-		contents := getNewsletterV2Contents()
-		for _, lang := range langs {
-			c, ok := contents[lang]
-			assert.True(t, ok, "missing language: %s", lang)
-			assert.NotEmpty(t, c.title)
-			assert.NotEmpty(t, c.intro)
-			assert.Equal(t, lang, c.lang)
-		}
-	})
-
-	t.Run("welcome contents", func(t *testing.T) {
-		contents := getWelcomeContents()
-		for _, lang := range langs {
-			c, ok := contents[lang]
-			assert.True(t, ok, "missing language: %s", lang)
-			assert.NotEmpty(t, c.title)
-			assert.NotEmpty(t, c.welcome)
-			assert.Equal(t, lang, c.lang)
-		}
-	})
-
-	t.Run("password reset contents", func(t *testing.T) {
-		contents := getPasswordResetContents()
-		for _, lang := range langs {
-			c, ok := contents[lang]
-			assert.True(t, ok, "missing language: %s", lang)
-			assert.NotEmpty(t, c.title)
-			assert.NotEmpty(t, c.mainContent)
-			assert.Equal(t, lang, c.lang)
-		}
 	})
 }
 
@@ -667,7 +618,7 @@ func TestDemoService_GenerateMessageHistoryForContact(t *testing.T) {
 	}
 
 	baseTime := time.Now()
-	message, engagement := svc.generateMessageHistoryForContact(contact, "newsletter-weekly", 1, "test-broadcast", baseTime)
+	message, engagement := svc.generateMessageHistoryForContact(contact, "newsletter-weekly", 1, &domain.Broadcast{ID: "test-broadcast"}, baseTime, time.Now())
 
 	assert.NotNil(t, message)
 	_ = engagement // engagement not needed for this test
@@ -690,7 +641,7 @@ func TestDemoService_GenerateTransactionalMessageHistoryForContact(t *testing.T)
 	}
 
 	baseTime := time.Now()
-	message, engagement := svc.generateTransactionalMessageHistoryForContact(contact, "password-reset", 1, "password-reset", baseTime)
+	message, engagement := svc.generateTransactionalMessageHistoryForContact(contact, "password-reset", 1, "password-reset", baseTime, time.Now())
 
 	assert.NotNil(t, message)
 	_ = engagement // engagement not needed for this test
@@ -783,40 +734,64 @@ func TestDemoService_GenerateMessagesPerContact(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockMessageHistoryRepo := domainmocks.NewMockMessageHistoryRepository(ctrl)
+	mockBroadcastRepo := domainmocks.NewMockBroadcastRepository(ctrl)
 
 	svc := &DemoService{
 		logger:                  logger.NewLoggerWithLevel("disabled"),
 		messageHistoryRepo:      mockMessageHistoryRepo,
+		broadcastRepo:           mockBroadcastRepo,
 		inboundWebhookEventRepo: nil, // Won't be called in this test
 		workspaceService:        nil, // Won't be called in this test
 	}
 
 	ctx := context.Background()
-	contacts := []*domain.Contact{
-		{Email: "test1@example.com", FirstName: &domain.NullableString{String: "John", IsNull: false}},
-		{Email: "test2@example.com", FirstName: &domain.NullableString{String: "Jane", IsNull: false}},
+	contacts := []*domain.Contact{}
+	for i := 0; i < 60; i++ {
+		contacts = append(contacts, &domain.Contact{Email: fmt.Sprintf("test%d@example.com", i),
+			FirstName: &domain.NullableString{String: "John", IsNull: false}})
 	}
 
-	// Provide sample broadcast IDs
-	broadcastIDs := []string{"broadcast-1", "broadcast-2", "broadcast-3", "broadcast-4"}
+	// The sample broadcasts as the seed marks them sent; the last one is the A/B test.
+	broadcasts := demoTestBroadcasts(time.Now())
 
 	// Mock message history creation - each contact gets 2-4 messages
-	mockMessageHistoryRepo.EXPECT().Create(ctx, "demo", gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	recipients := map[string]int{}
+	mockMessageHistoryRepo.EXPECT().Create(ctx, "demo", gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _, _ string, message *domain.MessageHistory) error {
+			if message.BroadcastID != nil {
+				recipients[*message.BroadcastID]++
+			}
+			return nil
+		}).AnyTimes()
+	// The broadcasts are only given their counters here; saveSampleBroadcasts writes them.
+	mockBroadcastRepo.EXPECT().UpdateBroadcast(gomock.Any(), gomock.Any()).Times(0)
 	// Mock SetOpened and SetClicked for message_history updates (triggers timeline entries)
 	mockMessageHistoryRepo.EXPECT().SetOpened(ctx, "demo", gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	mockMessageHistoryRepo.EXPECT().SetClicked(ctx, "demo", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, _, _ string, _ time.Time, clickedURL string) error {
+	mockMessageHistoryRepo.EXPECT().SetClicked(ctx, "demo", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _, _ string, _ time.Time, clickedURL string, verified bool) error {
 			// Demo clicks must record a plausible https destination so the
 			// per-link click table is populated in demo workspaces
 			assert.True(t, strings.HasPrefix(clickedURL, "https://"))
+			assert.True(t, verified, "a demo click stands for a click through a signed link")
 			return nil
 		}).AnyTimes()
 
-	count, err := svc.generateMessagesPerContact(ctx, "demo", "test-secret-key", contacts, broadcastIDs)
+	count, err := svc.generateMessagesPerContact(ctx, "demo", "test-secret-key", contacts, broadcasts, time.Now())
 	// No error expected - webhook generation errors are logged but don't fail the operation
 	assert.NoError(t, err)
-	// With 2 contacts getting 2-4 messages each, expect at least 4 messages
-	assert.GreaterOrEqual(t, count, 4)
+	// With 60 contacts getting 2-4 messages each, expect at least 120 messages
+	assert.GreaterOrEqual(t, count, 120)
+
+	// Every broadcast has its emails as enqueued_count; only the A/B test has phase counts,
+	// which add up to them.
+	for _, b := range broadcasts {
+		assert.Equal(t, recipients[b.ID], b.EnqueuedCount, b.ID)
+		if b.ID == "bc-4" {
+			assert.Equal(t, recipients[b.ID], b.TestPhaseRecipientCount+b.WinnerPhaseRecipientCount)
+		} else {
+			assert.Zero(t, b.TestPhaseRecipientCount+b.WinnerPhaseRecipientCount, b.ID)
+		}
+	}
 }
 
 func TestDemoService_GenerateMessagesPerContact_EmptyContacts(t *testing.T) {
@@ -826,8 +801,7 @@ func TestDemoService_GenerateMessagesPerContact_EmptyContacts(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	broadcastIDs := []string{"broadcast-1", "broadcast-2", "broadcast-3", "broadcast-4"}
-	count, err := svc.generateMessagesPerContact(ctx, "demo", "test-secret-key", []*domain.Contact{}, broadcastIDs)
+	count, err := svc.generateMessagesPerContact(ctx, "demo", "test-secret-key", []*domain.Contact{}, demoTestBroadcasts(time.Now()), time.Now())
 
 	assert.NoError(t, err)
 	assert.Equal(t, 0, count)
@@ -836,7 +810,9 @@ func TestDemoService_GenerateMessagesPerContact_EmptyContacts(t *testing.T) {
 func TestNewDemoService_AllFields(t *testing.T) {
 	logger := logger.NewLoggerWithLevel("disabled")
 	config := &config.Config{}
-	authService := domainmocks.NewMockAuthService(gomock.NewController(t))
+	ctrl := gomock.NewController(t)
+	authService := domainmocks.NewMockAuthService(ctrl)
+	settingRepo := domainmocks.NewMockSettingRepository(ctrl)
 
 	svc := NewDemoService(
 		logger,
@@ -867,12 +843,14 @@ func TestNewDemoService_AllFields(t *testing.T) {
 		nil, // webhookSubscriptionService
 		nil, // automationService
 		authService,
+		settingRepo,
 	)
 
 	assert.NotNil(t, svc)
 	assert.Equal(t, logger, svc.logger)
 	assert.Equal(t, config, svc.config)
 	assert.Equal(t, authService, svc.authService, "the seed authenticates through it")
+	assert.Equal(t, settingRepo, svc.settingRepo, "the fixtures marker is kept through it")
 }
 
 func TestDemoService_GenerateWebhookEvents_ErrorGettingWorkspace(t *testing.T) {
@@ -914,7 +892,7 @@ func TestDemoService_GenerateMessageHistoryForContact_EngagementMetrics(t *testi
 	// Test multiple times - larger sample size for more reliable statistics
 	iterations := 200
 	for i := 0; i < iterations; i++ {
-		message, engagement := svc.generateMessageHistoryForContact(contact, "newsletter-weekly", 1, "test-broadcast", baseTime)
+		message, engagement := svc.generateMessageHistoryForContact(contact, "newsletter-weekly", 1, &domain.Broadcast{ID: "test-broadcast"}, baseTime, time.Now())
 
 		assert.NotNil(t, message)
 		assert.Equal(t, contact.Email, message.ContactEmail)
@@ -924,6 +902,14 @@ func TestDemoService_GenerateMessageHistoryForContact_EngagementMetrics(t *testi
 		assert.Equal(t, "email", message.Channel)
 		assert.NotNil(t, message.MessageData)
 		assert.False(t, message.SentAt.IsZero())
+
+		// Delivered or hard-bounced, never both, and a bounced email goes no further.
+		assert.NotEqual(t, engagement.shouldDeliver, engagement.shouldBounce)
+		if engagement.shouldBounce {
+			assert.False(t, engagement.shouldOpen)
+			assert.False(t, engagement.shouldClick)
+			assert.False(t, engagement.shouldComplain)
+		}
 
 		// Count engagement metrics from engagement struct
 		if engagement.shouldDeliver {
@@ -937,8 +923,8 @@ func TestDemoService_GenerateMessageHistoryForContact_EngagementMetrics(t *testi
 		}
 	}
 
-	// Verify all messages are delivered (100% delivery rate)
-	assert.Equal(t, iterations, deliveredCount, "All messages should be delivered (100%% delivery rate)")
+	// Nearly every message is delivered: SES hard-bounces a small share.
+	assert.Greater(t, deliveredCount, iterations*9/10)
 
 	// Verify some engagement is happening (with very wide tolerances for statistical variance)
 	assert.Greater(t, openedCount, 0, "At least some messages should be opened")
@@ -962,7 +948,7 @@ func TestDemoService_GenerateTransactionalMessageHistoryForContact_PasswordReset
 	// Test multiple times - larger sample size for more reliable statistics
 	iterations := 200
 	for i := 0; i < iterations; i++ {
-		message, engagement := svc.generateTransactionalMessageHistoryForContact(contact, "password-reset", 1, "password-reset", baseTime)
+		message, engagement := svc.generateTransactionalMessageHistoryForContact(contact, "password-reset", 1, "password-reset", baseTime, time.Now())
 
 		assert.NotNil(t, message)
 		assert.Equal(t, contact.Email, message.ContactEmail)
@@ -983,6 +969,14 @@ func TestDemoService_GenerateTransactionalMessageHistoryForContact_PasswordReset
 		assert.True(t, ok)
 		assert.True(t, metadata.(bool))
 
+		// Delivered or hard-bounced, never both, and a bounced email goes no further.
+		assert.NotEqual(t, engagement.shouldDeliver, engagement.shouldBounce)
+		if engagement.shouldBounce {
+			assert.False(t, engagement.shouldOpen)
+			assert.False(t, engagement.shouldClick)
+			assert.False(t, engagement.shouldComplain)
+		}
+
 		// Count engagement metrics from engagement struct
 		if engagement.shouldDeliver {
 			deliveredCount++
@@ -995,8 +989,8 @@ func TestDemoService_GenerateTransactionalMessageHistoryForContact_PasswordReset
 		}
 	}
 
-	// Verify all messages are delivered (100% delivery rate)
-	assert.Equal(t, iterations, deliveredCount, "All messages should be delivered (100%% delivery rate)")
+	// Nearly every message is delivered: SES hard-bounces a small share.
+	assert.Greater(t, deliveredCount, iterations*9/10)
 
 	// Verify some engagement is happening (with very wide tolerances for statistical variance)
 	assert.Greater(t, openedCount, 0, "At least some messages should be opened")
@@ -1013,7 +1007,7 @@ func TestDemoService_GenerateTransactionalMessageHistoryForContact_Welcome(t *te
 	}
 
 	baseTime := time.Now()
-	message, engagement := svc.generateTransactionalMessageHistoryForContact(contact, "welcome-email", 1, "welcome", baseTime)
+	message, engagement := svc.generateTransactionalMessageHistoryForContact(contact, "welcome-email", 1, "welcome", baseTime, time.Now())
 
 	assert.NotNil(t, message)
 	_ = engagement // engagement not needed for this test
@@ -1418,10 +1412,55 @@ func TestDemoService_CreateSampleTemplates_RefusesLoudlyWhenUnlicensed(t *testin
 	require.Error(t, err, "an unlicensed demo must fail, not seed a half-built workspace")
 	// Fail-fast, at the FIRST refused template: a seeder that warned on the first and only
 	// errored on a later one would still return an error, and this is what tells them apart.
-	assert.Contains(t, err.Error(), "newsletter template")
+	assert.Contains(t, err.Error(), "newsletter-weekly template")
 	var refused *domain.ErrFeatureNotLicensed
 	assert.True(t, errors.As(err, &refused), "the error must name the licence, not a generic failure: %v", err)
 	if refused != nil {
 		assert.Equal(t, domain.FeatureTemplateI18n, refused.Feature)
 	}
+}
+
+// Each demo transactional email carries the ID of the notification that sends it, so the
+// dashboard and the Logs page count it as transactional and not as other.
+func TestDemoService_TransactionalMessagesCarryTheirNotification(t *testing.T) {
+	svc := &DemoService{logger: logger.NewLoggerWithLevel("disabled")}
+	contact := &domain.Contact{Email: "test@example.com"}
+
+	for messageType, want := range map[string]string{"password-reset": "password_reset", "welcome": "welcome"} {
+		templateID := map[string]string{"password-reset": "password-reset", "welcome": "welcome-email"}[messageType]
+		message, _ := svc.generateTransactionalMessageHistoryForContact(contact, templateID, 1, messageType, time.Now(), time.Now())
+		require.NotNil(t, message.TransactionalNotificationID, messageType)
+		assert.Equal(t, want, *message.TransactionalNotificationID, messageType)
+		assert.Nil(t, message.BroadcastID, messageType)
+		assert.Nil(t, message.AutomationID, messageType)
+	}
+
+	// Every transactional email the demo sends has its notification, so a type added there
+	// fails here until it gets one.
+	require.NotEmpty(t, demoTransactionalCampaigns)
+	for _, campaign := range demoTransactionalCampaigns {
+		assert.Nil(t, campaign.broadcast, campaign.messageType)
+		message, _ := svc.generateTransactionalMessageHistoryForContact(contact, campaign.templateID, campaign.templateVersion, campaign.messageType, time.Now(), time.Now())
+		assert.NotNil(t, message.TransactionalNotificationID, "%s has no demo notification", campaign.messageType)
+	}
+}
+
+// A click that cannot be recorded does not stop the others: the demo data is filled in
+// as far as it can be.
+func TestDemoService_UpdateClickedMessagesForBatch_ContinuesAfterAFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ctx := context.Background()
+	repo := domainmocks.NewMockMessageHistoryRepository(ctrl)
+	svc := &DemoService{logger: logger.NewLoggerWithLevel("disabled"), messageHistoryRepo: repo}
+	clickedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	batch := []messageEngagementData{
+		{message: &domain.MessageHistory{ID: "m1"}, engagement: messageEngagement{shouldClick: true, clickedTime: clickedAt}},
+		{message: &domain.MessageHistory{ID: "m2"}, engagement: messageEngagement{shouldClick: false}},
+		{message: &domain.MessageHistory{ID: "m3"}, engagement: messageEngagement{shouldClick: true, clickedTime: clickedAt}},
+	}
+	gomock.InOrder(
+		repo.EXPECT().SetClicked(ctx, "demo", "m1", clickedAt, demoClickedURLs[0], true).Return(errors.New("db down")),
+		repo.EXPECT().SetClicked(ctx, "demo", "m3", clickedAt, demoClickedURLs[2], true).Return(nil),
+	)
+	assert.NoError(t, svc.updateClickedMessagesForBatch(ctx, "demo", batch))
 }

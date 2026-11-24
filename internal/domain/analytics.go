@@ -121,6 +121,33 @@ var PredefinedSchemas = map[string]analytics.SchemaDefinition{
 					{SQL: "channel = 'email'"},
 				},
 			},
+			// The denominators of the open and click rates: emails sent with the
+			// open pixel, and with the click redirect. A message sent before the
+			// flags existed has them NULL and counts as tracked.
+			"count_opens_tracked": {
+				Type:        "count",
+				Title:       "Sent Emails Tracked for Opens",
+				SQL:         "*",
+				Description: "Email messages accepted by the email provider that carried the open pixel",
+				Filters: []analytics.MeasureFilter{
+					{SQL: "sent_at IS NOT NULL"},
+					{SQL: "failed_at IS NULL"},
+					{SQL: "channel = 'email'"},
+					{SQL: "opens_tracked IS NOT FALSE"},
+				},
+			},
+			"count_clicks_tracked": {
+				Type:        "count",
+				Title:       "Sent Emails Tracked for Clicks",
+				SQL:         "*",
+				Description: "Email messages accepted by the email provider whose links went through the click redirect",
+				Filters: []analytics.MeasureFilter{
+					{SQL: "sent_at IS NOT NULL"},
+					{SQL: "failed_at IS NULL"},
+					{SQL: "channel = 'email'"},
+					{SQL: "clicks_tracked IS NOT FALSE"},
+				},
+			},
 			"count_broadcast_messages": {
 				Type:        "count",
 				Title:       "Broadcast Messages",
@@ -134,8 +161,10 @@ var PredefinedSchemas = map[string]analytics.SchemaDefinition{
 				Type:        "count",
 				Title:       "Transactional Messages",
 				SQL:         "*",
-				Description: "Total number of transactional messages",
+				Description: "Messages sent by a transactional notification, what the origin dimension calls transactional: not automation emails, template tests or double opt-in confirmations",
 				Filters: []analytics.MeasureFilter{
+					{SQL: "transactional_notification_id IS NOT NULL"},
+					{SQL: "automation_id IS NULL"},
 					{SQL: "broadcast_id IS NULL"},
 				},
 			},
@@ -159,6 +188,19 @@ var PredefinedSchemas = map[string]analytics.SchemaDefinition{
 					{SQL: "failed_at IS NULL"},
 				},
 			},
+			"last_sent_at": {
+				Type:        "max",
+				Title:       "Last Sent At",
+				SQL:         "sent_at",
+				Description: "When the most recent message accepted by the email provider was sent: for a transactional message, just before the provider call; for a broadcast or automation message, the time its email was queued",
+				Filters: []analytics.MeasureFilter{
+					// sent_at is stamped whatever the outcome (see count_sent), and a retry
+					// upsert does not move it. A transactional message's sent_at is taken just
+					// before the provider call; a broadcast or automation message's is the time
+					// its email was queued, which can be hours before it left under a rate limit.
+					{SQL: "failed_at IS NULL"},
+				},
+			},
 		},
 		Dimensions: map[string]analytics.DimensionDefinition{
 			"created_at": {
@@ -173,6 +215,19 @@ var PredefinedSchemas = map[string]analytics.SchemaDefinition{
 				SQL:         "sent_at",
 				Description: "Message sent timestamp",
 			},
+			// No index on either column: the console always filters on broadcast_id too.
+			"opened_at": {
+				Type:        "time",
+				Title:       "Opened At",
+				SQL:         "opened_at",
+				Description: "When the message was first opened; a click counts as an open when opens are tracked",
+			},
+			"clicked_at": {
+				Type:        "time",
+				Title:       "Clicked At",
+				SQL:         "clicked_at",
+				Description: "When a link in the message was first clicked",
+			},
 			"contact_email": {
 				Type:        "string",
 				Title:       "Contact Email",
@@ -184,6 +239,12 @@ var PredefinedSchemas = map[string]analytics.SchemaDefinition{
 				Title:       "Broadcast ID",
 				SQL:         "broadcast_id",
 				Description: "Associated broadcast ID",
+			},
+			"automation_id": {
+				Type:        "string",
+				Title:       "Automation ID",
+				SQL:         "automation_id",
+				Description: "Automation that sent the message",
 			},
 			"channel": {
 				Type:        "string",
@@ -208,6 +269,17 @@ var PredefinedSchemas = map[string]analytics.SchemaDefinition{
 				Title:       "Transactional Notification ID",
 				SQL:         "transactional_notification_id",
 				Description: "Transactional notification identifier",
+			},
+			// Parenthesised: the query builder copies a dimension's SQL into SELECT, GROUP BY
+			// and filters. The values and their order are those of the messages.list origin
+			// filter: an automation email that also carries a notification ID is the
+			// automation's. A broadcast's test send carries its broadcast_id; template tests and
+			// double opt-in confirmations carry no ID and count as other.
+			"origin": {
+				Type:        "string",
+				Title:       "Origin",
+				SQL:         "(CASE WHEN broadcast_id IS NOT NULL THEN 'broadcast' WHEN automation_id IS NOT NULL THEN 'automation' WHEN transactional_notification_id IS NOT NULL THEN 'transactional' ELSE 'other' END)",
+				Description: "What sent the message: broadcast, automation, transactional, or other (none of the three, such as template tests and double opt-in confirmations)",
 			},
 		},
 	},

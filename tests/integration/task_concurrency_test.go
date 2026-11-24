@@ -22,7 +22,7 @@ import (
 // dispatching connection: a task now outlives the request that started it, so
 // overlapping triggers are likelier than they were.
 //
-// Plan: plans/task-orchestrator-test-coverage-plan.md
+// Plan: Notifuse/architecture plans/notifuse/task-orchestrator-test-coverage-plan.md
 
 // taskExecutePath is the one endpoint these helpers have to sign.
 const taskExecutePath = "/api/tasks.execute"
@@ -146,8 +146,12 @@ func TestCron_ConcurrentTriggerIsRejected(t *testing.T) {
 	assert.Equal(t, true, secondBody["already_running"],
 		"a trigger arriving while a run is in flight must not start another")
 
-	// Let the first run finish so the suite tears down cleanly.
-	waitForQueuedCount(t, h, 1, 30*time.Second)
+	// Wait for the broadcast task of the first run to complete, so the
+	// duplicate check sees everything that run enqueued and the suite does not
+	// tear down under that task (the rest of the cron run is not waited for).
+	// Not fatal: a run that never completes still reports the duplicate check.
+	status := waitForTaskStatus(t, h, "completed", 30*time.Second)
+	assert.Equal(t, "completed", status, "the first run should finish")
 	rows, distinct := duplicateEnqueueCheck(t, h)
 	assert.Equal(t, rows, distinct, "the rejected trigger must not have duplicated work")
 }

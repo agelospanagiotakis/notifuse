@@ -20,13 +20,20 @@ import {
   mockEmptyBroadcasts,
   mockTemplatesResponse,
   mockEmptyTemplates,
+  mockTemplatesUsage,
+  mockEmptyTemplatesUsage,
   mockTransactionalResponse,
   mockEmptyTransactional,
   mockEmptyLogs,
+  mockEmptyMessageCounts,
   mockEmptyFiles,
   mockTotalContacts,
-  mockAnalyticsData,
+  mockAnalyticsAnswer,
+  emptyBroadcastStats,
+  emptyBroadcastQueue,
+  type MockAnalyticsQuery,
   mockBlogPostsResponse,
+  mockBlogPostCounts,
   mockBlogCategoriesResponse,
   mockBlogThemesResponse,
   mockSuccessResponse,
@@ -40,7 +47,9 @@ import {
   mockBlogPostCreateResponse,
   mockBlogCategoryCreateResponse,
   mockTestEmailResponse,
-  mockCompiledTemplate
+  mockCompiledTemplate,
+  mockAutomationsResponse,
+  mockAutomationNodeStats
 } from './mock-data'
 
 // Helper to create JSON response
@@ -130,8 +139,23 @@ async function setupApiMocks(page: Page, config: MockConfig = {}) {
     ) {
       return route.fulfill(jsonResponse(mockTotalContacts))
     }
+    if (url.includes('/api/contacts.getByEmail')) {
+      // The contact sheet reads its contact by exact email.
+      const email = new URL(url).searchParams.get('email')
+      const contact = mockContactsResponse.contacts.find((c) => c.email === email)
+      return contact
+        ? route.fulfill(jsonResponse({ contact }))
+        : route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'contact not found' }) })
+    }
     if (url.includes('/api/contact.get') || url.includes('/api/contacts.get')) {
       return route.fulfill(jsonResponse({ contact: mockContactsResponse.contacts[0] }))
+    }
+    // The contact sheet's activity and web visits: none in these fixtures.
+    if (url.includes('/api/timeline.list')) {
+      return route.fulfill(jsonResponse({ timeline: [] }))
+    }
+    if (url.includes('/api/webAnalytics.contactVisits')) {
+      return route.fulfill(jsonResponse({ sessions: [] }))
     }
     if (
       url.includes('/api/contact.upsert') ||
@@ -163,8 +187,13 @@ async function setupApiMocks(page: Page, config: MockConfig = {}) {
         jsonResponse({ list_id: listId, stats: mockListStats[listId] || emptyListStats })
       )
     }
+    // The list of that ID, or 404 as the server answers: the list drawer checks a new ID with it.
     if (url.includes('/api/list.get') || url.includes('/api/lists.get')) {
-      return route.fulfill(jsonResponse({ list: mockListsResponse.lists[0] }))
+      const listId = new URL(url).searchParams.get('id')
+      const found = withData ? mockListsResponse.lists.find((list) => list.id === listId) : undefined
+      return found
+        ? route.fulfill(jsonResponse({ list: found }))
+        : route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'List not found' }) })
     }
     if (url.includes('/api/list.create') || url.includes('/api/lists.create')) {
       return route.fulfill(jsonResponse(mockListCreateResponse))
@@ -221,6 +250,9 @@ async function setupApiMocks(page: Page, config: MockConfig = {}) {
     if (url.includes('/api/template.list') || url.includes('/api/templates.list')) {
       return route.fulfill(jsonResponse(withData ? mockTemplatesResponse : mockEmptyTemplates))
     }
+    if (url.includes('/api/templates.usage')) {
+      return route.fulfill(jsonResponse(withData ? mockTemplatesUsage : mockEmptyTemplatesUsage))
+    }
     if (url.includes('/api/template.get') || url.includes('/api/templates.get')) {
       // Check if it's a validation call for a new template (ID check)
       // If the ID matches a known template, return it; otherwise return 404 for validation to pass
@@ -268,7 +300,11 @@ async function setupApiMocks(page: Page, config: MockConfig = {}) {
       return route.fulfill(jsonResponse(withData ? mockBroadcastsResponse : mockEmptyBroadcasts))
     }
     if (url.includes('/api/broadcast.get') || url.includes('/api/broadcasts.get')) {
-      return route.fulfill(jsonResponse({ broadcast: mockBroadcastsResponse.broadcasts[0] }))
+      const id = new URL(url).searchParams.get('id')
+      const broadcast = mockBroadcastsResponse.broadcasts.find((b) => b.id === id)
+      return broadcast
+        ? route.fulfill(jsonResponse({ broadcast }))
+        : route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'Broadcast not found' }) })
     }
     if (url.includes('/api/broadcast.create') || url.includes('/api/broadcasts.create')) {
       return route.fulfill(jsonResponse(mockBroadcastCreateResponse))
@@ -322,16 +358,25 @@ async function setupApiMocks(page: Page, config: MockConfig = {}) {
     // AUTOMATIONS
     // ============================================
     if (url.includes('/api/automation.list') || url.includes('/api/automations.list')) {
-      return route.fulfill(jsonResponse({ automations: [] }))
+      return route.fulfill(jsonResponse(withData ? mockAutomationsResponse : { automations: [], total: 0, journey_counts: {} }))
+    }
+    if (url.includes('/api/automations.nodeStats')) {
+      return route.fulfill(jsonResponse(mockAutomationNodeStats))
     }
     if (url.includes('/api/automation.get') || url.includes('/api/automations.get')) {
-      return route.fulfill(jsonResponse({ automation: null }))
+      const id = new URL(url).searchParams.get('automation_id')
+      const automation = withData ? mockAutomationsResponse.automations.find((a) => a.id === id) : undefined
+      return automation
+        ? route.fulfill(jsonResponse({ automation }))
+        : route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'Automation not found' }) })
     }
     if (url.includes('/api/automation.create') || url.includes('/api/automations.create')) {
-      return route.fulfill(jsonResponse({ automation: { id: 'new-automation' } }))
+      const body = route.request().postDataJSON() as { automation?: Record<string, unknown> } | null
+      return route.fulfill(jsonResponse({ automation: body?.automation ?? { id: 'new-automation' } }))
     }
     if (url.includes('/api/automation.update') || url.includes('/api/automations.update')) {
-      return route.fulfill(jsonResponse({ automation: { id: 'updated-automation' } }))
+      const body = route.request().postDataJSON() as { automation?: Record<string, unknown> } | null
+      return route.fulfill(jsonResponse({ automation: body?.automation ?? { id: 'updated-automation' } }))
     }
     if (url.includes('/api/automation.delete') || url.includes('/api/automations.delete')) {
       return route.fulfill(jsonResponse(mockSuccessResponse))
@@ -344,7 +389,11 @@ async function setupApiMocks(page: Page, config: MockConfig = {}) {
       return route.fulfill(jsonResponse(withData ? mockTransactionalResponse : mockEmptyTransactional))
     }
     if (url.includes('/api/transactional.get')) {
-      return route.fulfill(jsonResponse({ notification: mockTransactionalResponse.notifications[0] }))
+      // The notification of the requested id, so a sheet opened by URL shows that one.
+      const id = new URL(url).searchParams.get('id')
+      const notification =
+        mockTransactionalResponse.notifications.find((item) => item.id === id) ?? mockTransactionalResponse.notifications[0]
+      return route.fulfill(jsonResponse({ notification }))
     }
     if (url.includes('/api/transactional.create')) {
       return route.fulfill(jsonResponse(mockTransactionalCreateResponse))
@@ -362,6 +411,9 @@ async function setupApiMocks(page: Page, config: MockConfig = {}) {
     // ============================================
     // BLOG (supports blogPosts.*, blog.post.*, and blog_post.* patterns)
     // ============================================
+    if (url.includes('/api/blogPosts.counts')) {
+      return route.fulfill(jsonResponse(mockBlogPostCounts))
+    }
     if (url.includes('/api/blogPosts.list') || url.includes('/api/blog.post.list') || url.includes('/api/blog_post.list')) {
       return route.fulfill(jsonResponse(mockBlogPostsResponse))
     }
@@ -429,6 +481,29 @@ async function setupApiMocks(page: Page, config: MockConfig = {}) {
     // ============================================
     // LOGS & ANALYTICS (supports both singular and plural API routes)
     // ============================================
+    // A broadcast's numbers, as the server answers them for a broadcast with no message yet
+    if (url.includes('/api/messages.broadcastStats')) {
+      const broadcastId = new URL(url).searchParams.get('broadcast_id') ?? ''
+      return route.fulfill(
+        jsonResponse({ broadcast_id: broadcastId, stats: emptyBroadcastStats, queue: emptyBroadcastQueue })
+      )
+    }
+    if (url.includes('/api/messages.broadcastVariationStats')) {
+      const params = new URL(url).searchParams
+      return route.fulfill(
+        jsonResponse({
+          broadcast_id: params.get('broadcast_id') ?? '',
+          template_id: params.get('template_id') ?? '',
+          stats: emptyBroadcastStats
+        })
+      )
+    }
+    if (url.includes('/api/messages.broadcastLinkStats')) {
+      return route.fulfill(jsonResponse({ link_stats: [] }))
+    }
+    if (url.includes('/api/messages.count')) {
+      return route.fulfill(jsonResponse(mockEmptyMessageCounts))
+    }
     if (
       url.includes('/api/log.list') ||
       url.includes('/api/logs.list') ||
@@ -438,7 +513,9 @@ async function setupApiMocks(page: Page, config: MockConfig = {}) {
       return route.fulfill(jsonResponse(mockEmptyLogs))
     }
     if (url.includes('/api/analytics')) {
-      return route.fulfill(jsonResponse(mockAnalyticsData))
+      // Answered by what the query asks: its measures, its dimensions and its days
+      const body = route.request().postDataJSON() as { query?: MockAnalyticsQuery } | null
+      return route.fulfill(jsonResponse(mockAnalyticsAnswer(body?.query ?? {})))
     }
 
     // ============================================
@@ -511,6 +588,9 @@ export const test = base.extend<{
     // Set auth token and force English locale in localStorage via page context
     // Also clear any cached locale to ensure fresh start
     await page.addInitScript(() => {
+      // The top frame only: the script also runs in every frame of the console's origin (the
+      // thumbnail of a raw HTML block), which would clear the storage of the page under test
+      if (window !== window.top) return
       // Clear storage first
       localStorage.clear()
       // Set required values
@@ -532,6 +612,9 @@ export const test = base.extend<{
     // Set auth token and force English locale in localStorage via page context
     // Also clear any cached locale to ensure fresh start
     await page.addInitScript(() => {
+      // The top frame only: the script also runs in every frame of the console's origin (the
+      // thumbnail of a raw HTML block), which would clear the storage of the page under test
+      if (window !== window.top) return
       // Clear storage first
       localStorage.clear()
       // Set required values

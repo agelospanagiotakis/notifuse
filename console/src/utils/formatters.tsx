@@ -1,7 +1,9 @@
 import React from 'react'
 import { Tag, Tooltip } from 'antd'
-import numbro from 'numbro'
+import { i18n } from '@lingui/core'
+import { msg } from '@lingui/core/macro'
 import dayjs from '../lib/dayjs'
+import { onZoneClock } from '../lib/zoneClock'
 
 /**
  * Smart formatting for all JSON types
@@ -17,21 +19,14 @@ export const formatValue = (value: unknown, timezone?: string): React.ReactNode 
     return <Tag color={value ? 'green' : 'red'}>{value ? 'true' : 'false'}</Tag>
   }
 
-  // Format number values with numbro
+  // Numbers with the separators of the console's language: "12 345" in French, "12,345" in
+  // English. A positive decimal keeps up to two digits ("1 234,57"); anything else is rounded
+  // half up first, as before, and `|| 0` turns a rounded -0 into 0 rather than "-0" (and NaN,
+  // which JSON cannot carry, into 0).
   if (typeof value === 'number') {
-    // For currency-like fields (decimals)
-    if (String(value).includes('.') && value > 0) {
-      return numbro(value).format({
-        thousandSeparated: true,
-        mantissa: 2,
-        trimMantissa: true
-      })
-    }
-    // For integer values
-    return numbro(value).format({
-      thousandSeparated: true,
-      mantissa: 0
-    })
+    const decimals = String(value).includes('.') && value > 0 ? 2 : 0
+    const shown = decimals ? value : Math.round(value) || 0
+    return new Intl.NumberFormat(i18n.locale || 'en', { maximumFractionDigits: decimals }).format(shown)
   }
 
   // Handle date strings (ISO 8601 format)
@@ -41,9 +36,15 @@ export const formatValue = (value: unknown, timezone?: string): React.ReactNode 
   ) {
     const date = dayjs(value)
     if (date.isValid()) {
-      const timezoneSuffix = timezone ? ` in ${timezone}` : ''
+      // On the clock of the timezone it names, in the console's language; without one, the
+      // browser's clock and no zone name.
+      const clock = timezone ? onZoneClock(date, timezone) : undefined
+      const when = clock ? clock.when.format('LLLL') : date.format('LLLL')
+      // Named `zone` so the message is the "{when} in {zone}" already translated for the timeline.
+      const zone = clock?.zone
+      const title = zone ? i18n._(msg`${when} in ${zone}`) : when
       return (
-        <Tooltip title={`${date.format('LLLL')}${timezoneSuffix}`}>
+        <Tooltip title={title}>
           <span style={{ cursor: 'help', borderBottom: '1px dotted #999' }}>
             {date.fromNow()}
           </span>
@@ -89,50 +90,4 @@ export const formatValue = (value: unknown, timezone?: string): React.ReactNode 
   }
 
   return String(value)
-}
-
-/**
- * Convert semantic event names to human-readable format
- * Examples:
- *   "orders/fulfilled" → "Orders Fulfilled"
- *   "payment.succeeded" → "Payment Succeeded"
- *   "user_login" → "User Login"
- */
-export const formatEventName = (eventName: string): string => {
-  if (!eventName) return ''
-
-  // Split on /, ., or _
-  const parts = eventName.split(/[/._]/)
-
-  // Capitalize each word
-  const formatted = parts
-    .map((part) => {
-      if (!part) return ''
-      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
-    })
-    .join(' ')
-    .trim()
-
-  return formatted
-}
-
-/**
- * Returns colored Tag component for custom event sources
- * - API: blue
- * - Integration: green
- * - Import: orange
- */
-export const getSourceBadge = (source: string): React.ReactElement => {
-  const sourceMap: Record<string, { color: string; label: string }> = {
-    api: { color: 'blue', label: 'API' },
-    integration: { color: 'green', label: 'Integration' },
-    import: { color: 'orange', label: 'Import' }
-  }
-
-  const sourceInfo = sourceMap[source.toLowerCase()] || {
-    color: 'default',
-    label: source
-  }
-
-  return <Tag color={sourceInfo.color}>{sourceInfo.label}</Tag>
 }

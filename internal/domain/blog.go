@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 //go:generate mockgen -destination mocks/mock_blog_service.go -package mocks github.com/Notifuse/notifuse/internal/domain BlogService
@@ -283,6 +284,12 @@ func (p *BlogPost) IsPublished() bool {
 	return p.PublishedAt != nil
 }
 
+// IsLive returns true if the post is published and its publication date has
+// come: a post scheduled after now is published but not public yet.
+func (p *BlogPost) IsLive(now time.Time) bool {
+	return p.PublishedAt != nil && !p.PublishedAt.After(now)
+}
+
 // GetEffectiveSEOSettings merges the post's SEO settings with the category's defaults
 func (p *BlogPost) GetEffectiveSEOSettings(category *BlogCategory) *SEOSettings {
 	if category == nil {
@@ -334,7 +341,72 @@ func (r *CreateBlogCategoryRequest) Validate() error {
 		return fmt.Errorf("slug must be less than 100 characters")
 	}
 
+	if IsReservedBlogCategorySlug(r.Slug) {
+		return fmt.Errorf("slug is reserved by another route")
+	}
+
 	return nil
+}
+
+// BlogCategorySlugRoute says which of a category's addresses another route of the server
+// answers before the blog does.
+type BlogCategorySlugRoute int
+
+const (
+	// BlogCategorySlugFree: every address of the category reaches the blog.
+	BlogCategorySlugFree BlogCategorySlugRoute = iota
+	// BlogCategorySlugPageTaken: a route registered for the exact path /<slug> answers the
+	// category's page; its posts (/<slug>/<post>) and its feed (/<slug>/feed.xml) still
+	// reach the blog.
+	BlogCategorySlugPageTaken
+	// BlogCategorySlugSubtreeTaken: a route answers /<slug> and every path under it, so none
+	// of the category's addresses reaches the blog.
+	BlogCategorySlugSubtreeTaken
+)
+
+// blogCategorySlugExactRoutes are the paths registered as exact patterns (no trailing slash)
+// on the server's mux: the email tracking, web analytics collector, public preference and
+// health routes.
+var blogCategorySlugExactRoutes = []string{
+	"visit", "opens", "track",
+	"preferences", "subscribe", "unsubscribe", "unsubscribe-oneclick",
+	"health", "healthz",
+}
+
+// blogCategorySlugSubtreeRoutes are the paths registered as subtree patterns ("/v/" and the
+// like): the web version and the encrypted open and click links.
+var blogCategorySlugSubtreeRoutes = []string{"v", "t", "r"}
+
+// blogCategorySlugSubtreePrefixes are matched by string prefix by the root handler before
+// the blog, so a slug starting with one of them loses every address.
+var blogCategorySlugSubtreePrefixes = []string{"api", "console", "notification-center"}
+
+// BlogCategorySlugRouteOf says which addresses of a category with this slug another route
+// takes. Paths that only start with the slug's segment, such as /webhooks/email, are not
+// counted: they take one post address, not the category.
+func BlogCategorySlugRouteOf(slug string) BlogCategorySlugRoute {
+	for _, prefix := range blogCategorySlugSubtreePrefixes {
+		if strings.HasPrefix(slug, prefix) {
+			return BlogCategorySlugSubtreeTaken
+		}
+	}
+	for _, route := range blogCategorySlugSubtreeRoutes {
+		if slug == route {
+			return BlogCategorySlugSubtreeTaken
+		}
+	}
+	for _, route := range blogCategorySlugExactRoutes {
+		if slug == route {
+			return BlogCategorySlugPageTaken
+		}
+	}
+	return BlogCategorySlugFree
+}
+
+// IsReservedBlogCategorySlug reports whether another route answers at least one address of a
+// category with this slug: a new or renamed category may not take it.
+func IsReservedBlogCategorySlug(slug string) bool {
+	return BlogCategorySlugRouteOf(slug) != BlogCategorySlugFree
 }
 
 // UpdateBlogCategoryRequest defines the request to update a blog category
@@ -581,7 +653,26 @@ const (
 	BlogPostStatusAll       BlogPostStatus = "all"
 	BlogPostStatusDraft     BlogPostStatus = "draft"
 	BlogPostStatusPublished BlogPostStatus = "published"
+	// BlogPostStatusScheduled lists posts whose publication date is still to come.
+	BlogPostStatusScheduled BlogPostStatus = "scheduled"
 )
+
+// BlogPostSearchMaxLength caps the search of blogPosts.list, in characters.
+const BlogPostSearchMaxLength = 200
+
+// NormalizeBlogPostSearch trims a title search and refuses one PostgreSQL cannot read or longer
+// than BlogPostSearchMaxLength. blogPosts.list and blogPosts.counts both pass it, so they read
+// the same search the same way.
+func NormalizeBlogPostSearch(search string) (string, error) {
+	search = strings.TrimSpace(search)
+	if !utf8.ValidString(search) || strings.ContainsRune(search, 0) {
+		return "", ValidationError{Message: "search must be valid UTF-8 text without NUL bytes"}
+	}
+	if utf8.RuneCountInString(search) > BlogPostSearchMaxLength {
+		return "", ValidationError{Message: fmt.Sprintf("search must be at most %d characters", BlogPostSearchMaxLength)}
+	}
+	return search, nil
+}
 
 // ListBlogPostsRequest defines the request to list blog posts
 type ListBlogPostsRequest struct {
@@ -590,6 +681,15 @@ type ListBlogPostsRequest struct {
 	Page       int            `json:"page,omitempty"`   // Page number (1-indexed)
 	Limit      int            `json:"limit,omitempty"`  // Posts per page
 	Offset     int            `json:"offset,omitempty"` // Calculated from Page
+	// Search matches the post title, case-insensitively.
+	Search string `json:"search,omitempty"`
+	// Now is the instant status=scheduled compares published_at with, in UTC. Set by the
+	// service, never read from a request.
+	Now time.Time `json:"-"`
+
+	// PublishedBefore, when set, keeps only posts published at or before it.
+	// Set by the public blog to hide scheduled posts; never read from the API.
+	PublishedBefore *time.Time `json:"-"`
 }
 
 // Validate validates the list blog posts request
@@ -602,11 +702,17 @@ func (r *ListBlogPostsRequest) Validate() error {
 
 	// Validate status
 	switch r.Status {
-	case BlogPostStatusAll, BlogPostStatusDraft, BlogPostStatusPublished:
+	case BlogPostStatusAll, BlogPostStatusDraft, BlogPostStatusPublished, BlogPostStatusScheduled:
 		// Valid
 	default:
-		return fmt.Errorf("invalid status: %s", r.Status)
+		return ValidationError{Message: fmt.Sprintf("invalid status: %s", r.Status)}
 	}
+
+	search, err := NormalizeBlogPostSearch(r.Search)
+	if err != nil {
+		return err
+	}
+	r.Search = search
 
 	// Default page to 1 if not specified
 	if r.Page <= 0 {
@@ -627,6 +733,41 @@ func (r *ListBlogPostsRequest) Validate() error {
 	r.Offset = (r.Page - 1) * r.Limit
 
 	return nil
+}
+
+// BlogPostCounts is the response of blogPosts.counts. AllTotal and ByCategory cover every
+// post; Total, Published, Scheduled and Draft follow the category and the title search asked
+// for, if any, as blogPosts.list does. A scheduled post is also published: its publication
+// date is set, still to come.
+type BlogPostCounts struct {
+	AllTotal   int            `json:"all_total"`
+	Total      int            `json:"total"`
+	Published  int            `json:"published"`
+	Scheduled  int            `json:"scheduled"`
+	Draft      int            `json:"draft"`
+	ByCategory map[string]int `json:"by_category"`
+}
+
+// NewBlogPostCounts returns zero counts whose by_category encodes as {}.
+func NewBlogPostCounts() BlogPostCounts {
+	return BlogPostCounts{ByCategory: map[string]int{}}
+}
+
+// BlogSitemapMaxURLs is the number of URLs the sitemap protocol allows in one sitemap.
+const BlogSitemapMaxURLs = 50000
+
+// BlogSitemapMaxPosts is the most posts the sitemap needs to read: BlogSitemapMaxURLs less the
+// home page and the main feed. Each listed post's category also takes URLs (its page and its
+// feed), so a full sitemap lists fewer posts.
+const BlogSitemapMaxPosts = BlogSitemapMaxURLs - 2
+
+// BlogSitemapPost is what the blog sitemap needs of a live post.
+type BlogSitemapPost struct {
+	CategorySlug string
+	PostSlug     string
+	PublishedAt  time.Time
+	// LastModified is the post's last change: its publication, or a later edit.
+	LastModified time.Time
 }
 
 // BlogPostListResponse defines the response for listing blog posts
@@ -667,10 +808,15 @@ type BlogPostRepository interface {
 	UpdatePost(ctx context.Context, post *BlogPost) error
 	DeletePost(ctx context.Context, id string) error
 	ListPosts(ctx context.Context, params ListBlogPostsRequest) (*BlogPostListResponse, error)
+	// CountPosts counts the posts that are not deleted, as blogPosts.counts returns them.
+	// now decides which published posts are still scheduled; search narrows the status counts
+	// to the titles containing it, as ListPosts does.
+	CountPosts(ctx context.Context, workspaceID string, categoryID string, search string, now time.Time) (*BlogPostCounts, error)
 	// ListFeedPosts returns the top `limit` published posts (newest first) for
 	// RSS/JSON syndication. Enforces deleted_at IS NULL AND published_at IS NOT
-	// NULL AND published_at <= NOW() — the filter mirrors GetFeedFingerprint so
-	// the cheap 304 path always agrees with the rendered feed body.
+	// NULL AND published_at <= the current UTC time — the filter mirrors
+	// GetFeedFingerprint so the cheap 304 path always agrees with the rendered
+	// feed body.
 	ListFeedPosts(ctx context.Context, categorySlug *string, limit int) ([]*BlogPost, error)
 	// GetFeedFingerprint returns the inputs needed to compute a feed ETag
 	// without materializing items. maxUpdatedAt is GREATEST(post.updated_at,
@@ -680,6 +826,12 @@ type BlogPostRepository interface {
 	GetFeedFingerprint(ctx context.Context, categorySlug *string, limit int) (maxUpdatedAt time.Time, idsHash string, err error)
 	PublishPost(ctx context.Context, id string, publishedAt *time.Time) error
 	UnpublishPost(ctx context.Context, id string) error
+	// ListSitemapPosts returns, newest first, at most limit live posts with the slug of their
+	// category: published at or before now, not deleted, in a category that is not deleted.
+	ListSitemapPosts(ctx context.Context, now time.Time, limit int) ([]*BlogSitemapPost, error)
+	// NextScheduledPublishAt returns the earliest publication after now of a post that is not
+	// deleted, or nil when none is scheduled.
+	NextScheduledPublishAt(ctx context.Context, now time.Time) (*time.Time, error)
 
 	// Transaction management
 	WithTransaction(ctx context.Context, workspaceID string, fn func(*sql.Tx) error) error
@@ -711,13 +863,21 @@ type BlogService interface {
 	UpdatePost(ctx context.Context, request *UpdateBlogPostRequest) (*BlogPost, error)
 	DeletePost(ctx context.Context, request *DeleteBlogPostRequest) error
 	ListPosts(ctx context.Context, params *ListBlogPostsRequest) (*BlogPostListResponse, error)
+	// CountPosts counts the posts by status, overall or in one category, and per category; a
+	// search narrows the counts by status to the matching titles.
+	CountPosts(ctx context.Context, categoryID string, search string) (*BlogPostCounts, error)
 	PublishPost(ctx context.Context, request *PublishBlogPostRequest) error
 	UnpublishPost(ctx context.Context, request *UnpublishBlogPostRequest) error
 
 	// Public operations (no auth required)
 	GetPublicCategoryBySlug(ctx context.Context, slug string) (*BlogCategory, error)
 	GetPublicPostByCategoryAndSlug(ctx context.Context, categorySlug, postSlug string) (*BlogPost, error)
-	ListPublicPosts(ctx context.Context, params *ListBlogPostsRequest) (*BlogPostListResponse, error)
+	// ListPublicSitemapPosts returns the live posts the sitemap can list, newest first, at
+	// most BlogSitemapMaxPosts of them (no authentication: the sitemap is public).
+	ListPublicSitemapPosts(ctx context.Context) ([]*BlogSitemapPost, error)
+	// NextScheduledPublishAt returns the earliest publication after now, or nil when no post
+	// is scheduled: the public pages cached before it must not outlive it.
+	NextScheduledPublishAt(ctx context.Context, now time.Time) (*time.Time, error)
 
 	// Theme operations
 	CreateTheme(ctx context.Context, request *CreateBlogThemeRequest) (*BlogTheme, error)
@@ -1090,9 +1250,9 @@ func BuildBlogTemplateData(req BlogTemplateDataRequest) (MapOfAny, error) {
 			if req.Workspace.Settings.BlogSettings.SEO.OGImage != "" {
 				seoData["og_image"] = req.Workspace.Settings.BlogSettings.SEO.OGImage
 			}
-			if req.Workspace.Settings.BlogSettings.SEO.CanonicalURL != "" {
-				seoData["canonical_url"] = req.Workspace.Settings.BlogSettings.SEO.CanonicalURL
-			}
+			// No blog-wide canonical_url: a theme that falls back to it (the default one did, up to
+			// 44.0) tells search engines that every page is a copy of that one address. Each page
+			// keeps its own canonical, else its own address.
 			if len(req.Workspace.Settings.BlogSettings.SEO.Keywords) > 0 {
 				seoData["keywords"] = req.Workspace.Settings.BlogSettings.SEO.Keywords
 			}
@@ -1179,8 +1339,12 @@ func BuildBlogTemplateData(req BlogTemplateDataRequest) (MapOfAny, error) {
 				"og_title":         req.Category.Settings.SEO.OGTitle,
 				"og_description":   req.Category.Settings.SEO.OGDescription,
 				"og_image":         req.Category.Settings.SEO.OGImage,
-				"canonical_url":    req.Category.Settings.SEO.CanonicalURL,
 				"keywords":         req.Category.Settings.SEO.Keywords,
+			}
+			// A category's canonical stands for the category page only: on one of its posts, a theme
+			// that falls back to it (the default one did, up to 44.0) would point the post at it.
+			if req.Post == nil {
+				categoryData["seo"].(MapOfAny)["canonical_url"] = req.Category.Settings.SEO.CanonicalURL
 			}
 		}
 

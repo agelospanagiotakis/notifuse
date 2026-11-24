@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-const VERSION = "42.1"
+const VERSION = "44.0"
 
 type Config struct {
 	Server     ServerConfig
@@ -108,6 +109,11 @@ type EnvValues struct {
 	// and is parsed at the config edge with GetBool semantics (unset == false).
 	// See OIDCConfig.AllowUnverifiedEmail.
 	OIDCAllowUnverifiedEmail bool
+
+	// Telemetry and CheckForUpdates are "true"/"false" when TELEMETRY /
+	// CHECK_FOR_UPDATES is set, "" when unset (the stored value then applies).
+	Telemetry       string
+	CheckForUpdates string
 }
 
 type DemoConfig struct {
@@ -115,6 +121,11 @@ type DemoConfig struct {
 	FileManagerBucket    string
 	FileManagerAccessKey string
 	FileManagerSecretKey string
+	// WebAnalyticsSessions overrides how many web-analytics sessions a demo seed
+	// generates; 0 keeps the demo's own volume. Never read from the environment:
+	// the integration harness lowers it so a seed does not spend minutes on volume
+	// no test asserts.
+	WebAnalyticsSessions int
 }
 
 type ServerConfig struct {
@@ -135,6 +146,11 @@ type DatabaseConfig struct {
 	MaxConnectionsPerDB   int           // Max connections per individual workspace database
 	ConnectionMaxLifetime time.Duration // Maximum lifetime of a connection
 	ConnectionMaxIdleTime time.Duration // Maximum idle time before closing
+	// ExpectExisting (DB_EXPECT_EXISTING) refuses to create or initialise the system
+	// database, to create a missing workspace database and to initialise an empty one:
+	// set on a server that must already hold Notifuse data, so that pointing it at an
+	// empty PostgreSQL stops it instead of starting a new, empty installation.
+	ExpectExisting bool
 }
 
 type SecurityConfig struct {
@@ -252,6 +268,10 @@ type TaskSchedulerConfig struct {
 	Enabled  bool          // Enable/disable internal scheduler
 	Interval time.Duration // Tick interval (default: 20s)
 	MaxTasks int           // Max tasks per execution (default: 100)
+	// SendNowDelay overrides how far ahead a send-now broadcast task is due; 0
+	// keeps the default (5s). Never read from the environment: the integration
+	// harness shortens it, since every test broadcast otherwise waits it out.
+	SendNowDelay time.Duration
 }
 
 type AutomationSchedulerConfig struct {
@@ -583,18 +603,17 @@ func LoadWithOptions(opts LoadOptions) (*Config, error) {
 	v.SetDefault("DB_MAX_CONNECTIONS_PER_DB", 3)
 	v.SetDefault("DB_CONNECTION_MAX_LIFETIME", "10m")
 	v.SetDefault("DB_CONNECTION_MAX_IDLE_TIME", "5m")
+	v.SetDefault("DB_EXPECT_EXISTING", false)
 	v.SetDefault("ENVIRONMENT", "production")
 	v.SetDefault("GEOIP_DB_PATH", "")
 	v.SetDefault("ANALYTICS_WORK_MEM", "64MB")
 	v.SetDefault("LOG_LEVEL", "info")
 	v.SetDefault("VERSION", VERSION)
 
-	// SMTP defaults
-	v.SetDefault("SMTP_FROM_NAME", "Notifuse")
-
-	// SMTP Bridge defaults (formerly SMTP Relay)
-	// NOTE: Don't set default for SMTP_BRIDGE_ENABLED - we need to detect when it's truly unset
-	v.SetDefault("SMTP_BRIDGE_PORT", 587)
+	// SMTP and SMTP bridge: deliberately NO viper SetDefault (SMTP_FROM_NAME,
+	// SMTP_BRIDGE_PORT, SMTP_BRIDGE_ENABLED…). A default would make the variable read
+	// as set by the environment, shadowing the value stored by the setup wizard or
+	// System settings; resolveSMTPConfig applies the built-in values after the DB.
 
 	// OIDC: deliberately NO viper SetDefault. A viper default would make
 	// v.GetString("OIDC_SCOPES"/"OIDC_BUTTON_LABEL") non-empty even when unset,
@@ -697,6 +716,7 @@ func LoadWithOptions(opts LoadOptions) (*Config, error) {
 		MaxConnectionsPerDB:   v.GetInt("DB_MAX_CONNECTIONS_PER_DB"),
 		ConnectionMaxLifetime: v.GetDuration("DB_CONNECTION_MAX_LIFETIME"),
 		ConnectionMaxIdleTime: v.GetDuration("DB_CONNECTION_MAX_IDLE_TIME"),
+		ExpectExisting:        v.GetBool("DB_EXPECT_EXISTING"),
 	}
 
 	// Validate database connection settings
@@ -815,6 +835,16 @@ func LoadWithOptions(opts LoadOptions) (*Config, error) {
 		oidcAutoCreateStr = v.GetString("OIDC_AUTO_CREATE_USERS")
 	}
 
+	// Telemetry and update checks: "true"/"false" only when the env var is set, parsed
+	// with GetBool as the runtime does below (so "1" or "TRUE" count as true).
+	var telemetryStr, checkForUpdatesStr string
+	if v.IsSet("TELEMETRY") {
+		telemetryStr = strconv.FormatBool(v.GetBool("TELEMETRY"))
+	}
+	if v.IsSet("CHECK_FOR_UPDATES") {
+		checkForUpdatesStr = strconv.FormatBool(v.GetBool("CHECK_FOR_UPDATES"))
+	}
+
 	envVals := EnvValues{
 		RootEmail:               v.GetString("ROOT_EMAIL"),
 		APIEndpoint:             v.GetString("API_ENDPOINT"),
@@ -844,142 +874,30 @@ func LoadWithOptions(opts LoadOptions) (*Config, error) {
 		OIDCAllowedDomains:  v.GetString("OIDC_ALLOWED_DOMAINS"),
 
 		OIDCAllowUnverifiedEmail: v.GetBool("OIDC_ALLOW_UNVERIFIED_EMAIL"),
+
+		Telemetry:       telemetryStr,
+		CheckForUpdates: checkForUpdatesStr,
 	}
 
-	// Load config values with database override logic
+	// Load config values with database override logic: env vars win, the database
+	// fills what they leave empty once installed, then the built-in defaults.
 	var rootEmail, apiEndpoint string
-	var smtpConfig SMTPConfig
-	var smtpBridgeConfig SMTPBridgeConfig
-
 	if isInstalled && systemSettings != nil {
-		// Prefer env vars, fall back to database
 		rootEmail = envVals.RootEmail
 		if rootEmail == "" {
 			rootEmail = systemSettings.RootEmail
 		}
-
 		apiEndpoint = envVals.APIEndpoint
 		if apiEndpoint == "" {
 			apiEndpoint = systemSettings.APIEndpoint
 		}
-
-		// SMTP settings - env vars override database
-		smtpConfig = SMTPConfig{
-			Host:         envVals.SMTPHost,
-			Port:         envVals.SMTPPort,
-			Username:     envVals.SMTPUsername,
-			Password:     envVals.SMTPPassword,
-			FromEmail:    envVals.SMTPFromEmail,
-			FromName:     envVals.SMTPFromName,
-			UseTLS:       envVals.SMTPUseTLS != "false", // Default to true unless explicitly set to false
-			EHLOHostname: envVals.SMTPEHLOHostname,
-		}
-
-		// Use database values as fallback
-		if smtpConfig.Host == "" {
-			smtpConfig.Host = systemSettings.SMTPHost
-		}
-		if smtpConfig.Port == 0 {
-			smtpConfig.Port = systemSettings.SMTPPort
-		}
-		if smtpConfig.Port == 0 {
-			smtpConfig.Port = 587 // Default
-		}
-		if smtpConfig.Username == "" {
-			smtpConfig.Username = systemSettings.SMTPUsername
-		}
-		if smtpConfig.Password == "" {
-			smtpConfig.Password = systemSettings.SMTPPassword
-		}
-		if smtpConfig.FromEmail == "" {
-			smtpConfig.FromEmail = systemSettings.SMTPFromEmail
-		}
-		if smtpConfig.FromName == "" {
-			smtpConfig.FromName = systemSettings.SMTPFromName
-		}
-		if smtpConfig.FromName == "" {
-			smtpConfig.FromName = "Notifuse" // Default
-		}
-		// Use database value for TLS if env var is not set
-		if envVals.SMTPUseTLS == "" {
-			smtpConfig.UseTLS = systemSettings.SMTPUseTLS
-		}
-		if smtpConfig.EHLOHostname == "" {
-			smtpConfig.EHLOHostname = systemSettings.SMTPEHLOHostname
-		}
-
-		// SMTP Bridge settings - env vars override database
-		smtpBridgeConfig = SMTPBridgeConfig{
-			Enabled:       envVals.SMTPBridgeEnabled == "true",
-			Port:          envVals.SMTPBridgePort,
-			Host:          "0.0.0.0",
-			Domain:        envVals.SMTPBridgeDomain,
-			TLSCertBase64: envVals.SMTPBridgeTLSCertBase64,
-			TLSKeyBase64:  envVals.SMTPBridgeTLSKeyBase64,
-			TLSMode:       envVals.SMTPBridgeTLSMode,
-		}
-
-		// Use database values as fallback
-		if envVals.SMTPBridgeEnabled == "" {
-			// Only use DB value if env var is not set (empty string)
-			smtpBridgeConfig.Enabled = systemSettings.SMTPBridgeEnabled
-		}
-		if smtpBridgeConfig.Domain == "" {
-			smtpBridgeConfig.Domain = systemSettings.SMTPBridgeDomain
-		}
-		if smtpBridgeConfig.Port == 0 {
-			smtpBridgeConfig.Port = systemSettings.SMTPBridgePort
-		}
-		if smtpBridgeConfig.Port == 0 {
-			smtpBridgeConfig.Port = 587 // Default
-		}
-		if smtpBridgeConfig.TLSCertBase64 == "" {
-			smtpBridgeConfig.TLSCertBase64 = systemSettings.SMTPBridgeTLSCertBase64
-		}
-		if smtpBridgeConfig.TLSKeyBase64 == "" {
-			smtpBridgeConfig.TLSKeyBase64 = systemSettings.SMTPBridgeTLSKeyBase64
-		}
-		// TLS mode deliberately has no database fallback: it is environment-only,
-		// via SMTP_BRIDGE_TLS. Unset means auto-resolve from the certs below.
 	} else {
 		// First-run: use env vars only
 		rootEmail = envVals.RootEmail
 		apiEndpoint = envVals.APIEndpoint
-		smtpConfig = SMTPConfig{
-			Host:         envVals.SMTPHost,
-			Port:         envVals.SMTPPort,
-			Username:     envVals.SMTPUsername,
-			Password:     envVals.SMTPPassword,
-			FromEmail:    envVals.SMTPFromEmail,
-			FromName:     envVals.SMTPFromName,
-			UseTLS:       envVals.SMTPUseTLS != "false", // Default to true unless explicitly set to false
-			EHLOHostname: envVals.SMTPEHLOHostname,
-		}
-		// Apply defaults for first-run
-		if smtpConfig.Port == 0 {
-			smtpConfig.Port = 587
-		}
-		if smtpConfig.FromName == "" {
-			smtpConfig.FromName = "Notifuse"
-		}
-
-		smtpBridgeConfig = SMTPBridgeConfig{
-			Enabled:       envVals.SMTPBridgeEnabled == "true",
-			Port:          envVals.SMTPBridgePort,
-			Host:          "0.0.0.0",
-			Domain:        envVals.SMTPBridgeDomain,
-			TLSCertBase64: envVals.SMTPBridgeTLSCertBase64,
-			TLSKeyBase64:  envVals.SMTPBridgeTLSKeyBase64,
-			TLSMode:       envVals.SMTPBridgeTLSMode,
-		}
-		// Apply defaults for first-run
-		if smtpBridgeConfig.Port == 0 {
-			smtpBridgeConfig.Port = 587
-		}
-		if smtpBridgeConfig.Domain == "" {
-			smtpBridgeConfig.Domain = "localhost"
-		}
 	}
+	smtpConfig := resolveSMTPConfig(envVals, systemSettings, isInstalled)
+	smtpBridgeConfig := resolveSMTPBridgeConfig(envVals, systemSettings, isInstalled)
 
 	// Telemetry and check for updates settings - env var overrides database
 	var telemetryEnabled, checkForUpdates bool

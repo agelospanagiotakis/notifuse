@@ -1,18 +1,20 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type KeyboardEvent } from 'react'
 import { Button, Input, InputNumber, Popover, Select, Space, Tag } from 'antd'
 import { PlusCircleOutlined, SearchOutlined } from '@ant-design/icons'
 import { useLingui } from '@lingui/react/macro'
-import { useWebAnalytics } from './context'
+import { useWebAnalytics } from './useWebAnalytics'
 import {
+  DIMENSIONS,
   DimensionInfo,
   dimensionsForSchema,
   getDimensionLabel,
   groupByCategory
 } from './lib/dimensions'
 import { DIMENSION_VALUE_OPTIONS } from './lib/dictionaries'
-import { formatDuration } from './lib/format'
+import { describeDimensionFilter, describeMetricFilter, useOperatorLabels } from './lib/filterLabels'
 import {
   DimensionFilterOperator,
+  isValuelessDimensionFilterOperator,
   MetricFilterOperator,
   WebDimensionFilter,
   WebMetricFilter,
@@ -25,29 +27,10 @@ const OPERATORS_BY_TYPE: Record<string, DimensionFilterOperator[]> = {
   boolean: ['equals', 'notEquals']
 }
 
-const VALUELESS_OPERATORS: DimensionFilterOperator[] = ['isEmpty', 'isNotEmpty']
 const MULTI_VALUE_OPERATORS: DimensionFilterOperator[] = ['in', 'notIn']
 
 /** Measures a threshold can be set on; session count has its own control. */
 const FILTERABLE_METRICS = ['median_duration', 'bounce_rate', 'median_scroll'] as const
-
-function useOperatorLabels(): Record<string, string> {
-  const { t } = useLingui()
-  return {
-    equals: t`equals`,
-    notEquals: t`not equals`,
-    contains: t`contains`,
-    notContains: t`not contains`,
-    isEmpty: t`is empty`,
-    isNotEmpty: t`is not empty`,
-    in: t`in`,
-    notIn: t`not in`,
-    gt: '>',
-    gte: '>=',
-    lt: '<',
-    lte: '<='
-  }
-}
 
 function useCategoryLabels(): Record<string, string> {
   const { t } = useLingui()
@@ -72,25 +55,52 @@ interface FilterBuilderProps {
   allowMetricFilters?: boolean
 }
 
+/** The chip whose filter is being edited, by its position in its list. */
+interface EditedChip {
+  kind: 'dimension' | 'metric'
+  index: number
+}
+
 export function FilterBuilder(props: FilterBuilderProps) {
   const { t } = useLingui()
   const context = useWebAnalytics()
   const operatorLabels = useOperatorLabels()
   const [open, setOpen] = useState(false)
+  const [edited, setEdited] = useState<EditedChip | null>(null)
+
+  const isEdited = (kind: EditedChip['kind'], index: number) =>
+    edited?.kind === kind && edited.index === index
+  // A chip opens its filter for editing on a click, or on Enter or Space from the keyboard.
+  const chipProps = (kind: EditedChip['kind'], index: number) => ({
+    role: 'button',
+    tabIndex: 0,
+    onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return
+      event.preventDefault()
+      setEdited({ kind, index })
+    }
+  })
+  const editPopover = (kind: EditedChip['kind'], index: number) => ({
+    open: isEdited(kind, index),
+    onOpenChange: (next: boolean) => setEdited(next ? { kind, index } : null),
+    trigger: 'click' as const,
+    placement: 'bottomLeft' as const,
+    destroyOnHidden: true,
+    content: (
+      <FilterPicker
+        schema={props.schema ?? 'web_sessions'}
+        allowMetricFilters={props.allowMetricFilters}
+        edit={{ kind, index }}
+        onClose={() => setEdited(null)}
+      />
+    )
+  })
 
   const metricLabels: Record<string, string> = {
     median_duration: t`TimeScore`,
     bounce_rate: t`Bounce Rate`,
     median_scroll: t`Median Scroll Depth`
   }
-
-  const describeValues = (filter: WebDimensionFilter) =>
-    VALUELESS_OPERATORS.includes(filter.operator) ? '' : filter.values.join(', ')
-
-  const describeMetricValue = (filter: WebMetricFilter) =>
-    filter.metric === 'median_duration'
-      ? formatDuration(filter.values[0])
-      : `${filter.values[0]}%`
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -99,6 +109,8 @@ export function FilterBuilder(props: FilterBuilderProps) {
         onOpenChange={setOpen}
         trigger="click"
         placement="bottomLeft"
+        // Each opening starts on the field list, its search focused.
+        destroyOnHidden
         content={
           <FilterPicker
             schema={props.schema ?? 'web_sessions'}
@@ -114,33 +126,38 @@ export function FilterBuilder(props: FilterBuilderProps) {
 
       <Space size={[8, 4]} wrap>
         {context.filters.map((filter, index) => (
-          <Tag
-            key={`${filter.dimension}-${index}`}
-            color="orange"
-            closable
-            onClose={() =>
-              context.setFilters(context.filters.filter((_, position) => position !== index))
-            }
-          >
-            {getDimensionLabel(filter.dimension, context.customDimensionLabels)}{' '}
-            {operatorLabels[filter.operator]} {describeValues(filter)}
-          </Tag>
+          <Popover key={`${filter.dimension}-${index}`} {...editPopover('dimension', index)}>
+            <Tag
+              color="orange"
+              closable
+              {...chipProps('dimension', index)}
+              onClose={(event) => {
+                // The close icon sits in the chip: without this the click would also open it.
+                event.stopPropagation()
+                context.setFilters(context.filters.filter((_, position) => position !== index))
+              }}
+            >
+              {describeDimensionFilter(filter, operatorLabels, context.customDimensionLabels)}
+            </Tag>
+          </Popover>
         ))}
         {props.allowMetricFilters
           ? context.metricFilters.map((filter, index) => (
-              <Tag
-                key={`${filter.metric}-${index}`}
-                color="gold"
-                closable
-                onClose={() =>
-                  context.setMetricFilters(
-                    context.metricFilters.filter((_, position) => position !== index)
-                  )
-                }
-              >
-                {metricLabels[filter.metric] ?? filter.metric} {operatorLabels[filter.operator]}{' '}
-                {describeMetricValue(filter)}
-              </Tag>
+              <Popover key={`${filter.metric}-${index}`} {...editPopover('metric', index)}>
+                <Tag
+                  color="gold"
+                  closable
+                  {...chipProps('metric', index)}
+                  onClose={(event) => {
+                    event.stopPropagation()
+                    context.setMetricFilters(
+                      context.metricFilters.filter((_, position) => position !== index)
+                    )
+                  }}
+                >
+                  {describeMetricFilter(filter, operatorLabels, metricLabels)}
+                </Tag>
+              </Popover>
             ))
           : null}
       </Space>
@@ -148,10 +165,14 @@ export function FilterBuilder(props: FilterBuilderProps) {
   )
 }
 
-/** Two-step picker: choose a field, then its operator and value. */
+/**
+ * Two-step picker: choose a field, then its operator and value. Opened from a chip (`edit`), it
+ * starts on the second step with that filter, and Apply replaces it in place.
+ */
 function FilterPicker(props: {
   schema: WebSchema
   allowMetricFilters?: boolean
+  edit?: EditedChip
   onClose: () => void
 }) {
   const { t } = useLingui()
@@ -159,12 +180,24 @@ function FilterPicker(props: {
   const operatorLabels = useOperatorLabels()
   const categoryLabels = useCategoryLabels()
 
+  const { edit } = props
+  const editedFilter = edit?.kind === 'dimension' ? context.filters[edit.index] : undefined
+  const editedMetric = edit?.kind === 'metric' ? context.metricFilters[edit.index] : undefined
+
   const [search, setSearch] = useState('')
-  const [dimension, setDimension] = useState<DimensionInfo | null>(null)
-  const [metric, setMetric] = useState<string | null>(null)
-  const [operator, setOperator] = useState<DimensionFilterOperator | MetricFilterOperator>('equals')
-  const [values, setValues] = useState<string[]>([])
-  const [metricValue, setMetricValue] = useState<number>(0)
+  const [dimension, setDimension] = useState<DimensionInfo | null>(
+    editedFilter ? (DIMENSIONS[editedFilter.dimension] ?? null) : null
+  )
+  const [metric, setMetric] = useState<string | null>(editedMetric?.metric ?? null)
+  const [operator, setOperator] = useState<DimensionFilterOperator | MetricFilterOperator>(
+    editedFilter?.operator ?? editedMetric?.operator ?? 'equals'
+  )
+  const [values, setValues] = useState<string[]>(
+    editedFilter ? editedFilter.values.map((value) => String(value)) : []
+  )
+  const [metricValue, setMetricValue] = useState<number>(editedMetric?.values[0] ?? 0)
+  // Set by Apply on an empty value, so the field says what is missing rather than nothing happening.
+  const [valueMissing, setValueMissing] = useState(false)
 
   const metricLabels: Record<string, string> = {
     median_duration: t`TimeScore (seconds)`,
@@ -198,6 +231,7 @@ function FilterPicker(props: {
     setValues([])
     setMetricValue(0)
     setOperator('equals')
+    setValueMissing(false)
   }
 
   const applyDimension = () => {
@@ -206,23 +240,44 @@ function FilterPicker(props: {
     const chosen = operators.includes(operator as DimensionFilterOperator)
       ? (operator as DimensionFilterOperator)
       : 'equals'
-    if (!VALUELESS_OPERATORS.includes(chosen) && values.length === 0) return
-    context.setFilters([
-      ...context.filters,
-      { dimension: dimension.name, operator: chosen, values }
-    ])
+    const typed = values.filter((value) => value.trim() !== '')
+    if (!isValuelessDimensionFilterOperator(chosen) && typed.length === 0) {
+      setValueMissing(true)
+      return
+    }
+    const next: WebDimensionFilter = {
+      dimension: dimension.name,
+      operator: chosen,
+      values: isValuelessDimensionFilterOperator(chosen) ? [] : typed
+    }
+    context.setFilters(
+      editedFilter && edit
+        ? context.filters.map((filter, position) => (position === edit.index ? next : filter))
+        : [...context.filters, next]
+    )
     reset()
     props.onClose()
   }
 
   const applyMetric = () => {
     if (!metric) return
-    context.setMetricFilters([
-      ...context.metricFilters,
-      { metric, operator: operator as MetricFilterOperator, values: [metricValue] }
-    ])
+    const next: WebMetricFilter = {
+      metric,
+      operator: operator as MetricFilterOperator,
+      values: [metricValue]
+    }
+    context.setMetricFilters(
+      editedMetric && edit
+        ? context.metricFilters.map((filter, position) => (position === edit.index ? next : filter))
+        : [...context.metricFilters, next]
+    )
     reset()
     props.onClose()
+  }
+
+  const changeValues = (next: string[]) => {
+    setValues(next)
+    setValueMissing(false)
   }
 
   if (dimension) {
@@ -232,9 +287,12 @@ function FilterPicker(props: {
 
     return (
       <div className="w-72">
-        <Button type="link" size="small" className="!px-0" onClick={reset}>
-          {t`Back`}
-        </Button>
+        {/* An edited filter keeps its field: Back would drop it for a list it is not in. */}
+        {editedFilter ? null : (
+          <Button type="link" size="small" className="!px-0" onClick={reset}>
+            {t`Back`}
+          </Button>
+        )}
         <div className="mb-2 text-sm font-medium">
           {getDimensionLabel(dimension.name, context.customDimensionLabels)}
         </div>
@@ -243,18 +301,21 @@ function FilterPicker(props: {
             <button
               key={candidate}
               type="button"
-              onClick={() => setOperator(candidate)}
+              onClick={() => {
+                setOperator(candidate)
+                setValueMissing(false)
+              }}
               className={
                 candidate === operator
-                  ? 'rounded bg-[var(--primary)] px-2 py-0.5 text-xs text-white'
-                  : 'rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 hover:bg-gray-200'
+                  ? 'rounded bg-primary px-2 py-0.5 text-xs text-white'
+                  : 'rounded bg-fill px-2 py-0.5 text-xs text-ink-2 hover:bg-line'
               }
             >
               {operatorLabels[candidate]}
             </button>
           ))}
         </div>
-        {!VALUELESS_OPERATORS.includes(operator as DimensionFilterOperator) ? (
+        {!isValuelessDimensionFilterOperator(operator) ? (
           dictionary ? (
             <Select
               className="w-full"
@@ -263,7 +324,8 @@ function FilterPicker(props: {
               placeholder={t`Value`}
               value={multiple ? values : values[0]}
               options={dictionary.map((value) => ({ value, label: value }))}
-              onChange={(value) => setValues(Array.isArray(value) ? value : [value])}
+              onChange={(value) => changeValues(Array.isArray(value) ? value : [value])}
+              status={valueMissing ? 'error' : undefined}
             />
           ) : (
             <Input
@@ -271,15 +333,21 @@ function FilterPicker(props: {
               placeholder={multiple ? t`Comma-separated values` : t`Value`}
               value={values.join(', ')}
               onChange={(event) =>
-                setValues(
+                changeValues(
                   multiple
                     ? event.target.value.split(',').map((part) => part.trim()).filter(Boolean)
                     : [event.target.value]
                 )
               }
               onPressEnter={applyDimension}
+              status={valueMissing ? 'error' : undefined}
             />
           )
+        ) : null}
+        {valueMissing ? (
+          <div role="alert" className="mt-1 text-xs text-danger-fg">
+            {multiple ? t`Enter at least one value` : t`Enter a value`}
+          </div>
         ) : null}
         <Button type="primary" block className="!mt-3" onClick={applyDimension}>
           {t`Apply filter`}
@@ -291,9 +359,11 @@ function FilterPicker(props: {
   if (metric) {
     return (
       <div className="w-72">
-        <Button type="link" size="small" className="!px-0" onClick={reset}>
-          {t`Back`}
-        </Button>
+        {editedMetric ? null : (
+          <Button type="link" size="small" className="!px-0" onClick={reset}>
+            {t`Back`}
+          </Button>
+        )}
         <div className="mb-2 text-sm font-medium">{metricLabels[metric] ?? metric}</div>
         <div className="mb-2 flex flex-wrap gap-1">
           {(['gt', 'gte', 'lt', 'lte'] as MetricFilterOperator[]).map((candidate) => (
@@ -303,8 +373,8 @@ function FilterPicker(props: {
               onClick={() => setOperator(candidate)}
               className={
                 candidate === operator
-                  ? 'rounded bg-[var(--primary)] px-2 py-0.5 text-xs text-white'
-                  : 'rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 hover:bg-gray-200'
+                  ? 'rounded bg-primary px-2 py-0.5 text-xs text-white'
+                  : 'rounded bg-fill px-2 py-0.5 text-xs text-ink-2 hover:bg-line'
               }
             >
               {operatorLabels[candidate]}
@@ -314,6 +384,9 @@ function FilterPicker(props: {
         <InputNumber
           className="w-full"
           min={0}
+          // A rate is a percent, one decimal at most; a duration counts whole seconds
+          max={metric === 'median_duration' ? undefined : 100}
+          precision={metric === 'median_duration' ? 0 : 1}
           value={metricValue}
           onChange={(value) => setMetricValue(value ?? 0)}
         />
@@ -327,6 +400,7 @@ function FilterPicker(props: {
   return (
     <div className="w-72">
       <Input
+        autoFocus
         prefix={<SearchOutlined />}
         allowClear
         placeholder={t`Search`}
@@ -336,7 +410,7 @@ function FilterPicker(props: {
       <div className="mt-2 max-h-80 overflow-y-auto">
         {groups.map((group) => (
           <div key={group.category} className="mb-2">
-            <div className="px-1 py-1 text-[10px] font-semibold uppercase text-[var(--primary)]">
+            <div className="px-1 py-1 text-overline font-semibold uppercase text-primary">
               {categoryLabels[group.category] ?? group.category}
             </div>
             {group.dimensions.map((candidate) => (
@@ -348,7 +422,7 @@ function FilterPicker(props: {
                   setOperator((OPERATORS_BY_TYPE[candidate.type] ?? OPERATORS_BY_TYPE.string)[0])
                   setValues([])
                 }}
-                className="block w-full rounded px-1 py-1 text-left text-sm hover:bg-gray-50"
+                className="block w-full rounded px-1 py-1 text-left text-sm hover:bg-subtle"
               >
                 {getDimensionLabel(candidate.name, context.customDimensionLabels)}
               </button>
@@ -357,7 +431,7 @@ function FilterPicker(props: {
         ))}
         {props.allowMetricFilters ? (
           <div className="mb-2">
-            <div className="px-1 py-1 text-[10px] font-semibold uppercase text-[var(--primary)]">
+            <div className="px-1 py-1 text-overline font-semibold uppercase text-primary">
               {t`Metrics`}
             </div>
             {FILTERABLE_METRICS.filter((candidate) => !usedMetrics.has(candidate)).map(
@@ -369,7 +443,7 @@ function FilterPicker(props: {
                     setMetric(candidate)
                     setOperator('gt')
                   }}
-                  className="block w-full rounded px-1 py-1 text-left text-sm hover:bg-gray-50"
+                  className="block w-full rounded px-1 py-1 text-left text-sm hover:bg-subtle"
                 >
                   {metricLabels[candidate]}
                 </button>
@@ -378,7 +452,7 @@ function FilterPicker(props: {
           </div>
         ) : null}
         {groups.length === 0 ? (
-          <div className="px-1 py-4 text-center text-xs text-gray-400">{t`No results found`}</div>
+          <div className="px-1 py-4 text-center text-xs text-ink-4">{t`No results found`}</div>
         ) : null}
       </div>
     </div>

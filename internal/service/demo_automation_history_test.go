@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +30,8 @@ func demoTestCohort(size int) []demoCohortMember {
 		cohort = append(cohort, demoCohortMember{
 			Email:      fmt.Sprintf("contact%04d@example.com", i),
 			ListStatus: statuses[i%len(statuses)],
+			FirstName:  fmt.Sprintf("First%04d", i),
+			LastName:   "Tester",
 		})
 	}
 	return cohort
@@ -376,6 +379,14 @@ func TestDemoAutomationCohortSQL(t *testing.T) {
 		assert.Equal(t, []interface{}{demoGoalPurchase}, args)
 	})
 
+	t.Run("every cohort reads its members' names from their contact", func(t *testing.T) {
+		for _, id := range []string{demoAutomationWelcome, demoAutomationCartRecovery, demoAutomationPostPurchase, demoAutomationVIPConcierge, demoAutomationWinback} {
+			query, _ := demoAutomationCohortSQL(id)
+			assert.Contains(t, query, demoCohortNames, id)
+			assert.Contains(t, query, "LEFT JOIN contacts c ON c.email = src.email", id)
+		}
+	})
+
 	t.Run("unknown automation has no cohort query", func(t *testing.T) {
 		query, args := demoAutomationCohortSQL("no-such-automation")
 		assert.Equal(t, "", query)
@@ -537,16 +548,176 @@ func TestSeedDemoAutomationHistory_Orchestration(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = db.Close() }()
 		mock.ExpectQuery(regexp.QuoteMeta("FROM contact_lists")).
-			WillReturnRows(sqlmock.NewRows([]string{"email", "status"}).
-				AddRow("a@example.com", "active").
-				AddRow("b@example.com", "unsubscribed"))
+			WillReturnRows(sqlmock.NewRows([]string{"email", "status", "first_name", "last_name"}).
+				AddRow("a@example.com", "active", "Ann", "Lee").
+				AddRow("b@example.com", "unsubscribed", "", ""))
 
 		svc := &DemoService{logger: logger.NewLoggerWithLevel("disabled")}
 		cohort, err := svc.loadDemoCohort(ctx, db, demoAutomationWelcome)
 		require.NoError(t, err)
 		assert.Equal(t, []demoCohortMember{
-			{Email: "a@example.com", ListStatus: "active"},
+			{Email: "a@example.com", ListStatus: "active", FirstName: "Ann", LastName: "Lee"},
 			{Email: "b@example.com", ListStatus: "unsubscribed"},
 		}, cohort)
 	})
+}
+
+// automations.nodeStats reads each split from the execution output: the output must say the
+// branch the journey's next step is on.
+func TestDemoJourneys_OutputTheSplitTheyTook(t *testing.T) {
+	for _, automation := range demoAutomations("ws1") {
+		t.Run(automation.ID, func(t *testing.T) {
+			for _, j := range demoTestJourneys(t, automation, 200) {
+				var steps []demoNodeVisit
+				for _, v := range j.Visits {
+					if v.Action != domain.NodeActionEntered {
+						steps = append(steps, v)
+					}
+				}
+				for k, v := range steps {
+					if v.Action != domain.NodeActionCompleted {
+						assert.Nil(t, v.Output, "a failed step has no output")
+						continue
+					}
+					require.NotNil(t, v.Output, "%s has no output", v.NodeID)
+					node := automation.GetNodeByID(v.NodeID)
+					assert.Equal(t, string(node.Type), v.Output["node_type"])
+					next := ""
+					if k+1 < len(steps) {
+						next = steps[k+1].NodeID
+					}
+					str := func(key string) string { s, _ := node.Config[key].(string); return s }
+					switch node.Type {
+					case domain.NodeTypeFilter:
+						want := str("continue_node_id")
+						if v.Output["filter_passed"] == false {
+							want = str("exit_node_id")
+						}
+						assert.Equal(t, want, next, "%s: the filter result does not lead to the next step", v.NodeID)
+					case domain.NodeTypeListStatusBranch:
+						branch, _ := v.Output["branch_taken"].(string)
+						require.NotEmpty(t, branch)
+						assert.Equal(t, str(branch+"_node_id"), next)
+					case domain.NodeTypeABTest:
+						variants, _ := node.Config["variants"].([]domain.ABTestVariant)
+						found := false
+						for _, variant := range variants {
+							if variant.ID == v.Output["variant_id"] {
+								found = true
+								assert.Equal(t, variant.NextNodeID, next)
+							}
+						}
+						assert.True(t, found, "no variant %v", v.Output["variant_id"])
+					case domain.NodeTypeDelay:
+						assert.Equal(t, v.CompletedAt, v.Output["delay_until"])
+					}
+				}
+			}
+		})
+	}
+}
+
+// An email step queued a message, unless the subscription guard stopped the journey there: then
+// it records the skip and its reason, as the engine does.
+func TestDemoJourneys_EmailStepsQueueOrSkip(t *testing.T) {
+	queued, skipped := 0, 0
+	for _, automation := range demoAutomations("ws1") {
+		for _, j := range demoTestJourneys(t, automation, 200) {
+			for i, v := range j.Visits {
+				if v.NodeType != domain.NodeTypeEmail || v.Action != domain.NodeActionCompleted {
+					continue
+				}
+				if i == len(j.Visits)-1 && j.Status == domain.ContactAutomationStatusExited {
+					skipped++
+					assert.Equal(t, true, v.Output["skipped"])
+					assert.Equal(t, *j.ExitReason, v.Output["skip_reason"])
+					assert.NotContains(t, v.Output, "message_id")
+					continue
+				}
+				queued++
+				messageID, _ := v.Output["message_id"].(string)
+				assert.True(t, strings.HasPrefix(messageID, "ws1_"), messageID)
+				assert.Equal(t, automation.GetNodeByID(v.NodeID).Config["template_id"], v.Output["template_id"])
+				assert.NotContains(t, v.Output, "skipped")
+			}
+		}
+	}
+	assert.Positive(t, queued)
+	assert.Positive(t, skipped)
+}
+
+// A failed journey carries the error path's rows of its failed step, one per attempt, with the
+// step's real type and no completion.
+func TestDemoJourneys_FailedJourneysHaveTheirAttempts(t *testing.T) {
+	failed := 0
+	for _, automation := range demoAutomations("ws1") {
+		for _, j := range demoTestJourneys(t, automation, 200) {
+			if j.Status != domain.ContactAutomationStatusFailed {
+				assert.Empty(t, j.ErrorRows)
+				continue
+			}
+			failed++
+			last := j.Visits[len(j.Visits)-1]
+			require.Len(t, j.ErrorRows, 3, "one row per attempt of the default retry policy")
+			for _, e := range j.ErrorRows {
+				assert.Equal(t, last.NodeID, e.NodeID)
+				assert.Equal(t, last.NodeType, e.NodeType)
+				assert.Equal(t, j.CurrentNodeID, e.NodeID, "the failed journeys of a step are counted on its current node")
+			}
+		}
+	}
+	assert.Positive(t, failed)
+}
+
+// Each queued email has its message, sent from the automation with the step's template; its
+// events follow each other and none is in the future.
+func TestDemoJourneyMessages(t *testing.T) {
+	now := time.Now().UTC()
+	for _, automation := range demoAutomations("ws1") {
+		journeys := demoTestJourneys(t, automation, 200)
+		messages := demoJourneyMessages(automation, journeys, rand.New(rand.NewSource(1)), now)
+		names := map[string]interface{}{}
+		for _, j := range journeys {
+			names[j.Email] = j.FirstName
+		}
+
+		queued := map[string]string{}
+		for _, j := range journeys {
+			for _, v := range j.Visits {
+				if id, ok := v.Output["message_id"].(string); ok {
+					queued[id], _ = v.Output["template_id"].(string)
+				}
+			}
+		}
+		require.Len(t, messages, len(queued), automation.ID)
+		opened := 0
+		for _, m := range messages {
+			template, ok := queued[m.ID]
+			require.True(t, ok, "message %s was queued by no step", m.ID)
+			assert.Equal(t, template, m.TemplateID)
+			require.NotNil(t, m.AutomationID)
+			assert.Equal(t, automation.ID, *m.AutomationID)
+			assert.Nil(t, m.BroadcastID)
+			assert.Equal(t, "email", m.Channel)
+			assert.False(t, m.SentAt.After(now))
+			// Rendered for its contact: the email alone previewed as "Welcome, !".
+			contact, _ := m.MessageData.Data["contact"].(map[string]interface{})
+			require.NotNil(t, contact)
+			assert.Equal(t, names[m.ContactEmail], contact["first_name"], m.ContactEmail)
+			assert.NotEmpty(t, contact["first_name"])
+			if m.OpenedAt != nil {
+				opened++
+				require.NotNil(t, m.DeliveredAt, "opened without being delivered")
+				assert.False(t, m.OpenedAt.Before(*m.DeliveredAt))
+				assert.False(t, m.OpenedAt.After(now))
+			}
+			if m.ClickedAt != nil {
+				require.NotNil(t, m.OpenedAt, "clicked without being opened")
+				assert.False(t, m.ClickedAt.After(now))
+			}
+		}
+		if len(messages) > 0 {
+			assert.Positive(t, opened, automation.ID)
+		}
+	}
 }

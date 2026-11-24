@@ -12,7 +12,7 @@ import type { Workspace } from '../../../services/api/types'
 
 vi.mock('../../../services/api/automation', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../services/api/automation')>()
-  return { ...actual, automationApi: { ...actual.automationApi, update: vi.fn() } }
+  return { ...actual, automationApi: { ...actual.automationApi, update: vi.fn(), create: vi.fn() } }
 })
 
 const mockMessage = { success: vi.fn(), error: vi.fn(), warning: vi.fn() }
@@ -56,7 +56,12 @@ const renderEditor = () => {
     <QueryClientProvider client={queryClient}>
       <I18nProvider i18n={i18n}>
         <App>
-          <AutomationProvider workspace={workspace} automation={liveAutomation} lists={[]}>
+          <AutomationProvider
+            workspace={workspace}
+            automation={liveAutomation}
+            lists={[]}
+            canReadTemplates
+          >
             <SaveButton />
           </AutomationProvider>
         </App>
@@ -80,24 +85,6 @@ describe('AutomationProvider saving an automation the editor loaded live', () =>
       notification: {},
       modal: {}
     } as unknown as ReturnType<typeof App.useApp>)
-  })
-
-  // Saving keeps the stored status, and a save that failed earlier can have paused it: saved,
-  // but not running, which a plain success would hide.
-  it('warns when the automation comes back paused', async () => {
-    vi.mocked(automationApi.update).mockResolvedValue({
-      automation: { ...liveAutomation, status: 'paused' }
-    })
-    renderEditor()
-    save()
-
-    await waitFor(() =>
-      expect(mockMessage.warning).toHaveBeenCalledWith({
-        content: 'Automation updated, but it is paused: activate it to run this version.',
-        duration: 10
-      })
-    )
-    expect(mockMessage.success).not.toHaveBeenCalled()
   })
 
   it('confirms a save that leaves it live', async () => {
@@ -163,5 +150,291 @@ describe('AutomationProvider saving an automation the editor loaded live', () =>
         'Failed to update automation: invalid trigger conditions: operator does not exist'
       )
     )
+  })
+})
+
+describe('AutomationProvider refusing to save an invalid flow', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.spyOn(App, 'useApp').mockReturnValue({
+      message: mockMessage,
+      notification: {},
+      modal: {}
+    } as unknown as ReturnType<typeof App.useApp>)
+  })
+
+  function Probe() {
+    const { save, selectedNodeId } = useAutomation()
+    return (
+      <>
+        <button onClick={() => void save()}>Save</button>
+        <span data-testid="selected">{selectedNodeId ?? ''}</span>
+      </>
+    )
+  }
+
+  it('selects the step at fault, and leaves its message up long enough to read', async () => {
+    // "All variants must be connected" was a short toast: nothing on the canvas said which step.
+    const withOpenVariant: Automation = {
+      ...liveAutomation,
+      status: 'paused',
+      nodes: [
+        { ...liveAutomation.nodes[0], next_node_id: 'ab-1' },
+        {
+          id: 'ab-1',
+          automation_id: 'auto-1',
+          type: 'ab_test',
+          config: {
+            variants: [
+              { id: 'A', name: 'Variant A', weight: 50, next_node_id: '' },
+              { id: 'B', name: 'Variant B', weight: 50, next_node_id: '' }
+            ]
+          },
+          position: { x: 0, y: 150 },
+          created_at: '2026-01-01T00:00:00Z'
+        }
+      ]
+    }
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <I18nProvider i18n={i18n}>
+          <App>
+            <AutomationProvider workspace={workspace} automation={withOpenVariant} lists={[]} canReadTemplates>
+              <Probe />
+            </AutomationProvider>
+          </App>
+        </I18nProvider>
+      </QueryClientProvider>
+    )
+    expect(screen.getByTestId('selected')).toHaveTextContent('')
+    save()
+
+    await waitFor(() => expect(screen.getByTestId('selected')).toHaveTextContent('ab-1'))
+    expect(mockMessage.error).toHaveBeenCalledWith({ content: expect.stringContaining('All variants must be connected'), duration: 8 })
+    expect(automationApi.update).not.toHaveBeenCalled()
+  })
+})
+
+// The context value keeps its identity while nothing it holds changes, so its memo spares the
+// consumers a render; a permission that loads changes it.
+describe('AutomationProvider context value', () => {
+  const NO_LISTS: [] = []
+  function ValueProbe({ seen }: { seen: unknown[] }) {
+    seen.push(useAutomation())
+    return null
+  }
+  const tree = (seen: unknown[], canReadTemplates: boolean, queryClient: QueryClient) => (
+    <QueryClientProvider client={queryClient}>
+      <I18nProvider i18n={i18n}>
+        <App>
+          <AutomationProvider workspace={workspace} automation={liveAutomation} lists={NO_LISTS} canReadTemplates={canReadTemplates}>
+            <ValueProbe seen={seen} />
+          </AutomationProvider>
+        </App>
+      </I18nProvider>
+    </QueryClientProvider>
+  )
+
+  it('keeps its identity across a re-render and changes when canReadTemplates loads', () => {
+    const queryClient = new QueryClient()
+    const seen: unknown[] = []
+    const { rerender } = render(tree(seen, false, queryClient))
+    const settled = seen.at(-1)
+
+    rerender(tree(seen, false, queryClient))
+    expect(seen.at(-1)).toBe(settled)
+
+    rerender(tree(seen, true, queryClient))
+    expect(seen.at(-1)).not.toBe(settled)
+    expect((seen.at(-1) as { canReadTemplates: boolean }).canReadTemplates).toBe(true)
+  })
+})
+
+function TemplatesReadProbe() {
+  const { canReadTemplates } = useAutomation()
+  return <span data-testid="probe">{String(canReadTemplates)}</span>
+}
+
+// The editor's template fields read the permission from the context.
+describe('AutomationProvider Templates read', () => {
+  it.each([false, true])('exposes canReadTemplates %s', (canRead) => {
+    const queryClient = new QueryClient()
+    render(
+      <QueryClientProvider client={queryClient}>
+        <I18nProvider i18n={i18n}>
+          <App>
+            <AutomationProvider workspace={workspace} lists={[]} canReadTemplates={canRead}>
+              <TemplatesReadProbe />
+            </AutomationProvider>
+          </App>
+        </I18nProvider>
+      </QueryClientProvider>
+    )
+
+    expect(screen.getByTestId('probe')).toHaveTextContent(String(canRead))
+  })
+
+  // The permissions load after the page: an editor opened before then must unlock once they do.
+  it('follows the permission once it loads', () => {
+    const queryClient = new QueryClient()
+    const tree = (canRead: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <I18nProvider i18n={i18n}>
+          <App>
+            <AutomationProvider workspace={workspace} lists={[]} canReadTemplates={canRead}>
+              <TemplatesReadProbe />
+            </AutomationProvider>
+          </App>
+        </I18nProvider>
+      </QueryClientProvider>
+    )
+    const { rerender } = render(tree(false))
+    expect(screen.getByTestId('probe')).toHaveTextContent('false')
+
+    rerender(tree(true))
+    expect(screen.getByTestId('probe')).toHaveTextContent('true')
+  })
+})
+
+function SessionProbe() {
+  const { automationId, isEditing, hasUnsavedChanges, frequency, setFrequency, setName, conflict, save, canUndo, canvasState } =
+    useAutomation()
+  const configureTrigger = () =>
+    canvasState.setNodes((nds) =>
+      nds.map((n) =>
+        n.data.nodeType === 'trigger' ? { ...n, data: { ...n.data, config: { ...n.data.config, event_kind: 'contact.created' } } } : n
+      )
+    )
+  return (
+    <div>
+      <span data-testid="id">{automationId}</span>
+      <span data-testid="editing">{String(isEditing)}</span>
+      <span data-testid="dirty">{String(hasUnsavedChanges)}</span>
+      <span data-testid="frequency">{frequency}</span>
+      <span data-testid="conflict">{String(conflict)}</span>
+      <span data-testid="undo">{String(canUndo)}</span>
+      <button onClick={() => setName('Renamed')}>Rename</button>
+      <button onClick={() => setName('Welcome')}>Name back</button>
+      <button onClick={() => setFrequency('once')}>Once</button>
+      <button onClick={() => void save()}>Save</button>
+      <button onClick={configureTrigger}>Configure</button>
+    </div>
+  )
+}
+
+const renderSession = (props: { automation?: Automation; readOnly?: boolean; onSaved?: (a: Automation) => void } = {}) => {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  const tree = (automation?: Automation) => (
+    <QueryClientProvider client={queryClient}>
+      <I18nProvider i18n={i18n}>
+        <App>
+          <AutomationProvider
+            workspace={workspace}
+            automation={automation}
+            lists={[]}
+            canReadTemplates
+            readOnly={props.readOnly}
+            onSaved={props.onSaved}
+          >
+            <SessionProbe />
+          </AutomationProvider>
+        </App>
+      </I18nProvider>
+    </QueryClientProvider>
+  )
+  const utils = render(tree(props.automation))
+  return { ...utils, queryClient, rerenderWith: (a?: Automation) => utils.rerender(tree(a)) }
+}
+
+const text = (id: string) => screen.getByTestId(id).textContent
+const click = (name: string) => fireEvent.click(screen.getByRole('button', { name }))
+const paused: Automation = { ...liveAutomation, status: 'paused' }
+
+describe('AutomationProvider unsaved changes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.spyOn(App, 'useApp').mockReturnValue({
+      message: mockMessage,
+      notification: {},
+      modal: {}
+    } as unknown as ReturnType<typeof App.useApp>)
+  })
+
+  it('is clean when loaded and when new and untouched', () => {
+    const { unmount } = renderSession({ automation: paused })
+    expect(text('dirty')).toBe('false')
+    unmount()
+    renderSession()
+    expect(text('dirty')).toBe('false')
+  })
+
+  it('follows the difference with what was loaded, not the edits made', () => {
+    renderSession({ automation: paused })
+    click('Rename')
+    expect(text('dirty')).toBe('true')
+    click('Name back')
+    expect(text('dirty')).toBe('false')
+  })
+
+  it('stays clean when the automation is paused or activated from the editor', () => {
+    const { rerenderWith } = renderSession({ automation: paused })
+    rerenderWith({ ...paused, status: 'live', updated_at: '2026-02-01T00:00:00Z' })
+    expect(text('dirty')).toBe('false')
+  })
+
+  it('writes the frequency to the trigger, as one undo step', () => {
+    renderSession({ automation: paused })
+    expect(text('frequency')).toBe('every_time')
+    click('Once')
+    expect(text('frequency')).toBe('once')
+    expect(text('undo')).toBe('true')
+    expect(text('dirty')).toBe('true')
+  })
+
+  it('changes nothing read-only', () => {
+    renderSession({ automation: liveAutomation, readOnly: true })
+    click('Rename')
+    click('Once')
+    expect(text('frequency')).toBe('every_time')
+    expect(text('dirty')).toBe('false')
+    click('Save')
+    expect(automationApi.update).not.toHaveBeenCalled()
+  })
+
+  it('creates a new automation, then updates it under the same id', async () => {
+    vi.mocked(automationApi.create).mockImplementation(async ({ automation }) => ({ automation }))
+    vi.mocked(automationApi.update).mockImplementation(async ({ automation }) => ({ automation }))
+    const onSaved = vi.fn()
+    renderSession({ onSaved })
+    const id = text('id')
+    expect(text('editing')).toBe('false')
+    click('Rename')
+    click('Configure')
+    click('Save')
+    await waitFor(() => expect(text('editing')).toBe('true'))
+    expect(vi.mocked(automationApi.create).mock.calls[0][0].automation.id).toBe(id)
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ id, name: 'Renamed' }))
+    expect(text('dirty')).toBe('false')
+
+    click('Once')
+    click('Save')
+    await waitFor(() => expect(automationApi.update).toHaveBeenCalled())
+    expect(vi.mocked(automationApi.update).mock.calls[0][0].automation.id).toBe(id)
+    expect(text('id')).toBe(id)
+  })
+
+  it('keeps the edits and asks for a reload on a conflict', async () => {
+    vi.mocked(automationApi.update).mockRejectedValue(
+      failedWith(409, { error: 'automation auto-1 is no longer paused' })
+    )
+    const { queryClient } = renderSession({ automation: paused })
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+    click('Rename')
+    click('Save')
+    await waitFor(() => expect(text('conflict')).toBe('true'))
+    expect(mockMessage.error).toHaveBeenCalledWith('This automation was changed elsewhere')
+    expect(text('dirty')).toBe('true')
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['automation', 'ws1', 'auto-1'] })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['automations', 'ws1'] })
   })
 })

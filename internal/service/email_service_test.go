@@ -13,9 +13,9 @@ import (
 	"github.com/Notifuse/notifuse/pkg/crypto"
 	pkgmocks "github.com/Notifuse/notifuse/pkg/mocks"
 	"github.com/Notifuse/notifuse/pkg/notifuse_mjml"
+	"github.com/Notifuse/safe-mjml/mjml"
 	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
-	"github.com/preslavrachev/gomjml/mjml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -238,15 +238,13 @@ func TestEmailService_NewEmailService(t *testing.T) {
 	})
 }
 
-// emailFullAccess builds a member row — role "member", not "owner", so
-// HasPermission actually consults the grants — holding read+write on every
-// resource, for the cases that exercise the code past the permission gate.
-func emailFullAccess() *domain.UserWorkspace {
+// emailOwner builds an owner row, for the cases that exercise TestEmailProvider
+// past its role gate: testing a provider is reserved to the owner.
+func emailOwner() *domain.UserWorkspace {
 	return &domain.UserWorkspace{
 		UserID:      "user-123",
 		WorkspaceID: "workspace-123",
-		Role:        "member",
-		Permissions: domain.NewFullPermissions(),
+		Role:        "owner",
 	}
 }
 
@@ -306,7 +304,7 @@ func TestEmailService_TestEmailProvider(t *testing.T) {
 		// Set up authentication mock
 		mockAuthService.EXPECT().
 			AuthenticateUserForWorkspace(gomock.Any(), workspaceID).
-			Return(ctx, &domain.User{ID: "user-123"}, emailFullAccess(), nil)
+			Return(ctx, &domain.User{ID: "user-123"}, emailOwner(), nil)
 
 		// Provider should send an email - use gomock's Any matcher to be flexible
 		mockSESService.EXPECT().
@@ -363,7 +361,7 @@ func TestEmailService_TestEmailProvider(t *testing.T) {
 
 		mockAuthService.EXPECT().
 			AuthenticateUserForWorkspace(gomock.Any(), workspaceID).
-			Return(ctx, &domain.User{ID: "user-123"}, emailFullAccess(), nil)
+			Return(ctx, &domain.User{ID: "user-123"}, emailOwner(), nil)
 
 		// Call method under test
 		err := emailService.TestEmailProvider(ctx, workspaceID, "", provider, toEmail)
@@ -391,7 +389,7 @@ func TestEmailService_TestEmailProvider(t *testing.T) {
 
 		mockAuthService.EXPECT().
 			AuthenticateUserForWorkspace(gomock.Any(), workspaceID).
-			Return(ctx, &domain.User{ID: "user-123"}, emailFullAccess(), nil)
+			Return(ctx, &domain.User{ID: "user-123"}, emailOwner(), nil)
 
 		mockSESService.EXPECT().
 			SendEmail(
@@ -405,6 +403,58 @@ func TestEmailService_TestEmailProvider(t *testing.T) {
 		// Assertions
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to test provider")
+	})
+
+	t.Run("Owner testing a saved integration sends with its stored secret", func(t *testing.T) {
+		// The console cannot echo a stored secret back, so it posts the saved
+		// integration with the secret blank; the test must still authenticate with
+		// the stored one, or it reports a working provider as broken.
+		const integrationID = "integration-ses"
+		provider := domain.EmailProvider{
+			Kind:    domain.EmailProviderKindSES,
+			Senders: []domain.EmailSender{{Email: "sender@example.com", Name: "Test Sender"}},
+			SES: &domain.AmazonSESSettings{
+				Region:    "us-east-1",
+				AccessKey: "test-access-key",
+				SecretKey: "",
+			},
+		}
+		workspace := &domain.Workspace{
+			ID: workspaceID,
+			Integrations: []domain.Integration{{
+				ID:   integrationID,
+				Type: domain.IntegrationTypeEmail,
+				EmailProvider: domain.EmailProvider{
+					Kind:    domain.EmailProviderKindSES,
+					Senders: []domain.EmailSender{{Email: "sender@example.com", Name: "Test Sender"}},
+					SES: &domain.AmazonSESSettings{
+						Region:    "us-east-1",
+						AccessKey: "test-access-key",
+						SecretKey: "stored-secret-key",
+					},
+				},
+			}},
+		}
+
+		mockAuthService.EXPECT().
+			AuthenticateUserForWorkspace(gomock.Any(), workspaceID).
+			Return(ctx, &domain.User{ID: "user-123"}, emailOwner(), nil)
+		mockWorkspaceRepo.EXPECT().GetByID(gomock.Any(), workspaceID).Return(workspace, nil)
+
+		var sent domain.SendEmailProviderRequest
+		mockSESService.EXPECT().
+			SendEmail(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, request domain.SendEmailProviderRequest) error {
+				sent = request
+				return nil
+			})
+
+		err := emailService.TestEmailProvider(ctx, workspaceID, integrationID, provider, toEmail)
+
+		require.NoError(t, err)
+		require.NotNil(t, sent.Provider)
+		require.NotNil(t, sent.Provider.SES)
+		assert.Equal(t, "stored-secret-key", sent.Provider.SES.SecretKey)
 	})
 }
 
@@ -656,8 +706,8 @@ func TestEmailService_VisitLink(t *testing.T) {
 	t.Run("Successfully sets message as clicked without URL", func(t *testing.T) {
 		// Setup message repository mock to expect SetClicked
 		mockMessageRepo.EXPECT().
-			SetClicked(ctx, workspaceID, messageID, gomock.Any(), "").
-			DoAndReturn(func(_ context.Context, _, _ string, timestamp time.Time, _ string) error {
+			SetClicked(ctx, workspaceID, messageID, gomock.Any(), "", true).
+			DoAndReturn(func(_ context.Context, _, _ string, timestamp time.Time, _ string, _ bool) error {
 				// Verify the timestamp is close to now
 				assert.True(t, time.Since(timestamp) < time.Second)
 				return nil
@@ -666,7 +716,7 @@ func TestEmailService_VisitLink(t *testing.T) {
 		// No logger error expected
 
 		// Call method under test
-		err := emailService.VisitLink(ctx, messageID, workspaceID, "", requestHost)
+		err := emailService.VisitLink(ctx, messageID, workspaceID, "", []string{requestHost}, true)
 
 		// Assertions
 		require.NoError(t, err)
@@ -676,19 +726,19 @@ func TestEmailService_VisitLink(t *testing.T) {
 		clickedURL := "https://shop.example.com/product?utm_source=news"
 
 		mockMessageRepo.EXPECT().
-			SetClicked(ctx, workspaceID, messageID, gomock.Any(), clickedURL).
+			SetClicked(ctx, workspaceID, messageID, gomock.Any(), clickedURL, true).
 			Return(nil)
 
-		err := emailService.VisitLink(ctx, messageID, workspaceID, clickedURL, requestHost)
+		err := emailService.VisitLink(ctx, messageID, workspaceID, clickedURL, []string{requestHost}, true)
 		require.NoError(t, err)
 	})
 
 	t.Run("Non-http scheme degrades to aggregate-only", func(t *testing.T) {
 		mockMessageRepo.EXPECT().
-			SetClicked(ctx, workspaceID, messageID, gomock.Any(), "").
+			SetClicked(ctx, workspaceID, messageID, gomock.Any(), "", true).
 			Return(nil)
 
-		err := emailService.VisitLink(ctx, messageID, workspaceID, "mailto:someone@example.com", requestHost)
+		err := emailService.VisitLink(ctx, messageID, workspaceID, "mailto:someone@example.com", []string{requestHost}, true)
 		require.NoError(t, err)
 	})
 
@@ -696,10 +746,10 @@ func TestEmailService_VisitLink(t *testing.T) {
 		longURL := "https://example.com/?q=" + strings.Repeat("a", 2048)
 
 		mockMessageRepo.EXPECT().
-			SetClicked(ctx, workspaceID, messageID, gomock.Any(), "").
+			SetClicked(ctx, workspaceID, messageID, gomock.Any(), "", true).
 			Return(nil)
 
-		err := emailService.VisitLink(ctx, messageID, workspaceID, longURL, requestHost)
+		err := emailService.VisitLink(ctx, messageID, workspaceID, longURL, []string{requestHost}, true)
 		require.NoError(t, err)
 	})
 
@@ -707,50 +757,118 @@ func TestEmailService_VisitLink(t *testing.T) {
 		// Unsubscribe/notification-center URLs embed the recipient's raw email
 		// and are built on the same endpoint that serves the click redirect.
 		mockMessageRepo.EXPECT().
-			SetClicked(ctx, workspaceID, messageID, gomock.Any(), "").
+			SetClicked(ctx, workspaceID, messageID, gomock.Any(), "", true).
 			Return(nil)
 
 		err := emailService.VisitLink(ctx, messageID, workspaceID,
-			"https://click.notifuse.test/unsubscribe?email=someone@example.com", requestHost)
+			"https://click.notifuse.test/unsubscribe?email=someone@example.com", []string{requestHost}, true)
 		require.NoError(t, err)
 	})
 
 	t.Run("Host comparison is case-insensitive", func(t *testing.T) {
 		mockMessageRepo.EXPECT().
-			SetClicked(ctx, workspaceID, messageID, gomock.Any(), "").
+			SetClicked(ctx, workspaceID, messageID, gomock.Any(), "", true).
 			Return(nil)
 
 		err := emailService.VisitLink(ctx, messageID, workspaceID,
-			"https://Click.Notifuse.Test/notification-center?email=someone@example.com", requestHost)
+			"https://Click.Notifuse.Test/notification-center?email=someone@example.com", []string{requestHost}, true)
 		require.NoError(t, err)
 	})
 
-	t.Run("Empty request host still records external URLs", func(t *testing.T) {
+	t.Run("Behind a proxy, a URL pointing back at a forwarded host degrades to aggregate-only", func(t *testing.T) {
+		// The proxy forwards its upstream name as Host: the email's own links are built
+		// on the host it forwards in X-Forwarded-Host, the second one here.
+		mockMessageRepo.EXPECT().
+			SetClicked(ctx, workspaceID, messageID, gomock.Any(), "", true).
+			Return(nil)
+
+		err := emailService.VisitLink(ctx, messageID, workspaceID,
+			"https://click.notifuse.test/unsubscribe?email=someone@example.com", []string{"notifuse:8080", requestHost}, true)
+		require.NoError(t, err)
+	})
+
+	t.Run("Behind a proxy, external URLs are still recorded", func(t *testing.T) {
 		clickedURL := "https://shop.example.com/product"
 
 		mockMessageRepo.EXPECT().
-			SetClicked(ctx, workspaceID, messageID, gomock.Any(), clickedURL).
+			SetClicked(ctx, workspaceID, messageID, gomock.Any(), clickedURL, true).
 			Return(nil)
 
-		err := emailService.VisitLink(ctx, messageID, workspaceID, clickedURL, "")
+		err := emailService.VisitLink(ctx, messageID, workspaceID, clickedURL, []string{"notifuse:8080", requestHost}, true)
+		require.NoError(t, err)
+	})
+
+	t.Run("The request's own Host still counts when forwarded hosts follow it", func(t *testing.T) {
+		mockMessageRepo.EXPECT().
+			SetClicked(ctx, workspaceID, messageID, gomock.Any(), "", true).
+			Return(nil)
+
+		err := emailService.VisitLink(ctx, messageID, workspaceID,
+			"https://click.notifuse.test/unsubscribe?email=someone@example.com", []string{requestHost, "edge.example"}, true)
+		require.NoError(t, err)
+	})
+
+	t.Run("Own hosts are compared by hostname, whatever the ports", func(t *testing.T) {
+		// A proxy forwarding the public host without its port, a Host with the
+		// upstream port, an endpoint host that never carries one: the link is the
+		// instance's own on any port of that hostname.
+		for name, tc := range map[string]struct {
+			link  string
+			hosts []string
+		}{
+			"link with a port, host without":     {"https://click.notifuse.test:8443/unsubscribe?email=someone@example.com", []string{requestHost}},
+			"host with a port, link without":     {"http://notifuse/unsubscribe?email=someone@example.com", []string{"notifuse:8080"}},
+			"a trailing dot names the same host": {"https://click.notifuse.test./unsubscribe?email=someone@example.com", []string{requestHost}},
+			"a Unicode link, a Punycode host":    {"https://café.example/unsubscribe?email=someone@example.com", []string{"xn--caf-dma.example"}},
+			"an IPv6 endpoint host in brackets":  {"http://[2001:db8::1]:8080/unsubscribe-oneclick?email=someone@example.com", []string{"127.0.0.1:8080", "[2001:db8::1]"}},
+		} {
+			t.Run(name, func(t *testing.T) {
+				assert.Empty(t, sanitizeClickedURL(tc.link, tc.hosts))
+			})
+		}
+	})
+
+	t.Run("A hostname that only ends like an own host is recorded", func(t *testing.T) {
+		clickedURL := "https://evil-click.notifuse.test/landing"
+		assert.Equal(t, clickedURL, sanitizeClickedURL(clickedURL, []string{requestHost, "api.notifuse.test"}))
+	})
+
+	t.Run("No request host still records external URLs", func(t *testing.T) {
+		clickedURL := "https://shop.example.com/product"
+
+		mockMessageRepo.EXPECT().
+			SetClicked(ctx, workspaceID, messageID, gomock.Any(), clickedURL, true).
+			Return(nil)
+
+		err := emailService.VisitLink(ctx, messageID, workspaceID, clickedURL, nil, true)
 		require.NoError(t, err)
 	})
 
 	t.Run("Error setting clicked status", func(t *testing.T) {
 		// Setup message repository mock to return an error
 		mockMessageRepo.EXPECT().
-			SetClicked(ctx, workspaceID, messageID, gomock.Any(), "").
+			SetClicked(ctx, workspaceID, messageID, gomock.Any(), "", true).
 			Return(assert.AnError)
 
 		// Should log the error
 		mockLogger.EXPECT().Error(gomock.Any())
 
 		// Call method under test
-		err := emailService.VisitLink(ctx, messageID, workspaceID, "", requestHost)
+		err := emailService.VisitLink(ctx, messageID, workspaceID, "", []string{requestHost}, true)
 
 		// Assertions
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to set clicked")
+	})
+	t.Run("An unverified token is passed on as unverified", func(t *testing.T) {
+		clickedURL := "https://shop.example.com/product"
+
+		mockMessageRepo.EXPECT().
+			SetClicked(ctx, workspaceID, messageID, gomock.Any(), clickedURL, false).
+			Return(nil)
+
+		err := emailService.VisitLink(ctx, messageID, workspaceID, clickedURL, []string{requestHost}, false)
+		require.NoError(t, err)
 	})
 }
 
@@ -775,8 +893,8 @@ func TestSanitizeClickedURL_CollapsesPerRecipientIdentityTokens(t *testing.T) {
 		bobURL := link + "&" + domain.WebIdentifyQueryParam + "=" + bobToken
 		require.NotEqual(t, aliceURL, bobURL, "the two recipients must not share a destination URL, or the test proves nothing")
 
-		recordedForAlice := sanitizeClickedURL(aliceURL, requestHost)
-		recordedForBob := sanitizeClickedURL(bobURL, requestHost)
+		recordedForAlice := sanitizeClickedURL(aliceURL, []string{requestHost})
+		recordedForBob := sanitizeClickedURL(bobURL, []string{requestHost})
 
 		assert.Equal(t, link, recordedForAlice)
 		assert.Equal(t, recordedForAlice, recordedForBob, "both clicks must aggregate under a single clicked_links key")
@@ -793,8 +911,8 @@ func TestSanitizeClickedURL_CollapsesPerRecipientIdentityTokens(t *testing.T) {
 		require.NotEqual(t, first, second, "EncryptString must seed a fresh nonce per call")
 
 		assert.Equal(t,
-			sanitizeClickedURL(link+"&"+domain.WebIdentifyQueryParam+"="+first, requestHost),
-			sanitizeClickedURL(link+"&"+domain.WebIdentifyQueryParam+"="+second, requestHost))
+			sanitizeClickedURL(link+"&"+domain.WebIdentifyQueryParam+"="+first, []string{requestHost}),
+			sanitizeClickedURL(link+"&"+domain.WebIdentifyQueryParam+"="+second, []string{requestHost}))
 	})
 }
 
@@ -857,8 +975,53 @@ func TestSanitizeClickedURL_IdentifyTokenStripping(t *testing.T) {
 			expected: "http://user:pw@shop.example.com:8443/product",
 		},
 		{
+			name:     "A stray percent sign is recorded as written",
+			url:      "https://shop.example.com/50%off?nf_id=abc123&utm_source=news",
+			expected: "https://shop.example.com/50%off?utm_source=news",
+		},
+		{
+			name:     "An invalid escape is recorded as written",
+			url:      "https://shop.example.com/%zz",
+			expected: "https://shop.example.com/%zz",
+		},
+		{
+			name:     "Surrounding spaces and line breaks are trimmed from the recorded key",
+			url:      " https://shop.example.com/sa\r\nle?nf_id=abc123 ",
+			expected: "https://shop.example.com/sale",
+		},
+		{
+			name:     "A trailing space net/url accepts keeps the key it was always recorded under",
+			url:      "https://shop.example.com/sale ",
+			expected: "https://shop.example.com/sale ",
+		},
+		{
+			name:     "A percent sign in the host is not a destination",
+			url:      "https://click.notifuse.test%/unsubscribe?email=someone@example.com",
+			expected: "",
+		},
+		{
+			name:     "A percent sign in the host is not a destination, escaped either",
+			url:      "https://click.notifuse.test%25/unsubscribe?email=someone@example.com",
+			expected: "",
+		},
+		{
+			name:     "An IPv6 zone is not refused for its percent sign",
+			url:      "https://[fe80::1%25en0]/50%off",
+			expected: "https://[fe80::1%25en0]/50%off",
+		},
+		{
+			name:     "A stray percent sign does not rescue a link back to the request host",
+			url:      "https://click.notifuse.test/50%off",
+			expected: "",
+		},
+		{
+			name:     "A stray percent sign does not rescue a non-http scheme",
+			url:      "ftp://files.example.com/50%off",
+			expected: "",
+		},
+		{
 			name:     "Unparseable URL degrades to aggregate-only",
-			url:      "https://shop.example.com/%zz?nf_id=abc123",
+			url:      "https://shop example.com/product?nf_id=abc123",
 			expected: "",
 		},
 		{
@@ -875,7 +1038,7 @@ func TestSanitizeClickedURL_IdentifyTokenStripping(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, sanitizeClickedURL(tc.url, requestHost))
+			assert.Equal(t, tc.expected, sanitizeClickedURL(tc.url, []string{requestHost}))
 		})
 	}
 }
@@ -895,7 +1058,7 @@ func TestSanitizeClickedURL_LengthCapIgnoresTheIdentifyToken(t *testing.T) {
 		require.Len(t, atCap, maxRecordedClickedURLLength)
 		require.Greater(t, len(withToken), maxRecordedClickedURLLength, "the token must be what pushes this URL over the cap")
 
-		assert.Equal(t, atCap, sanitizeClickedURL(withToken, requestHost))
+		assert.Equal(t, atCap, sanitizeClickedURL(withToken, []string{requestHost}))
 	})
 
 	t.Run("A URL still over the cap once stripped degrades to aggregate-only", func(t *testing.T) {
@@ -903,7 +1066,7 @@ func TestSanitizeClickedURL_LengthCapIgnoresTheIdentifyToken(t *testing.T) {
 		overCap := prefix + strings.Repeat("a", maxRecordedClickedURLLength-len(prefix)+1)
 		withToken := overCap + "&" + domain.WebIdentifyQueryParam + "=" + token
 
-		assert.Empty(t, sanitizeClickedURL(withToken, requestHost))
+		assert.Empty(t, sanitizeClickedURL(withToken, []string{requestHost}))
 	})
 }
 
@@ -977,6 +1140,91 @@ func TestEmailService_OpenEmail(t *testing.T) {
 		// Assertions
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to update message opened")
+	})
+}
+
+func TestEmailService_SendEmail_PlainTextVersion(t *testing.T) {
+	provider := domain.EmailProvider{
+		Kind:    domain.EmailProviderKindSES,
+		Senders: []domain.EmailSender{{ID: "s1", Email: "default@example.com", Name: "Default Sender"}},
+		SES:     &domain.AmazonSESSettings{Region: "us-east-1", AccessKey: "k", SecretKey: "s"},
+	}
+	newRequest := func(content, text string) domain.SendEmailProviderRequest {
+		return domain.SendEmailProviderRequest{
+			WorkspaceID:   "workspace-123",
+			IntegrationID: "integration-1",
+			MessageID:     "message-1",
+			FromAddress:   "sender@example.com",
+			FromName:      "Sender",
+			To:            "recipient@example.com",
+			Subject:       "Subject",
+			Content:       content,
+			TextContent:   text,
+			Provider:      &provider,
+		}
+	}
+
+	tests := []struct {
+		name     string
+		content  string
+		text     string
+		wantText string
+	}{
+		{
+			name:     "an empty text is generated from the HTML",
+			content:  `<html><body><p>Hello Camille</p><a href="https://example.com/track">Track</a></body></html>`,
+			wantText: "Hello Camille\n\nTrack (https://example.com/track)\n",
+		},
+		{
+			name:     "a whitespace-only text is generated from the HTML",
+			content:  "<p>Hello</p>",
+			text:     " \n\t",
+			wantText: "Hello\n",
+		},
+		{
+			name:     "a text given by the caller is sent as is",
+			content:  "<p>Hello</p>",
+			text:     "Custom text {{ kept }}",
+			wantText: "Custom text {{ kept }}",
+		},
+		{
+			name:     "HTML with nothing to read gives no text",
+			content:  `<img src="https://example.com/pixel.gif" alt="">`,
+			wantText: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockSESService := mocks.NewMockEmailProviderService(ctrl)
+			emailService := EmailService{sesService: mockSESService}
+
+			var got domain.SendEmailProviderRequest
+			mockSESService.EXPECT().SendEmail(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, req domain.SendEmailProviderRequest) error {
+					got = req
+					return nil
+				})
+
+			err := emailService.SendEmail(context.Background(), newRequest(tt.content, tt.text), true)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantText, got.TextContent)
+			assert.Equal(t, tt.content, got.Content, "the HTML is never changed")
+		})
+	}
+
+	t.Run("demo mode sends nothing", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockSESService := mocks.NewMockEmailProviderService(ctrl)
+		emailService := EmailService{sesService: mockSESService, isDemo: true}
+
+		require.NoError(t, emailService.SendEmail(context.Background(), newRequest("<p>Hello</p>", ""), true))
 	})
 }
 
@@ -1519,6 +1767,8 @@ func TestEmailService_SendEmailForTemplate(t *testing.T) {
 		// Assertions
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "template compilation failed")
+		var renderErr *domain.TemplateRenderError
+		assert.True(t, errors.As(err, &renderErr), "a compilation failure is a TemplateRenderError: %v", err)
 	})
 
 	t.Run("Error creating message history", func(t *testing.T) {
@@ -1936,6 +2186,14 @@ func sendForTemplateCapturingTrackingWithOptions(t *testing.T, webAnalytics *dom
 // send — the value SendEmailForTemplate carries into the compiler.
 func sendForTemplateCapturingTrackingWithRequestSettings(t *testing.T, webAnalytics *domain.WebAnalyticsSettings, contactEmail string, secretKey string, emailOptions domain.EmailOptions, requestTracking notifuse_mjml.TrackingSettings) notifuse_mjml.TrackingSettings {
 	t.Helper()
+	captured, _ := sendForTemplateCapturingTrackingAndHistory(t, webAnalytics, contactEmail, secretKey, emailOptions, requestTracking)
+	return captured
+}
+
+// sendForTemplateCapturingTrackingAndHistory is the same send, also returning
+// the message history row the send records.
+func sendForTemplateCapturingTrackingAndHistory(t *testing.T, webAnalytics *domain.WebAnalyticsSettings, contactEmail string, secretKey string, emailOptions domain.EmailOptions, requestTracking notifuse_mjml.TrackingSettings) (notifuse_mjml.TrackingSettings, *domain.MessageHistory) {
+	t.Helper()
 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -1998,9 +2256,13 @@ func sendForTemplateCapturingTrackingWithRequestSettings(t *testing.T, webAnalyt
 			captured = req.TrackingSettings
 			return &domain.CompileTemplateResponse{Success: true, HTML: &compiledHTML}, nil
 		})
+	var history *domain.MessageHistory
 	mockMessageRepo.EXPECT().
 		Create(gomock.Any(), workspaceID, gomock.Any(), gomock.Any()).
-		Return(nil)
+		DoAndReturn(func(_ context.Context, _, _ string, m *domain.MessageHistory) error {
+			history = m
+			return nil
+		})
 	mockSESService.EXPECT().
 		SendEmail(gomock.Any(), gomock.Any()).
 		Return(nil)
@@ -2021,7 +2283,7 @@ func sendForTemplateCapturingTrackingWithRequestSettings(t *testing.T, webAnalyt
 	}
 	require.NoError(t, emailService.SendEmailForTemplate(context.Background(), request))
 
-	return captured
+	return captured, history
 }
 
 // TestEmailService_SendEmailForTemplate_WebIdentity covers the "identified with
@@ -2226,7 +2488,7 @@ func TestEmailService_SendEmailForTemplate_WebIdentityTrackingMode(t *testing.T)
 
 	t.Run("Mints nothing when the notification opts out of tracking", func(t *testing.T) {
 		// What the transactional service actually hands this method for an
-		// opted-out notification: effectiveTracking resolves EnableTracking to
+		// opted-out notification: recipientTrackingSettings resolves EnableTracking to
 		// false, and the mode rides along.
 		tracking := send(t, notifuse_mjml.TrackingSettings{
 			TrackingMode:   notifuse_mjml.TrackingModeDisabled,
@@ -2343,8 +2605,8 @@ func TestSanitizeClickedURL_StripsWhatTrackLinksWrites(t *testing.T) {
 	require.NotEqual(t, aliceDestination, bobDestination,
 		"the two recipients must land on different URLs, or the strip is not being exercised")
 
-	aliceKey := sanitizeClickedURL(aliceDestination, requestHost)
-	bobKey := sanitizeClickedURL(bobDestination, requestHost)
+	aliceKey := sanitizeClickedURL(aliceDestination, []string{requestHost})
+	bobKey := sanitizeClickedURL(bobDestination, []string{requestHost})
 
 	require.NotEmpty(t, aliceKey, "the destination is on a third-party host and must stay recordable")
 	assert.Equal(t, aliceKey, bobKey, "both clicks must aggregate under a single clicked_links key")
@@ -2354,65 +2616,316 @@ func TestSanitizeClickedURL_StripsWhatTrackLinksWrites(t *testing.T) {
 	assert.Contains(t, aliceKey, "utm_source=news", "the campaign parameters must survive the strip")
 }
 
-// TestEmailService_TestEmailProvider_PermissionEnforcement verifies that testing a
-// provider requires transactional write: it sends a real email using the
-// workspace's stored credentials, so read access is not enough. The member is
-// granted the OPPOSITE permission, so the test fails both if the check is missing
-// and if it is gated on read. No provider expectation is set, so gomock also fails
-// if the send runs.
-//
-// The refusal has to name transactional:write specifically. The fixture grants a
-// single resource, so a gate on any OTHER resource denies this member too — only
-// reading the resource and verb back off the error tells the two apart, and both
-// travel to the client through writePermissionError.
 func TestEmailService_TestEmailProvider_PermissionEnforcement(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockLogger := pkgmocks.NewMockLogger(ctrl)
-	mockAuthService := mocks.NewMockAuthService(ctrl)
-	mockWorkspaceRepo := mocks.NewMockWorkspaceRepository(ctrl)
-	mockSESService := mocks.NewMockEmailProviderService(ctrl)
-
-	emailService := EmailService{
-		logger:        mockLogger,
-		authService:   mockAuthService,
-		workspaceRepo: mockWorkspaceRepo,
-		sesService:    mockSESService,
-	}
-
-	ctx := context.Background()
+	// Only an owner may test a provider, as only an owner configures one; no
+	// permission, not even every permission, stands in for the role. Each case is
+	// refused before the saved integration is read, before any provider is called,
+	// and without a log line. The strict mocks below carry no expectation beyond
+	// authentication, so any of those calls fails the test.
 	workspaceID := "workspace-123"
-
-	// role "member" (not "owner") so HasPermission actually consults the grants.
-	readOnlyMember := &domain.UserWorkspace{
-		UserID:      "user-123",
-		WorkspaceID: workspaceID,
-		Role:        "member",
-		Permissions: domain.UserPermissions{
-			domain.PermissionResourceTransactional: {Read: true},
-		},
-	}
-
-	mockAuthService.EXPECT().
-		AuthenticateUserForWorkspace(gomock.Any(), workspaceID).
-		Return(ctx, &domain.User{ID: "user-123"}, readOnlyMember, nil)
-
 	provider := domain.EmailProvider{
 		Kind:    domain.EmailProviderKindSES,
 		Senders: []domain.EmailSender{{Email: "sender@example.com", Name: "Test Sender"}},
 		SES: &domain.AmazonSESSettings{
 			Region:    "us-east-1",
 			AccessKey: "test-access-key",
-			SecretKey: "test-secret-key",
+			SecretKey: "",
 		},
 	}
 
-	err := emailService.TestEmailProvider(ctx, workspaceID, "", provider, "test@example.com")
-	require.Error(t, err)
+	cases := []struct {
+		name          string
+		permissions   domain.UserPermissions
+		integrationID string
+	}{
+		{
+			name:        "member with transactional write",
+			permissions: domain.UserPermissions{domain.PermissionResourceTransactional: {Read: true, Write: true}},
+		},
+		{
+			name:          "member with transactional write naming a saved integration",
+			permissions:   domain.UserPermissions{domain.PermissionResourceTransactional: {Read: true, Write: true}},
+			integrationID: "integration-ses",
+		},
+		{
+			name:          "member with every permission naming a saved integration",
+			permissions:   domain.NewFullPermissions(),
+			integrationID: "integration-ses",
+		},
+		{
+			name:        "member with transactional read only",
+			permissions: domain.UserPermissions{domain.PermissionResourceTransactional: {Read: true}},
+		},
+	}
 
-	var permErr *domain.PermissionError
-	require.True(t, errors.As(err, &permErr), "expected a *domain.PermissionError, got %T: %v", err, err)
-	assert.Equal(t, domain.PermissionResourceTransactional, permErr.Resource)
-	assert.Equal(t, domain.PermissionTypeWrite, permErr.Permission)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockAuthService := mocks.NewMockAuthService(ctrl)
+			emailService := EmailService{
+				logger:        pkgmocks.NewMockLogger(ctrl),
+				authService:   mockAuthService,
+				workspaceRepo: mocks.NewMockWorkspaceRepository(ctrl),
+				sesService:    mocks.NewMockEmailProviderService(ctrl),
+			}
+
+			ctx := context.Background()
+			member := &domain.UserWorkspace{
+				UserID:      "user-123",
+				WorkspaceID: workspaceID,
+				Role:        "member",
+				Permissions: tc.permissions,
+			}
+			mockAuthService.EXPECT().
+				AuthenticateUserForWorkspace(gomock.Any(), workspaceID).
+				Return(ctx, &domain.User{ID: "user-123"}, member, nil)
+
+			err := emailService.TestEmailProvider(ctx, workspaceID, tc.integrationID, provider, "test@example.com")
+			require.Error(t, err)
+
+			var unauthorized *domain.ErrUnauthorized
+			require.True(t, errors.As(err, &unauthorized), "expected a *domain.ErrUnauthorized, got %T: %v", err, err)
+		})
+	}
+}
+
+// TestSendEmailForTemplate_SetsTrackingSigningKey pins that the compile request built by
+// SendEmailForTemplate carries the workspace's tracking key, whatever tracking settings
+// the caller passed: the list confirmation path passes EnableTracking from the workspace
+// and UTM fields, the notification path a resolved per-notification mode, and neither
+// can carry a key (json:"-"). Without it every link of these sends would be unsigned.
+func TestSendEmailForTemplate_SetsTrackingSigningKey(t *testing.T) {
+	const secretKey = "workspace-secret-key-32-chars-min!"
+	want := domain.TrackingSigningKey(secretKey)
+	require.NotEmpty(t, want)
+
+	shapes := map[string]notifuse_mjml.TrackingSettings{
+		"list confirmation": {EnableTracking: true, UTMMedium: "email", UTMCampaign: "newsletter", WorkspaceID: "workspace-123", MessageID: "msg-1"},
+		"notification":      {EnableTracking: true, TrackingMode: notifuse_mjml.TrackingModeInherit},
+	}
+	for name, requestTracking := range shapes {
+		t.Run(name, func(t *testing.T) {
+			tracking := sendForTemplateCapturingTrackingWithRequestSettings(t, nil, "alice@example.com", secretKey, domain.EmailOptions{}, requestTracking)
+			assert.Equal(t, want, tracking.SigningKey)
+		})
+	}
+}
+
+func TestEmailService_SendEmailForTemplate_CarriesTrackingDecision(t *testing.T) {
+	const secretKey = "workspace-secret-key-32-chars-min!"
+	const contactEmail = "test@example.com"
+	webAnalytics := func() *domain.WebAnalyticsSettings {
+		return &domain.WebAnalyticsSettings{Enabled: true, IdentifyFromEmailLinks: true, AllowedDomains: []string{"shop.example.com"}}
+	}
+
+	t.Run("suppress flags survive the rebuild and set the message flags", func(t *testing.T) {
+		tracking, history := sendForTemplateCapturingTrackingAndHistory(t, webAnalytics(), contactEmail, secretKey, domain.EmailOptions{},
+			notifuse_mjml.TrackingSettings{EnableTracking: true, SuppressOpens: true})
+
+		assert.True(t, tracking.SuppressOpens)
+		assert.False(t, tracking.SuppressClicks)
+		require.NotNil(t, history)
+		require.NotNil(t, history.OpensTracked)
+		require.NotNil(t, history.ClicksTracked)
+		assert.False(t, *history.OpensTracked)
+		assert.True(t, *history.ClicksTracked)
+	})
+
+	t.Run("SuppressIdentify mints no token", func(t *testing.T) {
+		tracking, _ := sendForTemplateCapturingTrackingAndHistory(t, webAnalytics(), contactEmail, secretKey, domain.EmailOptions{},
+			notifuse_mjml.TrackingSettings{EnableTracking: true, SuppressClicks: true, SuppressIdentify: true})
+
+		assert.True(t, tracking.SuppressIdentify)
+		assert.Empty(t, tracking.IdentifyToken)
+		assert.Empty(t, tracking.IdentifyAllowedHosts)
+	})
+
+	t.Run("no_tracking mints no token and records nothing tracked", func(t *testing.T) {
+		tracking, history := sendForTemplateCapturingTrackingAndHistory(t, webAnalytics(), contactEmail, secretKey, domain.EmailOptions{},
+			notifuse_mjml.TrackingSettings{TrackingMode: notifuse_mjml.TrackingModeNoTracking})
+
+		assert.Empty(t, tracking.IdentifyToken)
+		assert.False(t, *history.OpensTracked)
+		assert.False(t, *history.ClicksTracked)
+	})
+
+	t.Run("workspace click tracking off alone still identifies", func(t *testing.T) {
+		tracking, history := sendForTemplateCapturingTrackingAndHistory(t, webAnalytics(), contactEmail, secretKey, domain.EmailOptions{},
+			notifuse_mjml.TrackingSettings{EnableTracking: true, SuppressClicks: true})
+
+		assert.NotEmpty(t, tracking.IdentifyToken)
+		assert.True(t, *history.OpensTracked)
+		assert.False(t, *history.ClicksTracked)
+	})
+
+	t.Run("disabled records nothing tracked even if flagged on", func(t *testing.T) {
+		_, history := sendForTemplateCapturingTrackingAndHistory(t, webAnalytics(), contactEmail, secretKey, domain.EmailOptions{},
+			notifuse_mjml.TrackingSettings{EnableTracking: true, TrackingMode: notifuse_mjml.TrackingModeDisabled})
+
+		assert.False(t, *history.OpensTracked)
+		assert.False(t, *history.ClicksTracked)
+	})
+}
+
+// sendForTemplateCapturingProviderRequest sends emailTemplate to contact through
+// SendEmailForTemplate and returns what reached the provider. The integration has a
+// default sender and a second one; the caller's template names which it uses.
+func sendForTemplateCapturingProviderRequest(t *testing.T, emailTemplate *domain.Template, senders []domain.EmailSender, contact *domain.Contact, emailOptions domain.EmailOptions) domain.SendEmailProviderRequest {
+	t.Helper()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockLogger := pkgmocks.NewMockLogger(ctrl)
+	mockLogger.EXPECT().WithFields(gomock.Any()).Return(mockLogger).AnyTimes()
+	mockLogger.EXPECT().WithField(gomock.Any(), gomock.Any()).Return(mockLogger).AnyTimes()
+	mockLogger.EXPECT().Debug(gomock.Any()).AnyTimes()
+	mockLogger.EXPECT().Info(gomock.Any()).AnyTimes()
+	mockLogger.EXPECT().Error(gomock.Any()).AnyTimes()
+
+	mockWorkspaceRepo := mocks.NewMockWorkspaceRepository(ctrl)
+	mockTemplateService := mocks.NewMockTemplateService(ctrl)
+	mockMessageRepo := mocks.NewMockMessageHistoryRepository(ctrl)
+	mockSESService := mocks.NewMockEmailProviderService(ctrl)
+
+	emailService := EmailService{
+		logger:          mockLogger,
+		workspaceRepo:   mockWorkspaceRepo,
+		templateService: mockTemplateService,
+		messageRepo:     mockMessageRepo,
+		sesService:      mockSESService,
+		apiEndpoint:     "https://api.example.com",
+	}
+
+	const workspaceID = "workspace-123"
+	compiledHTML := "<h1>Hello</h1>"
+
+	mockWorkspaceRepo.EXPECT().
+		GetByID(gomock.Any(), workspaceID).
+		Return(&domain.Workspace{
+			ID:       workspaceID,
+			Settings: domain.WorkspaceSettings{DefaultLanguage: "en", SecretKey: "workspace-secret-key-32-chars-min!"},
+		}, nil)
+	mockTemplateService.EXPECT().
+		GetTemplateByID(gomock.Any(), workspaceID, emailTemplate.ID, int64(0)).
+		Return(emailTemplate, nil)
+	mockTemplateService.EXPECT().
+		CompileTemplate(gomock.Any(), gomock.Any()).
+		Return(&domain.CompileTemplateResponse{Success: true, HTML: &compiledHTML}, nil)
+	mockMessageRepo.EXPECT().
+		Create(gomock.Any(), workspaceID, gomock.Any(), gomock.Any()).
+		Return(nil)
+
+	var sent domain.SendEmailProviderRequest
+	mockSESService.EXPECT().
+		SendEmail(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, req domain.SendEmailProviderRequest) error {
+			sent = req
+			return nil
+		})
+
+	request := domain.SendEmailRequest{
+		WorkspaceID:      workspaceID,
+		IntegrationID:    "test-integration-id",
+		MessageID:        "message-456",
+		Contact:          contact,
+		TemplateConfig:   domain.ChannelTemplate{TemplateID: emailTemplate.ID},
+		TrackingSettings: notifuse_mjml.TrackingSettings{EnableTracking: true},
+		EmailProvider: &domain.EmailProvider{
+			Kind:    domain.EmailProviderKindSES,
+			Senders: senders,
+			SES:     &domain.AmazonSESSettings{Region: "us-east-1"},
+		},
+		EmailOptions: emailOptions,
+	}
+	require.NoError(t, emailService.SendEmailForTemplate(context.Background(), request))
+
+	return sent
+}
+
+// TestEmailService_SendEmailForTemplate_SenderAndReplyTo covers which From and Reply-To a
+// transactional or list email leaves with: the template's, for translated contacts too, and the
+// send's own reply-to over the template's.
+func TestEmailService_SendEmailForTemplate_SenderAndReplyTo(t *testing.T) {
+	defaultSender := domain.NewEmailSender("hello@example.com", "Default")
+	newsletterSender := domain.NewEmailSender("news@example.com", "Newsletter")
+	newsletterSender.IsDefault = false
+	// Neither the template's nor the integration's default: a fall back to either shows.
+	italianSender := domain.NewEmailSender("ciao@example.com", "Italia")
+	italianSender.IsDefault = false
+	senders := []domain.EmailSender{defaultSender, newsletterSender, italianSender}
+
+	newTemplate := func() *domain.Template {
+		return &domain.Template{
+			ID:   "template-789",
+			Name: "Welcome Email",
+			Email: &domain.EmailTemplate{
+				Subject:  "Welcome",
+				SenderID: newsletterSender.ID,
+				ReplyTo:  "support@example.com",
+				VisualEditorTree: &notifuse_mjml.MJMLBlock{
+					BaseBlock: notifuse_mjml.NewBaseBlock("root", notifuse_mjml.MJMLComponentMjml),
+				},
+			},
+			// Saved from the console: no sender, no reply-to.
+			Translations: map[string]domain.TemplateTranslation{
+				"it": {Email: &domain.EmailTemplate{
+					Subject: "Benvenuto",
+					VisualEditorTree: &notifuse_mjml.MJMLBlock{
+						BaseBlock: notifuse_mjml.NewBaseBlock("root", notifuse_mjml.MJMLComponentMjml),
+					},
+				}},
+			},
+		}
+	}
+	italian := &domain.Contact{
+		Email:    "mario@example.com",
+		Language: &domain.NullableString{String: "it", IsNull: false},
+	}
+	english := &domain.Contact{Email: "john@example.com"}
+
+	t.Run("translated contact gets the template's sender and reply-to", func(t *testing.T) {
+		sent := sendForTemplateCapturingProviderRequest(t, newTemplate(), senders, italian, domain.EmailOptions{})
+
+		assert.Equal(t, "Benvenuto", sent.Subject)
+		assert.Equal(t, "news@example.com", sent.FromAddress)
+		assert.Equal(t, "Newsletter", sent.FromName)
+		assert.Equal(t, "support@example.com", sent.EmailOptions.ReplyTo)
+	})
+
+	t.Run("a translation's own sender and reply-to win over the template's", func(t *testing.T) {
+		tmpl := newTemplate()
+		it := tmpl.Translations["it"]
+		it.Email.SenderID = italianSender.ID
+		it.Email.ReplyTo = "assistenza@example.com"
+
+		sent := sendForTemplateCapturingProviderRequest(t, tmpl, senders, italian, domain.EmailOptions{})
+
+		assert.Equal(t, "ciao@example.com", sent.FromAddress)
+		assert.Equal(t, "Italia", sent.FromName)
+		assert.Equal(t, "assistenza@example.com", sent.EmailOptions.ReplyTo)
+	})
+
+	t.Run("without a reply-to of its own the send takes the template's", func(t *testing.T) {
+		sent := sendForTemplateCapturingProviderRequest(t, newTemplate(), senders, english, domain.EmailOptions{})
+
+		assert.Equal(t, "news@example.com", sent.FromAddress)
+		assert.Equal(t, "support@example.com", sent.EmailOptions.ReplyTo)
+	})
+
+	t.Run("the send's own reply-to wins over the template's", func(t *testing.T) {
+		sent := sendForTemplateCapturingProviderRequest(t, newTemplate(), senders, english,
+			domain.EmailOptions{ReplyTo: "agent@example.com"})
+
+		assert.Equal(t, "agent@example.com", sent.EmailOptions.ReplyTo)
+	})
+
+	t.Run("the send's own reply-to wins for a translated contact too", func(t *testing.T) {
+		sent := sendForTemplateCapturingProviderRequest(t, newTemplate(), senders, italian,
+			domain.EmailOptions{ReplyTo: "agent@example.com"})
+
+		assert.Equal(t, "agent@example.com", sent.EmailOptions.ReplyTo)
+	})
 }

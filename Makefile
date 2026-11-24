@@ -1,4 +1,4 @@
-.PHONY: build test-unit run clean keygen test-service test-repo test-http test-migrations test-database test-pkg test-licence-dev test-telemetry dev coverage coverage-report docker-build docker-run docker-stop docker-clean docker-logs docker-buildx-setup docker-publish docker-compose-up docker-compose-down docker-compose-build openapi-bundle openapi-lint openapi-preview demo-hmac
+.PHONY: build test-unit run clean keygen test-service test-repo test-http test-migrations test-database test-pkg test-licence-dev integration-durations test-telemetry dev coverage coverage-report docker-build docker-run docker-stop docker-clean docker-logs docker-buildx-setup docker-publish docker-compose-up docker-compose-down docker-compose-build docker-compose-watch openapi-bundle openapi-lint openapi-preview demo-hmac
 
 build:
 	@echo "Building with CGO enabled (required for V8)..."
@@ -25,6 +25,17 @@ e2e-test-within-cursor-agent:
 # fails on a 402. The harness detects that build and refuses to start.
 test-integration:
 	INTEGRATION_TESTS=true go test -race -tags integration,licdev -timeout 20m ./tests/integration/ -v
+
+# Rebuilds the durations CI uses to split the integration suite into shards
+# (tests/shard). Needs the test environment up (tests/compose.test.yaml). Stale
+# durations only unbalance the shards, never drop a test, so rerun it when shard
+# times drift apart rather than on every change. The file is replaced only after a
+# run in which every test passed, so a crash cannot leave it partial or empty.
+integration-durations:
+	INTEGRATION_TESTS=true go test -race -tags integration,licdev -count=1 -timeout 45m ./tests/integration/ -json > integration-run.json \
+		&& go run ./tests/shard durations < integration-run.json > integration-durations.tmp \
+		&& mv integration-durations.tmp tests/integration/testdata/durations.json \
+		&& rm integration-run.json
 
 test-domain:
 	go test -race -v ./internal/domain
@@ -158,17 +169,27 @@ docker-publish:
 	@:
 
 # Docker compose commands
-docker-compose-up:
+# The compose files ship no default SECRET_KEY: one committed to a public
+# repository is one every installation shares. Generate a local one on first use.
+.env:
+	@echo "No .env found, creating one with a generated SECRET_KEY..."
+	@printf 'SECRET_KEY=%s\n' "$$(openssl rand -base64 32)" > .env
+
+docker-compose-up: .env
 	@echo "Starting services with Docker Compose..."
 	docker compose up -d
 
-docker-compose-down:
+docker-compose-down: .env
 	@echo "Stopping services with Docker Compose..."
 	docker compose down
 
-docker-compose-build:
+docker-compose-build: .env
 	@echo "Building services with Docker Compose..."
 	docker compose build
+
+docker-compose-watch: .env
+	@echo "Starting services and rebuilding on source changes..."
+	docker compose watch
 
 # OpenAPI commands
 openapi-bundle:

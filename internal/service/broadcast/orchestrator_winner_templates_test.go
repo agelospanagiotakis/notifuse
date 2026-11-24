@@ -18,7 +18,7 @@ import (
 // one, so these tests look at the templates each batch is sent with, both for a
 // run that starts after the pick and for a run that sees the pick on a refresh.
 //
-// Plan: plans/fix-broadcast-duplicate-sends-plan.md (Part 4)
+// Plan: Notifuse/architecture plans/notifuse/fix-broadcast-duplicate-sends-plan.md (Part 4)
 
 // abAudience is the broadcast's list, in the email order the recipient query
 // pages through.
@@ -87,7 +87,7 @@ func (m *sendingStartedMocks) recordBatches(batches *[]sentBatch, afterEach func
 	m.messageSender.EXPECT().
 		SendBatch(gomock.Any(), "workspace-123", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
 			gomock.Any(), "broadcast-123", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _, _, _, _ string, _ bool, _ *domain.WebAnalyticsSettings, _ string,
+		DoAndReturn(func(_ context.Context, _, _, _, _, _ string, _ domain.EmailTrackingPolicy, _ *domain.WebAnalyticsSettings, _ string,
 			recipients []*domain.ContactWithList, templates map[string]*domain.Template, _ *domain.EmailProvider,
 			_ time.Time, _ string) (int, int, error) {
 			batch := sentBatch{}
@@ -122,6 +122,7 @@ func TestOrchestrator_Process_RunAfterAManualPickSendsTheWinnerOnly(t *testing.T
 
 	m.expectConfiguredWorkspace()
 	m.expectAudience()
+	m.broadcastRepo.EXPECT().MarkBroadcastStarted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	m.broadcastRepo.EXPECT().GetBroadcast(gomock.Any(), "workspace-123", "broadcast-123").
 		DoAndReturn(func(context.Context, string, string) (*domain.Broadcast, error) {
 			return abBroadcast(domain.BroadcastStatusWinnerSelected, stringPtr("template-B")), nil
@@ -137,8 +138,8 @@ func TestOrchestrator_Process_RunAfterAManualPickSendsTheWinnerOnly(t *testing.T
 	m.recordBatches(&batches, nil)
 
 	var final *domain.Broadcast
-	m.broadcastRepo.EXPECT().UpdateBroadcast(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, b *domain.Broadcast) error {
+	expectFinalWrite(m.broadcastRepo, "workspace-123", abBroadcast(domain.BroadcastStatusWinnerSelected, stringPtr("template-B")),
+		func(_ context.Context, b *domain.Broadcast) error {
 			final = b
 			return nil
 		})
@@ -174,6 +175,8 @@ func TestOrchestrator_Process_RunAfterAManualPickSendsTheWinnerOnly(t *testing.T
 func TestOrchestrator_Process_WinnerPickedDuringTheRunSendsTheNextBatchWithTheWinnerOnly(t *testing.T) {
 	m := newSendingStartedMocks(t)
 	defer m.ctrl.Finish()
+	// The first sending run records the start date (orchestrator_started_at_test.go).
+	m.broadcastRepo.EXPECT().MarkBroadcastStarted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	m.expectConfiguredWorkspace()
 	m.expectAudience()
@@ -196,8 +199,8 @@ func TestOrchestrator_Process_WinnerPickedDuringTheRunSendsTheNextBatchWithTheWi
 	m.recordBatches(&batches, func() { picked = true })
 
 	var final *domain.Broadcast
-	m.broadcastRepo.EXPECT().UpdateBroadcast(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, b *domain.Broadcast) error {
+	expectFinalWrite(m.broadcastRepo, "workspace-123", abBroadcast(domain.BroadcastStatusWinnerSelected, stringPtr("template-B")),
+		func(_ context.Context, b *domain.Broadcast) error {
 			final = b
 			return nil
 		})
@@ -225,6 +228,8 @@ func TestOrchestrator_Process_WinnerPhaseThatCannotSendTheWinnerFails(t *testing
 	t.Run("the broadcast says a winner is selected but names none", func(t *testing.T) {
 		m := newSendingStartedMocks(t)
 		defer m.ctrl.Finish()
+		// The first sending run records the start date (orchestrator_started_at_test.go).
+		m.broadcastRepo.EXPECT().MarkBroadcastStarted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 		m.expectConfiguredWorkspace()
 		m.broadcastRepo.EXPECT().GetBroadcast(gomock.Any(), "workspace-123", "broadcast-123").
@@ -272,6 +277,8 @@ func TestOrchestrator_Process_WinnerPhaseThatCannotSendTheWinnerFails(t *testing
 		t.Run(name, func(t *testing.T) {
 			m := newSendingStartedMocks(t)
 			defer m.ctrl.Finish()
+			// The first sending run records the start date (orchestrator_started_at_test.go).
+			m.broadcastRepo.EXPECT().MarkBroadcastStarted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 			m.expectConfiguredWorkspace()
 			m.expectAudience()
@@ -303,4 +310,51 @@ func TestOrchestrator_Process_WinnerPhaseThatCannotSendTheWinnerFails(t *testing
 			assert.Equal(t, []string{"template-A"}, batches[0].templates)
 		})
 	}
+}
+
+// TestOrchestrator_Process_RunWithNoPhaseOnAWinnerSelectedBroadcast covers a run whose
+// state carries no phase yet on a broadcast already in winner_selected (the winner picked
+// before any test email went out): it enters the winner phase from the start of the list,
+// with the winner alone.
+func TestOrchestrator_Process_RunWithNoPhaseOnAWinnerSelectedBroadcast(t *testing.T) {
+	m := newSendingStartedMocks(t)
+	defer m.ctrl.Finish()
+
+	m.expectConfiguredWorkspace()
+	m.expectAudience()
+	m.broadcastRepo.EXPECT().MarkBroadcastStarted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	m.eventBus.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
+	m.broadcastRepo.EXPECT().GetBroadcast(gomock.Any(), "workspace-123", "broadcast-123").
+		DoAndReturn(func(context.Context, string, string) (*domain.Broadcast, error) {
+			return abBroadcast(domain.BroadcastStatusWinnerSelected, stringPtr("template-B")), nil
+		}).AnyTimes()
+	m.templateRepo.EXPECT().GetTemplateByID(gomock.Any(), "workspace-123", "template-B", int64(0)).
+		Return(abTemplate("template-B", "Variation B"), nil).AnyTimes()
+	m.templateRepo.EXPECT().GetTemplateByID(gomock.Any(), "workspace-123", "template-A", int64(0)).Times(0)
+	var saved *domain.SendBroadcastState
+	m.taskRepo.EXPECT().SaveState(gomock.Any(), "workspace-123", "task-123", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _ string, _ float64, state *domain.TaskState) error {
+			saved = state.SendBroadcast
+			return nil
+		}).AnyTimes()
+
+	var batches []sentBatch
+	m.recordBatches(&batches, nil)
+	expectFinalWrite(m.broadcastRepo, "workspace-123", abBroadcast(domain.BroadcastStatusWinnerSelected, stringPtr("template-B")),
+		func(context.Context, *domain.Broadcast) error { return nil })
+
+	allDone, err := m.orchestrator(nil).Process(context.Background(), abTask(&domain.SendBroadcastState{}), time.Now().Add(30*time.Second))
+	require.NoError(t, err)
+	assert.True(t, allDone)
+
+	var recipients []string
+	for _, batch := range batches {
+		assert.Equal(t, []string{"template-B"}, batch.templates)
+		recipients = append(recipients, batch.recipients...)
+	}
+	assert.Equal(t, abAudience, recipients, "the whole list, from its start")
+	require.NotNil(t, saved)
+	assert.Equal(t, "winner", saved.Phase)
+	require.NotNil(t, saved.WinnerPhaseStartOffset)
+	assert.Zero(t, *saved.WinnerPhaseStartOffset, "the winner phase began at the start of the list")
 }

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -64,6 +65,10 @@ func NewWebhookRegistrationService(
 	if provider, ok := sendGridService.(domain.WebhookProvider); ok {
 		svc.webhookProviders[domain.EmailProviderKindSendGrid] = provider
 	}
+
+	// Resend needs no injected service: it talks to Resend's API with the integration's own
+	// key, which the provider config already carries.
+	svc.webhookProviders[domain.EmailProviderKindResend] = NewResendWebhookProvider(logger)
 
 	return svc
 }
@@ -289,7 +294,18 @@ func (s *WebhookRegistrationService) GetWebhookStatus(
 	}
 
 	// Delegate to provider implementation with the provider configuration
-	return provider.GetWebhookStatus(ctx, workspaceID, integrationID, emailProvider)
+	status, err := provider.GetWebhookStatus(ctx, workspaceID, integrationID, emailProvider)
+	if errors.Is(err, domain.ErrWebhookProviderRestricted) {
+		// A sending-only key is enough to send, and common: report a status the console can
+		// explain instead of a failed request. The operator can add the webhook in the provider
+		// or switch to a key with webhook access.
+		return &domain.WebhookRegistrationStatus{
+			EmailProviderKind: emailProvider.Kind,
+			IsRegistered:      false,
+			Error:             "This provider API key can only send email, so webhook status cannot be read. Add the webhook in the provider, or use a key with webhook access.",
+		}, nil
+	}
+	return status, err
 }
 
 // UnregisterWebhooks removes all webhook URLs associated with the integration.

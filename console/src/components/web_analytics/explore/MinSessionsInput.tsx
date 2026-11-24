@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Button, InputNumber, Popover, Tag } from 'antd'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { useWebAnalytics } from '../context'
+import { useWebAnalytics } from '../useWebAnalytics'
+import { useNumberFormat } from '../../layout'
 
 /**
  * Session floor for the report.
@@ -13,6 +14,7 @@ import { useWebAnalytics } from '../context'
  */
 export function MinSessionsInput() {
   const { t } = useLingui()
+  const { int } = useNumberFormat()
   const context = useWebAnalytics()
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(context.minSessions)
@@ -50,11 +52,11 @@ export function MinSessionsInput() {
       }
     >
       <Button type="text" size="small">
-        <span className="text-gray-500">
+        <span className="text-ink-3">
           <Trans>
             Having at least{' '}
             <Tag color="purple" className="!mx-1">
-              {context.minSessions}
+              {int(context.minSessions)}
             </Tag>{' '}
             sessions
           </Trans>

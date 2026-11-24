@@ -56,8 +56,14 @@ paths:
     $ref: './paths/contacts.yaml#/~1api~1contacts.delete'
   /api/contactLists.updateStatus:
     $ref: './paths/contact-lists.yaml#/~1api~1contactLists.updateStatus'
+  /api/automations.list:
+    $ref: './paths/automations.yaml#/~1api~1automations.list'
+  /api/automations.nodeStats:
+    $ref: './paths/automations.yaml#/~1api~1automations.nodeStats'
   /api/broadcasts.list:
     $ref: './paths/broadcasts.yaml#/~1api~1broadcasts.list'
+  /api/broadcasts.estimateAudience:
+    $ref: './paths/broadcasts.yaml#/~1api~1broadcasts.estimateAudience'
   /api/broadcasts.get:
     $ref: './paths/broadcasts.yaml#/~1api~1broadcasts.get'
   /api/broadcasts.create:
@@ -72,6 +78,8 @@ paths:
     $ref: './paths/broadcasts.yaml#/~1api~1broadcasts.resume'
   /api/broadcasts.cancel:
     $ref: './paths/broadcasts.yaml#/~1api~1broadcasts.cancel'
+  /api/broadcasts.unschedule:
+    $ref: './paths/broadcasts.yaml#/~1api~1broadcasts.unschedule'
   /api/broadcasts.retryFailed:
     $ref: './paths/broadcasts.yaml#/~1api~1broadcasts.retryFailed'
   /api/broadcasts.sendToIndividual:
@@ -88,6 +96,8 @@ paths:
     $ref: './paths/broadcasts.yaml#/~1api~1broadcasts.testRecipientFeed'
   /api/templates.list:
     $ref: './paths/templates.yaml#/~1api~1templates.list'
+  /api/templates.usage:
+    $ref: './paths/templates.yaml#/~1api~1templates.usage'
   /api/templates.get:
     $ref: './paths/templates.yaml#/~1api~1templates.get'
   /api/templates.create:
@@ -110,6 +120,8 @@ paths:
     $ref: './paths/blog.yaml#/~1api~1blogCategories.delete'
   /api/blogPosts.list:
     $ref: './paths/blog.yaml#/~1api~1blogPosts.list'
+  /api/blogPosts.counts:
+    $ref: './paths/blog.yaml#/~1api~1blogPosts.counts'
   /api/blogPosts.get:
     $ref: './paths/blog.yaml#/~1api~1blogPosts.get'
   /api/blogPosts.create:
@@ -177,6 +189,10 @@ components:
     BearerAuth:
       $ref: './components/security.yaml#/BearerAuth'
   schemas:
+    Automation:
+      $ref: './components/schemas/automation.yaml#/Automation'
+    NodeStatsResponse:
+      $ref: './components/schemas/automation.yaml#/NodeStatsResponse'
     ErrorResponse:
       $ref: './components/schemas/common.yaml#/ErrorResponse'
     PermissionErrorResponse:
@@ -265,6 +281,10 @@ components:
       $ref: './components/schemas/broadcast.yaml#/SelectWinnerRequest'
     BroadcastListResponse:
       $ref: './components/schemas/broadcast.yaml#/BroadcastListResponse'
+    EstimateAudienceRequest:
+      $ref: './components/schemas/broadcast.yaml#/EstimateAudienceRequest'
+    EstimateAudienceResponse:
+      $ref: './components/schemas/broadcast.yaml#/EstimateAudienceResponse'
     VariationResult:
       $ref: './components/schemas/broadcast.yaml#/VariationResult'
     TestResultsResponse:
@@ -303,6 +323,10 @@ components:
       $ref: './components/schemas/template.yaml#/CompileTemplateResponse'
     TrackingSettings:
       $ref: './components/schemas/template.yaml#/TrackingSettings'
+    DisplayCondition:
+      $ref: './components/schemas/template.yaml#/DisplayCondition'
+    DisplayConditionRule:
+      $ref: './components/schemas/template.yaml#/DisplayConditionRule'
     SEOSettings:
       $ref: './components/schemas/blog.yaml#/SEOSettings'
     BlogAuthor:

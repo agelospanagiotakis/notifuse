@@ -121,6 +121,7 @@ func TestTaskBlogGap_TaskUpdateTx_RowsAffectedBranches(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 0))
 		err := repo.UpdateTx(ctx, tx, "ws-1", newTask())
 		require.EqualError(t, err, "task not found")
+		assert.ErrorIs(t, err, domain.ErrTaskNotFound)
 		require.NoError(t, mock.ExpectationsWereMet())
 	})
 
@@ -243,6 +244,7 @@ func TestTaskBlogGap_TaskGetByBroadcastIDTx_Branches(t *testing.T) {
 		task, err := repo.GetTaskByBroadcastIDTx(ctx, tx, "ws-1", "b-42")
 		assert.Nil(t, task)
 		require.EqualError(t, err, "task not found for broadcast ID b-42")
+		assert.ErrorIs(t, err, domain.ErrTaskNotFound, "a missing task is told from a failed read")
 	})
 
 	t.Run("corrupt state is an unmarshal error", func(t *testing.T) {
@@ -407,6 +409,15 @@ func TestTaskBlogGap_TaskMarkAsFailedTx_RetryBranches(t *testing.T) {
 		err := repo.MarkAsFailedTx(ctx, tx, "ws-1", "task-1", "boom")
 		require.NoError(t, err)
 		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("an update that matches no row is domain.ErrTaskNotFound", func(t *testing.T) {
+		_, mock, repo, tx := gapBeginTaskTx(t)
+		defer func() { _ = tx.Rollback() }()
+		mock.ExpectQuery(regexp.QuoteMeta("FOR UPDATE")).WillReturnRows(taskRow(0, 3))
+		mock.ExpectExec(regexp.QuoteMeta("UPDATE tasks")).WillReturnResult(sqlmock.NewResult(0, 0))
+		err := repo.MarkAsFailedTx(ctx, tx, "ws-1", "task-1", "boom")
+		assert.ErrorIs(t, err, domain.ErrTaskNotFound)
 	})
 
 	t.Run("update rows-affected failure is wrapped", func(t *testing.T) {
@@ -963,7 +974,7 @@ func TestTaskBlogGap_BlogListPosts_Branches(t *testing.T) {
 		sentinel := errors.New("statement timeout")
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*)")).
 			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(4))
-		mock.ExpectQuery(regexp.QuoteMeta("ORDER BY created_at DESC, id DESC")).WillReturnError(sentinel)
+		mock.ExpectQuery(regexp.QuoteMeta("ORDER BY COALESCE(published_at, updated_at) DESC, id DESC")).WillReturnError(sentinel)
 		_, err := repo.ListPosts(blogCtx(), domain.ListBlogPostsRequest{Limit: 10})
 		require.ErrorContains(t, err, "failed to list blog posts:")
 		assert.ErrorIs(t, err, sentinel)
@@ -1053,12 +1064,12 @@ func TestTaskBlogGap_BlogFeed_Branches(t *testing.T) {
 		assert.ErrorIs(t, err, sentinel)
 	})
 
-	t.Run("ListFeedPosts empty-string slug adds no filter and limit is $1", func(t *testing.T) {
+	t.Run("ListFeedPosts empty-string slug adds no filter: now is $1, limit is $2", func(t *testing.T) {
 		repo, mock, db := withPostDB(t)
 		defer func() { _ = db.Close() }()
 		empty := ""
-		mock.ExpectQuery(regexp.QuoteMeta("LIMIT $1")).
-			WithArgs(3).WillReturnRows(sqlmock.NewRows(blogPostCols).
+		mock.ExpectQuery(regexp.QuoteMeta("LIMIT $2")).
+			WithArgs(utcNowArg{}, 3).WillReturnRows(sqlmock.NewRows(blogPostCols).
 			AddRow("p1", "c1", "hello", []byte(`{}`), &now, now, now, nil))
 		posts, err := repo.ListFeedPosts(blogCtx(), &empty, 3)
 		require.NoError(t, err)
@@ -1099,12 +1110,12 @@ func TestTaskBlogGap_BlogFeed_Branches(t *testing.T) {
 		assert.ErrorIs(t, err, sentinel)
 	})
 
-	t.Run("GetFeedFingerprint with a category binds slug then limit", func(t *testing.T) {
+	t.Run("GetFeedFingerprint with a category binds slug, now, then limit", func(t *testing.T) {
 		repo, mock, db := withPostDB(t)
 		defer func() { _ = db.Close() }()
 		slug := "tech"
 		mock.ExpectQuery(regexp.QuoteMeta("WITH top_posts AS")).
-			WithArgs("tech", 7).
+			WithArgs("tech", utcNowArg{}, 7).
 			WillReturnRows(sqlmock.NewRows([]string{"max_updated_at", "ids_hash"}).
 				AddRow(now, "deadbeef"))
 		maxAt, hash, err := repo.GetFeedFingerprint(blogCtx(), &slug, 7)

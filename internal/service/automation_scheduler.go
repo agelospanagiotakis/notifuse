@@ -18,6 +18,25 @@ type AutomationScheduler struct {
 	stoppedChan chan struct{}
 	mu          sync.Mutex
 	running     bool
+	// stopMargin overrides automationStopMargin when positive (tests).
+	stopMargin  time.Duration
+	batchErrors repeatedErrorLog // a failing batch, logged at Error once per window
+}
+
+// automationStopMargin is how long Stop waits past the executor's drain deadline: once the
+// deadline cancels the node, the writes that record it have up to afterStepWriteTimeout, then
+// the release of the journeys the batch did not run has up to releaseClaimsTimeout, and the
+// loop returns. One more second covers the rest of the loop.
+const automationStopMargin = afterStepWriteTimeout + releaseClaimsTimeout + time.Second
+
+// stopTimeout is how long Stop waits for the batch in progress: the executor's drain, which
+// counts from the stop, plus a margin.
+func (s *AutomationScheduler) stopTimeout() time.Duration {
+	margin := automationStopMargin
+	if s.stopMargin > 0 {
+		margin = s.stopMargin
+	}
+	return s.executor.drainTimeout() + margin
 }
 
 // NewAutomationScheduler creates a new automation scheduler
@@ -71,7 +90,7 @@ func (s *AutomationScheduler) Stop() {
 	select {
 	case <-s.stoppedChan:
 		s.logger.Info("Automation scheduler stopped successfully")
-	case <-time.After(5 * time.Second):
+	case <-time.After(s.stopTimeout()):
 		s.logger.Warn("Automation scheduler stop timeout exceeded")
 	}
 }
@@ -82,6 +101,17 @@ func (s *AutomationScheduler) run(ctx context.Context) {
 		s.mu.Lock()
 		s.running = false
 		s.mu.Unlock()
+	}()
+
+	// Stop without a cancelled context stops the batch in progress too, with the same drain.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		select {
+		case <-s.stopChan:
+			cancel()
+		case <-ctx.Done():
+		}
 	}()
 
 	ticker := time.NewTicker(s.interval)
@@ -111,9 +141,8 @@ func (s *AutomationScheduler) processBatch(ctx context.Context) {
 	elapsed := time.Since(startTime)
 
 	if err != nil {
-		s.logger.WithField("error", err.Error()).
-			WithField("elapsed", elapsed).
-			Error("Failed to process automation batch")
+		s.batchErrors.log(s.logger.WithField("error", err.Error()).WithField("elapsed", elapsed),
+			"Failed to process automation batch")
 	} else if processed > 0 {
 		s.logger.WithField("processed", processed).
 			WithField("elapsed", elapsed).

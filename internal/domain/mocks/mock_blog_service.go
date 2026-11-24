@@ -51,6 +51,21 @@ func (mr *MockBlogServiceMockRecorder) BuildFeed(arg0, arg1, arg2 interface{}) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BuildFeed", reflect.TypeOf((*MockBlogService)(nil).BuildFeed), arg0, arg1, arg2)
 }
 
+// CountPosts mocks base method.
+func (m *MockBlogService) CountPosts(arg0 context.Context, arg1, arg2 string) (*domain.BlogPostCounts, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountPosts", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*domain.BlogPostCounts)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountPosts indicates an expected call of CountPosts.
+func (mr *MockBlogServiceMockRecorder) CountPosts(arg0, arg1, arg2 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountPosts", reflect.TypeOf((*MockBlogService)(nil).CountPosts), arg0, arg1, arg2)
+}
+
 // CreateCategory mocks base method.
 func (m *MockBlogService) CreateCategory(arg0 context.Context, arg1 *domain.CreateBlogCategoryRequest) (*domain.BlogCategory, error) {
 	m.ctrl.T.Helper()
@@ -305,19 +320,19 @@ func (mr *MockBlogServiceMockRecorder) ListPosts(arg0, arg1 interface{}) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPosts", reflect.TypeOf((*MockBlogService)(nil).ListPosts), arg0, arg1)
 }
 
-// ListPublicPosts mocks base method.
-func (m *MockBlogService) ListPublicPosts(arg0 context.Context, arg1 *domain.ListBlogPostsRequest) (*domain.BlogPostListResponse, error) {
+// ListPublicSitemapPosts mocks base method.
+func (m *MockBlogService) ListPublicSitemapPosts(arg0 context.Context) ([]*domain.BlogSitemapPost, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListPublicPosts", arg0, arg1)
-	ret0, _ := ret[0].(*domain.BlogPostListResponse)
+	ret := m.ctrl.Call(m, "ListPublicSitemapPosts", arg0)
+	ret0, _ := ret[0].([]*domain.BlogSitemapPost)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ListPublicPosts indicates an expected call of ListPublicPosts.
-func (mr *MockBlogServiceMockRecorder) ListPublicPosts(arg0, arg1 interface{}) *gomock.Call {
+// ListPublicSitemapPosts indicates an expected call of ListPublicSitemapPosts.
+func (mr *MockBlogServiceMockRecorder) ListPublicSitemapPosts(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPublicPosts", reflect.TypeOf((*MockBlogService)(nil).ListPublicPosts), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPublicSitemapPosts", reflect.TypeOf((*MockBlogService)(nil).ListPublicSitemapPosts), arg0)
 }
 
 // ListThemes mocks base method.
@@ -333,6 +348,21 @@ func (m *MockBlogService) ListThemes(arg0 context.Context, arg1 *domain.ListBlog
 func (mr *MockBlogServiceMockRecorder) ListThemes(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListThemes", reflect.TypeOf((*MockBlogService)(nil).ListThemes), arg0, arg1)
+}
+
+// NextScheduledPublishAt mocks base method.
+func (m *MockBlogService) NextScheduledPublishAt(arg0 context.Context, arg1 time.Time) (*time.Time, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NextScheduledPublishAt", arg0, arg1)
+	ret0, _ := ret[0].(*time.Time)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// NextScheduledPublishAt indicates an expected call of NextScheduledPublishAt.
+func (mr *MockBlogServiceMockRecorder) NextScheduledPublishAt(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NextScheduledPublishAt", reflect.TypeOf((*MockBlogService)(nil).NextScheduledPublishAt), arg0, arg1)
 }
 
 // PublishPost mocks base method.

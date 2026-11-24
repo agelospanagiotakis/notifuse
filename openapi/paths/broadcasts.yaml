@@ -1,7 +1,10 @@
 /api/broadcasts.list:
   get:
     summary: List broadcasts
-    description: Retrieves a list of broadcasts with pagination and optional filtering by status. Supports fetching template details for each variation.
+    description: >-
+      Retrieves a list of broadcasts with pagination and optional filtering by status, name
+      and start date. Supports fetching template details for each variation, and the number
+      of broadcasts in each status. Requires the broadcasts read permission.
     operationId: listBroadcasts
     security:
       - BearerAuth: []
@@ -18,18 +21,40 @@
         required: false
         schema:
           type: string
-          enum:
-            - draft
-            - scheduled
-            - sending
-            - paused
-            - sent
-            - cancelled
-            - failed
-            - testing
-            - test_completed
-            - winner_selected
-        description: Filter broadcasts by status
+        description: >-
+          Filter broadcasts by status: one status, or several separated by commas. Each one is
+          draft, scheduled, processing, paused, processed, cancelled, failed, testing,
+          test_completed or winner_selected; any other value is refused with 400.
+        example: processing,paused
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Keep the broadcasts whose name contains this text, ignoring case. Leading and trailing spaces are ignored.
+        example: autumn
+      - name: started_after
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+        description: >-
+          Keep the broadcasts that started sending at or after this RFC 3339 date-time. A
+          broadcast that never started is left out. Applies to the rows, total_count and
+          status_counts. An unreadable value is refused with 400.
+        example: '2026-10-13T00:00:00Z'
+      - name: with_status_counts
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+        description: >-
+          Return status_counts, the number of broadcasts in each status. The counts follow
+          search and started_after but not status, so each status tab has its own number.
+          A value that is not a boolean is refused with 400.
+        example: true
       - name: limit
         in: query
         required: false
@@ -75,6 +100,14 @@
           application/json:
             schema:
               $ref: '../components/schemas/common.yaml#/ErrorResponse'
+      '403':
+        description: Forbidden - missing required permission
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+            example:
+              error: 'Insufficient permissions: read access to broadcasts required'
       '500':
         description: Internal server error
         content:
@@ -83,6 +116,70 @@
               $ref: '../components/schemas/common.yaml#/ErrorResponse'
             example:
               error: Failed to list broadcasts
+
+/api/broadcasts.estimateAudience:
+  post:
+    summary: Estimate a broadcast audience
+    description: >-
+      Counts the recipients a broadcast with this audience would be sent to, with the count
+      the send itself uses: the list's members, without the bounced and complained ones, the
+      unsubscribed ones unless exclude_unsubscribed is false, and on a double opt-in list
+      the ones who never confirmed; narrowed to the contacts in at least one of the segments
+      when some are given. An unknown list or segment counts 0. Read only. Requires the
+      broadcasts and lists read permissions, and the segments read permission when the
+      audience names segments.
+    operationId: estimateBroadcastAudience
+    security:
+      - BearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas/broadcast.yaml#/EstimateAudienceRequest'
+    responses:
+      '200':
+        description: Number of recipients
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/broadcast.yaml#/EstimateAudienceResponse'
+      '400':
+        description: Bad request - invalid body or validation failed
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+            example:
+              error: audience.list is required
+      '401':
+        description: Unauthorized - invalid or missing authentication token
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+      '403':
+        description: Forbidden - missing required permission
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+            example:
+              error: 'Insufficient permissions: read access to lists required'
+      '405':
+        description: Method not allowed - only POST is accepted
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+      '500':
+        description: Internal server error
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+            example:
+              error: Failed to estimate audience
 
 /api/broadcasts.get:
   get:
@@ -319,7 +416,8 @@
 /api/broadcasts.pause:
   post:
     summary: Pause a broadcast
-    description: Pauses a broadcast that is currently sending.
+    description: |
+      Pauses a broadcast that is sending: one that is processing, or that is processed while its emails are still going out. An A/B test broadcast can be paused at every step of its test: while its sample is sent (testing), while it waits for its winner (test_completed) and while the winner is sent (winner_selected). Any other status is refused.
     operationId: pauseBroadcast
     security:
       - BearerAuth: []
@@ -368,7 +466,8 @@
 /api/broadcasts.resume:
   post:
     summary: Resume a broadcast
-    description: Resumes a paused broadcast.
+    description: |
+      Resumes a paused broadcast where it was. An A/B test broadcast goes back to the step it was paused at: sending its sample (testing), waiting for its winner (test_completed) or sending the winner (winner_selected). The time a test waiting for its winner spends paused does not count toward its test duration (`test_paused_seconds`).
     operationId: resumeBroadcast
     security:
       - BearerAuth: []
@@ -478,7 +577,8 @@
 /api/broadcasts.cancel:
   post:
     summary: Cancel a broadcast
-    description: Cancels a scheduled broadcast.
+    description: |
+      Cancels a broadcast that is scheduled, paused or sending, A/B test steps included (testing, test_completed and winner_selected). The emails still waiting in the queue are removed; the ones already sent stay sent. Any other status is refused.
     operationId: cancelBroadcast
     security:
       - BearerAuth: []
@@ -507,6 +607,64 @@
               $ref: '../components/schemas/common.yaml#/ErrorResponse'
       '401':
         description: Unauthorized - invalid or missing authentication token
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+      '404':
+        description: Broadcast not found
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+      '500':
+        description: Internal server error
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+
+/api/broadcasts.unschedule:
+  post:
+    summary: Send a scheduled broadcast back to draft
+    description: |
+      Sends a scheduled broadcast back to draft before it starts sending. It keeps its date, time and timezone, can be edited, and can be scheduled again; it will not be sent at its scheduled time.
+
+      Once the sending has started (emails queued or sent, or its send task under way), the request is refused with 400: cancel the broadcast instead. A scheduled broadcast shows as sending once its sending starts, and can then be paused. Not available in demo mode.
+    operationId: unscheduleBroadcast
+    security:
+      - BearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas/broadcast.yaml#/UnscheduleBroadcastRequest'
+    responses:
+      '200':
+        description: Broadcast sent back to draft
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                  example: true
+      '400':
+        description: The broadcast is not scheduled, or its sending has started (cancel it instead)
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+      '401':
+        description: Unauthorized - invalid or missing authentication token
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+      '403':
+        description: Forbidden - write access to broadcasts required
         content:
           application/json:
             schema:
@@ -562,6 +720,15 @@
               $ref: '../components/schemas/common.yaml#/ErrorResponse'
       '404':
         description: Broadcast not found
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+      '422':
+        description: |
+          The email cannot be built from the template and the recipient's data: a Liquid error,
+          such as a filter that fails or a comparison of a text with a number, or an MJML error.
+          Nothing is sent. The template or the data has to change; sending again fails the same way.
         content:
           application/json:
             schema:

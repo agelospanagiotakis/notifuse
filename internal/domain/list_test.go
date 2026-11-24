@@ -215,6 +215,11 @@ func TestErrListNotFound_Error(t *testing.T) {
 	assert.Equal(t, "test error message", err.Error())
 }
 
+func TestErrListExists_Error(t *testing.T) {
+	err := &ErrListExists{Message: "list id already exists", Deleted: true}
+	assert.Equal(t, "list id already exists", err.Error())
+}
+
 func listInUseAutomations(names ...string) []AutomationRef {
 	refs := make([]AutomationRef, len(names))
 	for i, name := range names {
@@ -1169,4 +1174,46 @@ func TestUpdateListRequest_StructLiteralNeedsNoPresenceRecord(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, list.IsDoubleOptin)
 	assert.False(t, list.IsPublic)
+}
+
+func TestGetListsRequest_FromURLParams_WithCounts(t *testing.T) {
+	parse := func(params url.Values) (GetListsRequest, error) {
+		params.Set("workspace_id", "ws1")
+		var req GetListsRequest
+		err := req.FromURLParams(params)
+		return req, err
+	}
+
+	req, err := parse(url.Values{"with_counts": {"true"}})
+	require.NoError(t, err)
+	assert.True(t, req.WithCounts)
+
+	req, err = parse(url.Values{"with_counts": {"false"}})
+	require.NoError(t, err)
+	assert.False(t, req.WithCounts)
+
+	req, err = parse(url.Values{})
+	require.NoError(t, err)
+	assert.False(t, req.WithCounts)
+
+	// strconv.ParseBool, as for with_contact_lists and with_templates.
+	req, err = parse(url.Values{"with_counts": {"1"}})
+	require.NoError(t, err)
+	assert.True(t, req.WithCounts)
+
+	_, err = parse(url.Values{"with_counts": {"yes please"}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "with_counts")
+	assert.Contains(t, err.Error(), "must be a boolean")
+}
+
+func TestList_ActiveCountJSON(t *testing.T) {
+	data, err := json.Marshal(&List{ID: "l1", Name: "News"})
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "active_count")
+
+	zero := 0
+	data, err = json.Marshal(&List{ID: "l1", Name: "News", ActiveCount: &zero})
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"active_count":0`)
 }

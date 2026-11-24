@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"io"
 	"net/http"
 	"os"
+	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Notifuse/notifuse/internal/blogfeed"
 	"github.com/Notifuse/notifuse/internal/domain"
@@ -126,11 +128,7 @@ func (h *RootHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 5. Check if this is a custom domain for a workspace with blog enabled
-	host := r.Host
-	// Strip port if present
-	if colonIdx := strings.Index(host, ":"); colonIdx != -1 {
-		host = host[:colonIdx]
-	}
+	host := hostWithoutPort(r.Host)
 
 	workspace := h.detectWorkspaceByHost(r.Context(), host)
 	if workspace != nil && workspace.Settings.BlogEnabled && h.blogService != nil {
@@ -205,6 +203,37 @@ func (h *RootHandler) serveConfigJS(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(configJS))
 }
 
+// staticAssetExtensions are suffixes that mean "a file", not "an SPA route". A route the
+// frontend does not know must reach the shell so client-side routing can handle it; a file
+// must not, because the shell is HTML and the client is expecting the content type it asked for.
+var staticAssetExtensions = map[string]bool{
+	".js": true, ".mjs": true, ".css": true, ".map": true, ".json": true,
+	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".svg": true, ".webp": true,
+	".ico": true, ".woff": true, ".woff2": true, ".ttf": true, ".eot": true,
+	".txt": true, ".xml": true, ".wasm": true,
+}
+
+// isStaticAssetPath reports whether a request is for a file rather than a client-side route.
+func isStaticAssetPath(p string) bool {
+	if strings.HasPrefix(p, "/assets/") {
+		return true
+	}
+	return staticAssetExtensions[strings.ToLower(path.Ext(p))]
+}
+
+// setStaticCacheHeaders makes a deploy take effect on the next page load.
+//
+// Vite names bundles by content hash, so they can be cached forever; index.html must not be,
+// because it is the only file that knows which hash is current. Without this a browser reuses
+// a stale shell, asks for a bundle that the new image no longer has, and the app never boots.
+func setStaticCacheHeaders(w http.ResponseWriter, p string) {
+	if strings.HasPrefix(p, "/assets/") {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+}
+
 // serveConsole handles serving static files, with a fallback for SPA routing
 func (h *RootHandler) serveConsole(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -224,9 +253,19 @@ func (h *RootHandler) serveConsole(w http.ResponseWriter, r *http.Request) {
 
 	path := h.consoleDir + r.URL.Path
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		// If the requested file doesn't exist, serve index.html for SPA routing
+		// A missing FILE is not an SPA route. Answering a script request with index.html
+		// hands the browser HTML where it expects JavaScript: the module fails to parse,
+		// the app never mounts, and every tab that was open across a deploy sits on a
+		// spinner forever. Only extension-less paths fall back to the shell.
+		if isStaticAssetPath(r.URL.Path) {
+			http.NotFound(w, r)
+			return
+		}
+		// If the requested route doesn't exist, serve index.html for SPA routing
 		r.URL.Path = "/"
 	}
+
+	setStaticCacheHeaders(w, r.URL.Path)
 
 	h.logger.WithField("original_path", originalPath).WithField("served_path", r.URL.Path).Debug("Serving console")
 
@@ -250,11 +289,17 @@ func (h *RootHandler) serveNotificationCenter(w http.ResponseWriter, r *http.Req
 	fs := http.FileServer(http.Dir(h.notificationCenterDir))
 
 	path := h.notificationCenterDir + r.URL.Path
-	log.Println("path", path)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		// If the requested file doesn't exist, serve index.html for SPA routing
+		// See serveConsole: a missing asset must 404, never return the shell.
+		if isStaticAssetPath(r.URL.Path) {
+			http.NotFound(w, r)
+			return
+		}
+		// If the requested route doesn't exist, serve index.html for SPA routing
 		r.URL.Path = "/"
 	}
+
+	setStaticCacheHeaders(w, r.URL.Path)
 
 	fs.ServeHTTP(w, r)
 }
@@ -369,7 +414,8 @@ func (h *RootHandler) serveBlogHome(w http.ResponseWriter, r *http.Request, work
 		}
 	}
 
-	// Cache miss - render the page
+	// Cache miss - render the page. The instant is taken before it, for the cache's bound.
+	renderedAt := time.Now().UTC()
 	html, err := h.blogService.RenderHomePage(ctx, workspace.ID, page, themeVersion)
 	if err != nil {
 		// Map error codes to HTTP status codes (includes 404 for invalid pages)
@@ -383,9 +429,11 @@ func (h *RootHandler) serveBlogHome(w http.ResponseWriter, r *http.Request, work
 		return
 	}
 
-	// Store in cache (skip if previewing)
+	// Store in cache (skip if previewing), no longer than until the next scheduled post goes live
 	if h.cache != nil && themeVersion == nil {
-		h.cache.Set(cacheKey, html, domain.BlogCacheTTL)
+		if ttl := h.blogPageTTL(ctx, renderedAt); ttl > 0 {
+			h.cache.Set(cacheKey, html, ttl)
+		}
 	}
 
 	// Serve the rendered HTML
@@ -444,7 +492,8 @@ func (h *RootHandler) serveBlogCategory(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 
-	// Cache miss - render the page
+	// Cache miss - render the page. The instant is taken before it, for the cache's bound.
+	renderedAt := time.Now().UTC()
 	html, err := h.blogService.RenderCategoryPage(ctx, workspace.ID, categorySlug, page, themeVersion)
 	if err != nil {
 		// Map error codes to HTTP status codes
@@ -458,9 +507,11 @@ func (h *RootHandler) serveBlogCategory(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	// Store in cache (skip if previewing)
+	// Store in cache (skip if previewing), no longer than until the next scheduled post goes live
 	if h.cache != nil && themeVersion == nil {
-		h.cache.Set(cacheKey, html, domain.BlogCacheTTL)
+		if ttl := h.blogPageTTL(ctx, renderedAt); ttl > 0 {
+			h.cache.Set(cacheKey, html, ttl)
+		}
 	}
 
 	// Serve the rendered HTML
@@ -547,98 +598,167 @@ func (h *RootHandler) serveBlogPost(w http.ResponseWriter, r *http.Request, work
 	_, _ = w.Write([]byte(html))
 }
 
-// serveBlogRobots serves robots.txt for the blog
-func (h *RootHandler) serveBlogRobots(w http.ResponseWriter, r *http.Request) {
-	robotsTxt := `User-agent: *
-Allow: /
-
-Sitemap: /sitemap.xml
-`
-	w.Header().Set("Content-Type", "text/plain")
-	_, _ = w.Write([]byte(robotsTxt))
+// refuseBlogMethod answers 405, with the methods allowed, a request to a blog file that is
+// neither GET nor HEAD, and reports whether it did.
+func refuseBlogMethod(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		return false
+	}
+	w.Header().Set("Allow", "GET, HEAD")
+	http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	return true
 }
 
-// serveBlogSitemap serves sitemap.xml for the blog
-func (h *RootHandler) serveBlogSitemap(w http.ResponseWriter, r *http.Request, workspace *domain.Workspace) {
-	ctx := context.WithValue(r.Context(), domain.WorkspaceIDKey, workspace.ID)
+// serveBlogRobots serves robots.txt for the blog. The sitemap is named by its absolute URL,
+// as the sitemaps protocol requires of a robots.txt entry.
+func (h *RootHandler) serveBlogRobots(w http.ResponseWriter, r *http.Request) {
+	if refuseBlogMethod(w, r) {
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain")
+	_, _ = fmt.Fprintf(w, "User-agent: *\nAllow: /\n\nSitemap: https://%s/sitemap.xml\n", blogHost(r))
+}
 
-	// Get all published posts
-	params := &domain.ListBlogPostsRequest{
-		Status: domain.BlogPostStatusPublished,
-		Limit:  1000,
-		Offset: 0,
+// serveBlogSitemap serves sitemap.xml for the blog, cached per workspace and per host (in
+// lower case, without its port), with the pages' TTL.
+func (h *RootHandler) serveBlogSitemap(w http.ResponseWriter, r *http.Request, workspace *domain.Workspace) {
+	if refuseBlogMethod(w, r) {
+		return
+	}
+	ctx := context.WithValue(r.Context(), domain.WorkspaceIDKey, workspace.ID)
+	host := blogHost(r)
+
+	cacheKey := "sitemap:" + workspace.ID + ":" + host
+	if h.cache != nil {
+		if cached, found := h.cache.Get(cacheKey); found {
+			if sitemap, ok := cached.(string); ok {
+				w.Header().Set("Content-Type", "application/xml")
+				w.Header().Set("X-Cache", "HIT")
+				_, _ = io.WriteString(w, sitemap)
+				return
+			}
+		}
 	}
 
-	response, err := h.blogService.ListPublicPosts(ctx, params)
+	now := time.Now().UTC()
+	posts, err := h.blogService.ListPublicSitemapPosts(ctx)
 	if err != nil {
 		h.logger.WithField("error", err.Error()).Error("Failed to list posts for sitemap")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	// Build sitemap XML
-	var sitemap strings.Builder
-	sitemap.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
-	sitemap.WriteString("\n")
-	sitemap.WriteString(`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`)
-	sitemap.WriteString("\n")
+	var builder strings.Builder
+	writeBlogSitemap(&builder, host, posts, domain.BlogSitemapMaxURLs)
+	sitemap := builder.String()
 
-	// Add homepage
-	sitemap.WriteString("  <url>\n")
-	fmt.Fprintf(&sitemap, "    <loc>https://%s/</loc>\n", r.Host)
-	sitemap.WriteString("    <changefreq>daily</changefreq>\n")
-	sitemap.WriteString("    <priority>1.0</priority>\n")
-	sitemap.WriteString("  </url>\n")
-
-	// Add posts
-	for _, post := range response.Posts {
-		if post.CategoryID != "" {
-			// Get category to build the URL
-			category, err := h.blogService.GetCategory(ctx, post.CategoryID)
-			if err == nil && category != nil {
-				sitemap.WriteString("  <url>\n")
-				fmt.Fprintf(&sitemap, "    <loc>https://%s/%s/%s</loc>\n", r.Host, category.Slug, post.Slug)
-				if post.PublishedAt != nil {
-					fmt.Fprintf(&sitemap, "    <lastmod>%s</lastmod>\n", post.PublishedAt.Format("2006-01-02"))
-				}
-				sitemap.WriteString("    <changefreq>monthly</changefreq>\n")
-				sitemap.WriteString("    <priority>0.8</priority>\n")
-				sitemap.WriteString("  </url>\n")
-			}
+	if h.cache != nil {
+		if ttl := h.blogPageTTL(ctx, now); ttl > 0 {
+			h.cache.Set(cacheKey, sitemap, ttl)
 		}
 	}
-
-	// Add main feed URL
-	sitemap.WriteString("  <url>\n")
-	fmt.Fprintf(&sitemap, "    <loc>https://%s/feed.xml</loc>\n", r.Host)
-	sitemap.WriteString("    <changefreq>daily</changefreq>\n")
-	sitemap.WriteString("    <priority>0.3</priority>\n")
-	sitemap.WriteString("  </url>\n")
-
-	// Add per-category feed URLs (deduplicated from the category set above)
-	seenCategories := map[string]struct{}{}
-	for _, post := range response.Posts {
-		if post.CategoryID == "" {
-			continue
-		}
-		if _, ok := seenCategories[post.CategoryID]; ok {
-			continue
-		}
-		seenCategories[post.CategoryID] = struct{}{}
-		category, err := h.blogService.GetCategory(ctx, post.CategoryID)
-		if err == nil && category != nil {
-			sitemap.WriteString("  <url>\n")
-			fmt.Fprintf(&sitemap, "    <loc>https://%s/%s/feed.xml</loc>\n", r.Host, category.Slug)
-			sitemap.WriteString("    <changefreq>daily</changefreq>\n")
-			sitemap.WriteString("    <priority>0.3</priority>\n")
-			sitemap.WriteString("  </url>\n")
-		}
-	}
-
-	sitemap.WriteString("</urlset>")
 
 	w.Header().Set("Content-Type", "application/xml")
-	_, _ = w.Write([]byte(sitemap.String()))
+	w.Header().Set("X-Cache", "MISS")
+	_, _ = io.WriteString(w, sitemap)
+}
+
+// blogPageTTL is how long a public page whose build started at now may stay cached, called
+// just before the entry is set: domain.BlogCacheTTL, or less when a scheduled post goes live
+// sooner, and at least one second. The next publication is read after now, so a post that
+// goes live while the page is built shortens the entry; the time left is counted from this
+// call, as the cache counts the TTL from the Set, not from the build. Zero when the next
+// publication cannot be read: the page is then not cached.
+func (h *RootHandler) blogPageTTL(ctx context.Context, now time.Time) time.Duration {
+	next, err := h.blogService.NextScheduledPublishAt(ctx, now)
+	if err != nil {
+		h.logger.WithField("error", err.Error()).Warn("Blog: failed to read the next scheduled publication; the page is not cached")
+		return 0
+	}
+	ttl := domain.BlogCacheTTL
+	if next != nil {
+		if untilNext := time.Until(*next); untilNext < ttl {
+			ttl = untilNext
+		}
+	}
+	if ttl < time.Second {
+		ttl = time.Second
+	}
+	return ttl
+}
+
+// blogHost is the request's host in lower case and without its port: the custom domain the
+// workspace was found by. What follows the colon is not checked, and would be repeated in
+// every URL.
+func blogHost(r *http.Request) string {
+	return strings.ToLower(hostWithoutPort(r.Host))
+}
+
+// writeBlogSitemap writes the sitemap of a blog: the home page, the posts newest first, the
+// main feed, then the page and the feed of each category with a listed post. It lists at most
+// maxURLs URLs (the home page and the main feed always, so at least two): past them, the
+// oldest posts are left out, and a category is listed only with a post of its own. An
+// address another route answers is left out (domain.BlogCategorySlugRouteOf): the page of a
+// category whose slug is an exact route, whose posts and feed are listed, and every address
+// of a category whose slug starts a route that takes the whole subtree.
+func writeBlogSitemap(w io.Writer, host string, posts []*domain.BlogSitemapPost, maxURLs int) {
+	writeURL := func(path, lastmod, changefreq, priority string) {
+		_, _ = io.WriteString(w, "  <url>\n")
+		_, _ = fmt.Fprintf(w, "    <loc>https://%s%s</loc>\n", host, path)
+		if lastmod != "" {
+			_, _ = fmt.Fprintf(w, "    <lastmod>%s</lastmod>\n", lastmod)
+		}
+		_, _ = fmt.Fprintf(w, "    <changefreq>%s</changefreq>\n", changefreq)
+		_, _ = fmt.Fprintf(w, "    <priority>%s</priority>\n", priority)
+		_, _ = io.WriteString(w, "  </url>\n")
+	}
+
+	_, _ = io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?>`+"\n")
+	_, _ = io.WriteString(w, `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`+"\n")
+
+	writeURL("/", "", "daily", "1.0")
+
+	// The home page and the main feed are always listed.
+	budget := maxURLs - 2
+	var categories []string
+	seen := map[string]struct{}{}
+	for _, post := range posts {
+		route := domain.BlogCategorySlugRouteOf(post.CategorySlug)
+		if route == domain.BlogCategorySlugSubtreeTaken {
+			continue
+		}
+		cost := 1
+		_, known := seen[post.CategorySlug]
+		if !known {
+			cost++ // the category's feed
+			if route == domain.BlogCategorySlugFree {
+				cost++ // and its page
+			}
+		}
+		if cost > budget {
+			break
+		}
+		budget -= cost
+		if !known {
+			seen[post.CategorySlug] = struct{}{}
+			categories = append(categories, post.CategorySlug)
+		}
+		lastModified := post.LastModified
+		if lastModified.Before(post.PublishedAt) {
+			lastModified = post.PublishedAt
+		}
+		writeURL("/"+post.CategorySlug+"/"+post.PostSlug, lastModified.UTC().Format("2006-01-02"), "monthly", "0.8")
+	}
+
+	writeURL("/feed.xml", "", "daily", "0.3")
+	for _, slug := range categories {
+		if domain.BlogCategorySlugRouteOf(slug) == domain.BlogCategorySlugFree {
+			writeURL("/"+slug, "", "daily", "0.5")
+		}
+		writeURL("/"+slug+"/feed.xml", "", "daily", "0.3")
+	}
+
+	_, _ = io.WriteString(w, "</urlset>")
 }
 
 type feedFormat int
@@ -649,8 +769,7 @@ const (
 )
 
 func (h *RootHandler) serveBlogFeed(w http.ResponseWriter, r *http.Request, workspace *domain.Workspace, categorySlug *string, format feedFormat) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	if refuseBlogMethod(w, r) {
 		return
 	}
 
@@ -663,22 +782,22 @@ func (h *RootHandler) serveBlogFeed(w http.ResponseWriter, r *http.Request, work
 
 	lastModified := maxUpdatedAt.UTC().Format(http.TimeFormat)
 
-	// Conditional GET: 304 without building the feed.
-	if match := r.Header.Get("If-None-Match"); match != "" && match == etag {
+	// Conditional GET: 304 without building the feed. If-None-Match, when sent, decides
+	// alone: If-Modified-Since is read only without it (RFC 9110 §13.1.3).
+	notModified := false
+	if match := r.Header.Get("If-None-Match"); match != "" {
+		notModified = etagMatches(match, etag)
+	} else if ims := r.Header.Get("If-Modified-Since"); ims != "" {
+		if t, err := http.ParseTime(ims); err == nil && !maxUpdatedAt.After(t) {
+			notModified = true
+		}
+	}
+	if notModified {
 		w.Header().Set("ETag", etag)
 		w.Header().Set("Last-Modified", lastModified)
 		w.Header().Set("Cache-Control", "public, max-age=0, s-maxage=300, must-revalidate")
 		w.WriteHeader(http.StatusNotModified)
 		return
-	}
-	if ims := r.Header.Get("If-Modified-Since"); ims != "" {
-		if t, err := http.ParseTime(ims); err == nil && !maxUpdatedAt.After(t) {
-			w.Header().Set("ETag", etag)
-			w.Header().Set("Last-Modified", lastModified)
-			w.Header().Set("Cache-Control", "public, max-age=0, s-maxage=300, must-revalidate")
-			w.WriteHeader(http.StatusNotModified)
-			return
-		}
 	}
 
 	feed, err := h.blogService.BuildFeed(r.Context(), workspace.ID, categorySlug)
@@ -752,6 +871,14 @@ func (h *RootHandler) serveBlog404(w http.ResponseWriter, r *http.Request) {
 <p><a href="/">Go back home</a></p>
 </body>
 </html>`))
+}
+
+// hostWithoutPort returns the host of a Host header, without its port if it has one
+func hostWithoutPort(host string) string {
+	if colonIdx := strings.Index(host, ":"); colonIdx != -1 {
+		return host[:colonIdx]
+	}
+	return host
 }
 
 // detectWorkspaceByHost finds a workspace by matching the custom endpoint URL hostname

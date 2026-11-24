@@ -30,7 +30,7 @@ func TestGapQB_ParseNodeGuards(t *testing.T) {
 	qb := NewQueryBuilder()
 
 	t.Run("parseNode rejects an unknown kind by name", func(t *testing.T) {
-		cond, args, next, err := qb.parseNode(&domain.TreeNode{Kind: "sideways"}, 4)
+		cond, args, next, err := qb.parseNode(&domain.TreeNode{Kind: "sideways"}, 4, castDirectly)
 		require.EqualError(t, err, "invalid node kind: sideways")
 		assert.Equal(t, "", cond)
 		assert.Nil(t, args)
@@ -42,7 +42,7 @@ func TestGapQB_ParseNodeGuards(t *testing.T) {
 			Operator: "and",
 			Leaves:   []*domain.TreeNode{{Kind: "sideways"}},
 		}
-		cond, args, _, err := qb.parseBranch(branch, 1)
+		cond, args, _, err := qb.parseBranch(branch, 1, castDirectly)
 		require.EqualError(t, err, "invalid node kind: sideways")
 		assert.Equal(t, "", cond, "a failed child must not leak a partial condition")
 		assert.Nil(t, args)
@@ -51,7 +51,7 @@ func TestGapQB_ParseNodeGuards(t *testing.T) {
 	t.Run("empty contact conditions compile to no condition", func(t *testing.T) {
 		// Reachable only below BuildSQL: domain validation requires at least
 		// one filter, so this pins the builder's own degenerate contract.
-		cond, args, next, err := qb.parseContactConditions(&domain.ContactCondition{}, 7)
+		cond, args, next, err := qb.parseContactConditions(&domain.ContactCondition{}, 7, castDirectly)
 		require.NoError(t, err)
 		assert.Equal(t, "", cond)
 		assert.Nil(t, args)
@@ -288,7 +288,7 @@ func TestGapQB_BuildJSONConditionBranches(t *testing.T) {
 		}, 1, castDirectly)
 		require.NoError(t, err)
 		assert.Equal(t,
-			"(custom_json_1['tier']::text ILIKE $1 OR custom_json_1['tier']::text ILIKE $2)", cond)
+			"((custom_json_1['tier'] #>> '{}') ILIKE $1 OR (custom_json_1['tier'] #>> '{}') ILIKE $2)", cond)
 		assert.Equal(t, []interface{}{"%gold%", "%silver%"}, args)
 		assert.Equal(t, 3, next)
 	})
@@ -299,7 +299,7 @@ func TestGapQB_BuildJSONConditionBranches(t *testing.T) {
 			StringValues: []string{"trial"}, JSONPath: []string{"tier"},
 		}, 2, castDirectly)
 		require.NoError(t, err)
-		assert.Equal(t, "custom_json_1['tier']::text NOT ILIKE $2", cond)
+		assert.Equal(t, "(custom_json_1['tier'] #>> '{}') NOT ILIKE $2", cond)
 		assert.Equal(t, []interface{}{"%trial%"}, args)
 		assert.Equal(t, 3, next)
 	})
@@ -311,7 +311,7 @@ func TestGapQB_BuildJSONConditionBranches(t *testing.T) {
 		}, 1, castDirectly)
 		require.NoError(t, err)
 		assert.Equal(t,
-			"CASE WHEN jsonb_typeof(custom_json_1) = 'object' THEN (custom_json_1::text)::numeric END > $1",
+			"CASE WHEN jsonb_typeof(custom_json_1) = 'object' THEN ((custom_json_1 #>> '{}'))::numeric END > $1",
 			cond)
 		assert.Equal(t, []interface{}{5.0}, args)
 		assert.Equal(t, 2, next)
@@ -347,7 +347,7 @@ func TestGapQB_BuildJSONConditionBranches(t *testing.T) {
 			NumberValues: []float64{100},
 		}, 1, "ce.properties->>%s", castDefensively)
 		require.NoError(t, err)
-		assert.Equal(t, `CASE WHEN ce.properties->>$1 ~ '^\s*[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?\s*$' THEN (ce.properties->>$1)::numeric END > $2`, cond)
+		assert.Equal(t, `CASE WHEN ce.properties->>$1 ~ '^\s*[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?\s*$' AND pg_input_is_valid(ce.properties->>$1, 'numeric') THEN (ce.properties->>$1)::numeric END > $2`, cond)
 		assert.Equal(t, []interface{}{"total", 100.0}, args)
 		assert.Equal(t, 3, next)
 	})
@@ -1052,48 +1052,6 @@ func TestGapTask_ResetTaskWriteFailure(t *testing.T) {
 	err := svc.ResetTask(context.Background(), "ws-gap", "task-gap")
 	require.EqualError(t, err, "failed to reset task: reset write unavailable")
 	assert.ErrorIs(t, err, sentinel)
-}
-
-func TestGapTask_BroadcastScheduledUnparseableTime(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	repo := mocks.NewMockTaskRepository(ctrl)
-	svc := NewTaskService(repo, mocks.NewMockSettingRepository(ctrl),
-		gapTaskLogger(ctrl), nil, "http://localhost:8080")
-	svc.SetAutoExecuteImmediate(false)
-	repo.EXPECT().WithTransaction(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, fn func(*sql.Tx) error) error {
-			return fn(nil)
-		}).AnyTimes()
-	repo.EXPECT().GetTaskByBroadcastID(gomock.Any(), "ws-gap", "bc-gap-sched").
-		Return(nil, errors.New("sql: no rows in result set"))
-
-	var created *domain.Task
-	repo.EXPECT().Create(gomock.Any(), "ws-gap", gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, task *domain.Task) error {
-			created = task
-			return nil
-		})
-
-	svc.handleBroadcastScheduled(context.Background(), domain.EventPayload{
-		Type: domain.EventBroadcastScheduled, WorkspaceID: "ws-gap", EntityID: "bc-gap-sched",
-		Data: map[string]interface{}{
-			"send_now": false, "status": string(domain.BroadcastStatusScheduled),
-			"scheduled_time": "not-a-time",
-		},
-	})
-
-	require.NotNil(t, created, "a scheduled broadcast with no task must create one")
-	assert.Equal(t, "send_broadcast", created.Type)
-	assert.Equal(t, domain.TaskStatusPending, created.Status)
-	require.NotNil(t, created.BroadcastID)
-	assert.Equal(t, "bc-gap-sched", *created.BroadcastID)
-	assert.Nil(t, created.NextRunAfter,
-		"an unparseable scheduled_time must leave the task unscheduled, not invent a time")
-	require.NotNil(t, created.State)
-	require.NotNil(t, created.State.SendBroadcast)
-	assert.Equal(t, "bc-gap-sched", created.State.SendBroadcast.BroadcastID)
 }
 
 func TestGapTask_ExecutePendingTasksConflictDispatch(t *testing.T) {

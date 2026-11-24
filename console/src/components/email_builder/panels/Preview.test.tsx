@@ -31,4 +31,52 @@ describe('Preview', () => {
     expect(doc.compatMode).toBe('CSS1Compat')
     expect(doc.querySelector('head > base')?.getAttribute('target')).toBe('_blank')
   })
+
+  it('says how many blocks the test data hides', () => {
+    const { rerender } = render(
+      <Preview
+        html="<p>x</p>"
+        mjml="<mjml></mjml>"
+        onTestDataChange={vi.fn()}
+        hiddenBlockCount={0}
+      />
+    )
+    expect(screen.queryByTestId('preview-hidden-blocks')).toBeNull()
+
+    rerender(
+      <Preview
+        html="<p>x</p>"
+        mjml="<mjml></mjml>"
+        onTestDataChange={vi.fn()}
+        hiddenBlockCount={1}
+      />
+    )
+    expect(screen.getByText('1 block hidden by its condition with this test data.')).toBeTruthy()
+
+    rerender(
+      <Preview
+        html="<p>x</p>"
+        mjml="<mjml></mjml>"
+        onTestDataChange={vi.fn()}
+        hiddenBlockCount={3}
+      />
+    )
+    expect(screen.getByText('3 blocks hidden by their condition with this test data.')).toBeTruthy()
+  })
+
+  it('lists the headings that skip a level, and nothing when none does', () => {
+    const { rerender } = render(
+      <Preview
+        html="<h1>Title</h1><h2>Section</h2><h4>Quota details</h4><h2>Next</h2>"
+        mjml="<mjml></mjml>"
+        onTestDataChange={vi.fn()}
+      />
+    )
+    const box = screen.getByTestId('preview-heading-skips')
+    expect(box).toHaveTextContent('Heading structure')
+    expect(box).toHaveTextContent('“Quota details”: H4 after H2 (H3 expected)')
+
+    rerender(<Preview html="<h1>Title</h1><h2>Section</h2><h3>Detail</h3>" mjml="<mjml></mjml>" onTestDataChange={vi.fn()} />)
+    expect(screen.queryByTestId('preview-heading-skips')).toBeNull()
+  })
 })

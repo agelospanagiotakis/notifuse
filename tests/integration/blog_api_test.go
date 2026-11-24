@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Notifuse/notifuse/config"
 	"github.com/Notifuse/notifuse/internal/app"
@@ -39,6 +40,165 @@ func TestBlogAPI(t *testing.T) {
 	t.Run("DataFactory", func(t *testing.T) { runBlogDataFactoryTests(t, suite) })
 	t.Run("E2EFlow", func(t *testing.T) { runBlogE2EFlowTests(t, suite) })
 	t.Run("FeedAPI", func(t *testing.T) { runBlogFeedTests(t, suite) })
+	t.Run("CountsAndSearch", func(t *testing.T) { runBlogCountsAndSearchTests(t, suite) })
+}
+
+// runBlogCountsAndSearchTests covers the content screen's counts, scheduled tab and search,
+// on a workspace of its own so the counts are exact.
+func runBlogCountsAndSearchTests(t *testing.T, suite *testutil.IntegrationTestSuite) {
+	client := suite.APIClient
+	factory := suite.DataFactory
+
+	user, err := factory.CreateUser()
+	require.NoError(t, err)
+	workspace, err := factory.CreateWorkspace()
+	require.NoError(t, err)
+	require.NoError(t, factory.AddUserToWorkspace(user.ID, workspace.ID, "owner"))
+	require.NoError(t, client.Login(user.Email, ""))
+	client.SetWorkspaceID(workspace.ID)
+
+	news, err := factory.CreateBlogCategory(workspace.ID, testutil.WithCategoryName("News"), testutil.WithCategorySlug("news-counts"))
+	require.NoError(t, err)
+	guides, err := factory.CreateBlogCategory(workspace.ID, testutil.WithCategoryName("Guides"), testutil.WithCategorySlug("guides-counts"))
+	require.NoError(t, err)
+
+	past := time.Now().UTC().Add(-24 * time.Hour)
+	future := time.Now().UTC().Add(72 * time.Hour)
+	publishedAt := func(at time.Time) testutil.BlogPostOption {
+		return func(p *domain.BlogPost) { p.PublishedAt = &at }
+	}
+	create := func(categoryID, title, slug string, opts ...testutil.BlogPostOption) *domain.BlogPost {
+		t.Helper()
+		post, err := factory.CreateBlogPost(workspace.ID, categoryID,
+			append([]testutil.BlogPostOption{testutil.WithPostTitle(title), testutil.WithPostSlug(slug)}, opts...)...)
+		require.NoError(t, err)
+		return post
+	}
+
+	create(news.ID, "Draft 50% off", "draft-50-off")
+	create(news.ID, "Spring news", "spring-news", publishedAt(past))
+	scheduled := create(news.ID, "Coming soon", "coming-soon", publishedAt(future))
+	create(guides.ID, "Guide news", "guide-news", publishedAt(past))
+	create(guides.ID, "Plan 500 off", "plan-500-off")
+	deleted := create(news.ID, "Removed", "removed", publishedAt(past))
+	resp, err := client.Post("/api/blogPosts.delete", map[string]interface{}{"id": deleted.ID}, map[string]string{"workspace_id": workspace.ID})
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	counts := func(t *testing.T, params map[string]string) map[string]interface{} {
+		t.Helper()
+		params["workspace_id"] = workspace.ID
+		resp, err := client.Get("/api/blogPosts.counts", params)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var decoded map[string]interface{}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&decoded))
+		return decoded
+	}
+	list := func(t *testing.T, params map[string]string) (titles []string, total float64) {
+		t.Helper()
+		resp, err := client.ListBlogPosts(params)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var decoded struct {
+			Posts []struct {
+				Settings struct {
+					Title string `json:"title"`
+				} `json:"settings"`
+			} `json:"posts"`
+			TotalCount float64 `json:"total_count"`
+		}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&decoded))
+		for _, p := range decoded.Posts {
+			titles = append(titles, p.Settings.Title)
+		}
+		return titles, decoded.TotalCount
+	}
+
+	t.Run("counts over every post: a scheduled post is published and scheduled", func(t *testing.T) {
+		assert.Equal(t, map[string]interface{}{
+			"all_total": float64(5), "total": float64(5), "published": float64(3), "scheduled": float64(1), "draft": float64(2),
+			"by_category": map[string]interface{}{news.ID: float64(3), guides.ID: float64(2)},
+		}, counts(t, map[string]string{}))
+	})
+
+	t.Run("counts in a category keep all_total and by_category over every post", func(t *testing.T) {
+		assert.Equal(t, map[string]interface{}{
+			"all_total": float64(5), "total": float64(3), "published": float64(2), "scheduled": float64(1), "draft": float64(1),
+			"by_category": map[string]interface{}{news.ID: float64(3), guides.ID: float64(2)},
+		}, counts(t, map[string]string{"category_id": news.ID}))
+	})
+
+	t.Run("status=scheduled lists only posts still to come", func(t *testing.T) {
+		titles, total := list(t, map[string]string{"status": "scheduled"})
+		assert.Equal(t, []string{scheduled.Settings.Title}, titles)
+		assert.Equal(t, float64(1), total)
+	})
+
+	t.Run("search takes % literally and total_count follows it", func(t *testing.T) {
+		titles, total := list(t, map[string]string{"search": "50%"})
+		assert.Equal(t, []string{"Draft 50% off"}, titles, "500 off does not match 50%")
+		assert.Equal(t, float64(1), total)
+	})
+
+	t.Run("the counts by status follow the list's search, all_total and by_category do not", func(t *testing.T) {
+		// "news" is in two titles: a published post of News and one of Guides.
+		got := counts(t, map[string]string{"search": "news"})
+		assert.Equal(t, map[string]interface{}{
+			"all_total": float64(5), "total": float64(2), "published": float64(2), "scheduled": float64(0), "draft": float64(0),
+			"by_category": map[string]interface{}{news.ID: float64(3), guides.ID: float64(2)},
+		}, got)
+		_, listed := list(t, map[string]string{"search": "news"})
+		assert.Equal(t, got["total"], listed, "the All tab counts what it lists")
+		_, listedPublished := list(t, map[string]string{"search": "news", "status": "published"})
+		assert.Equal(t, got["published"], listedPublished)
+
+		assert.Equal(t, float64(1), counts(t, map[string]string{"search": "news", "category_id": news.ID})["total"])
+	})
+
+	t.Run("the All tab reads in the order of the date each post shows, newest first", func(t *testing.T) {
+		// Created in another order: drafts by their last edit, the others by their publication.
+		edited := func(slug string, at time.Time) {
+			t.Helper()
+			wsDB, err := suite.DBManager.GetWorkspaceDB(workspace.ID)
+			require.NoError(t, err)
+			_, err = wsDB.Exec(`UPDATE blog_posts SET updated_at = $1 WHERE slug = $2`, at, slug)
+			require.NoError(t, err)
+		}
+		edited("draft-50-off", time.Now().UTC().Add(-48*time.Hour))
+		edited("plan-500-off", time.Now().UTC().Add(-1*time.Hour))
+		titles, _ := list(t, map[string]string{})
+		// Coming soon (in 3 days), Plan 500 off (edited 1 h ago), then the two published a day ago
+		// (in either order, they share their date), then Draft 50% off (edited 2 days ago).
+		require.Len(t, titles, 5)
+		assert.Equal(t, []string{"Coming soon", "Plan 500 off"}, titles[:2])
+		assert.ElementsMatch(t, []string{"Spring news", "Guide news"}, titles[2:4])
+		assert.Equal(t, "Draft 50% off", titles[4])
+
+		drafts, _ := list(t, map[string]string{"status": "draft"})
+		assert.Equal(t, []string{"Plan 500 off", "Draft 50% off"}, drafts, "drafts by their last edit")
+	})
+
+	t.Run("an unknown status is a 400", func(t *testing.T) {
+		resp, err := client.ListBlogPosts(map[string]string{"status": "archived"})
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("a search PostgreSQL cannot read is a 400, not a 500", func(t *testing.T) {
+		for _, search := range []string{"a\x00b", "caf\xe9"} {
+			resp, err := client.ListBlogPosts(map[string]string{"search": search})
+			require.NoError(t, err)
+			raw, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "%q", search)
+			assert.Contains(t, string(raw), "search must be valid UTF-8 text without NUL bytes", "%q", search)
+		}
+	})
 }
 
 // runBlogRoutingLogicTests tests the critical blog routing logic
@@ -1327,7 +1487,7 @@ func runBlogFeedTests(t *testing.T, suite *testutil.IntegrationTestSuite) {
 		defer func() { _ = resp.Body.Close() }()
 
 		body, _ := io.ReadAll(resp.Body)
-		assert.Contains(t, string(body), "Sitemap: /sitemap.xml")
+		assert.Contains(t, string(body), "Sitemap: https://feed.blog/sitemap.xml")
 	})
 
 	t.Run("Non-existent category feed returns empty items not 500", func(t *testing.T) {

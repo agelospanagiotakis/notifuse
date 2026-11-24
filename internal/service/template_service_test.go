@@ -2,8 +2,10 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"testing"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/Notifuse/notifuse/pkg/logger"
 	pkgmocks "github.com/Notifuse/notifuse/pkg/mocks" // Corrected import path
 	"github.com/Notifuse/notifuse/pkg/notifuse_mjml"
+	"github.com/Notifuse/notifuse/pkg/trackingtoken"
 	"github.com/golang/mock/gomock" // Added gomock import
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1042,6 +1045,9 @@ func TestTemplateService_DeleteTemplate(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot delete integration-managed template")
 		assert.Contains(t, err.Error(), integrationID)
+		// A ValidationError, so the API answers 400 with the reason rather than 500.
+		var validationErr domain.ValidationError
+		assert.True(t, errors.As(err, &validationErr), "want a ValidationError, got %T", err)
 	})
 
 	t.Run("Get Template Not Found Before Delete", func(t *testing.T) {
@@ -1411,10 +1417,12 @@ func TestCompileTemplate_InvalidTreeData(t *testing.T) {
 	// --- Assert ---
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	// gomjml succeeds with minimal/empty MJML structures and produces valid HTML
-	assert.True(t, resp.Success, "gomjml should succeed with empty MJML block")
-	require.NotNil(t, resp.HTML, "Response HTML should not be nil")
-	assert.NotEmpty(t, *resp.HTML, "HTML output should not be empty")
+	// An mjml block without mj-body is refused, as MJML refuses it, instead of
+	// rendering an empty email (gomjml v0.14.1 rendered one).
+	assert.False(t, resp.Success, "an MJML document without mj-body must not compile")
+	assert.Nil(t, resp.HTML, "no HTML for a document that does not compile")
+	require.NotNil(t, resp.Error)
+	assert.Contains(t, resp.Error.Message, "mj-body")
 }
 
 func TestTemplateService_CreateTemplate_CodeMode(t *testing.T) {
@@ -1653,6 +1661,63 @@ func TestCompileTemplate_WithMjmlSource(t *testing.T) {
 	assert.True(t, resp.Success)
 	require.NotNil(t, resp.HTML)
 	assert.Contains(t, *resp.HTML, "Hello World")
+}
+
+// TestCompileTemplate_TrackedLinksUseAuthorisedWorkspace pins that a compile request
+// whose tracking settings name another workspace still mints its tracked links for the
+// workspace the caller was authorised for: the settings come from the request body, so
+// a caller could otherwise record clicks against a workspace they cannot access.
+func TestCompileTemplate_TrackedLinksUseAuthorisedWorkspace(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockAuthService := domainmocks.NewMockAuthService(ctrl)
+	mockRepo := domainmocks.NewMockTemplateRepository(ctrl)
+	mockLogger := &MockLogger{}
+	mockWorkspaceRepo := domainmocks.NewMockWorkspaceRepository(ctrl)
+
+	svc := service.NewTemplateService(mockRepo, mockWorkspaceRepo, mockAuthService, mockLogger, "https://api.example.com", licensedForTranslations(ctrl))
+
+	ctx := context.Background()
+	workspaceID := "ws_123"
+	userID := "user_abc"
+	endpoint := "https://track.example.com"
+
+	mockAuthService.EXPECT().AuthenticateUserForWorkspace(gomock.Any(), workspaceID).Return(ctx, &domain.User{ID: userID}, &domain.UserWorkspace{
+		UserID:      userID,
+		WorkspaceID: workspaceID,
+		Role:        "member",
+		Permissions: domain.UserPermissions{
+			domain.PermissionResourceTemplates: {Read: true, Write: true},
+		},
+	}, nil)
+	mockWorkspaceRepo.EXPECT().GetByID(gomock.Any(), workspaceID).Return(&domain.Workspace{
+		ID:       workspaceID,
+		Settings: domain.WorkspaceSettings{WebsiteURL: "https://example.com"},
+	}, nil).AnyTimes()
+
+	resp, err := svc.CompileTemplate(ctx, domain.CompileTemplateRequest{
+		WorkspaceID:      workspaceID,
+		MessageID:        "msg-1",
+		VisualEditorTree: createValidTestTree(createTestTextBlock("txt1", `Visit <a href="https://example.com/promo">our shop</a>`)),
+		TrackingSettings: notifuse_mjml.TrackingSettings{
+			EnableTracking: true,
+			Endpoint:       endpoint,
+			WorkspaceID:    "other-ws",
+			MessageID:      "msg-1",
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.True(t, resp.Success)
+	require.NotNil(t, resp.HTML)
+
+	m := regexp.MustCompile(regexp.QuoteMeta(endpoint) + `/r/([A-Za-z0-9_-]+)`).FindStringSubmatch(*resp.HTML)
+	require.NotNil(t, m, "expected a /r/{token} tracking link, got: %s", *resp.HTML)
+	tok, err := trackingtoken.Parse(m[1], trackingtoken.PurposeClick)
+	require.NoError(t, err)
+	assert.Equal(t, workspaceID, tok.WorkspaceID, "the tracked link must record against the authorised workspace")
+	assert.Equal(t, "https://example.com/promo", tok.URL)
 }
 
 // TestCompileTemplate_InjectsWorkspaceData verifies the preview exposes
@@ -2573,6 +2638,70 @@ func TestTemplateService_UpdateTemplate_AbsentFields(t *testing.T) {
 		require.NoError(t, svc.UpdateTemplate(ctx, workspaceID, newIncoming()))
 	})
 
+	// A stored translation that a later rule refuses (here, a text version whose Liquid does
+	// not parse) is carried over by an edit that does not send translations.
+	t.Run("a stored translation is not validated again when the edit does not send it", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		svc, mockRepo, _, mockAuthService, _ := setupTemplateServiceTest(ctrl)
+		stored := newStored(nil, "fr")
+		fr := stored.Translations["fr"]
+		broken := "{% if vip %}VIP"
+		fr.Email.Text = &broken
+		stored.Translations["fr"] = fr
+
+		mockAuthService.EXPECT().AuthenticateUserForWorkspace(ctx, workspaceID).Return(ctx, &domain.User{ID: userID}, writePerms, nil)
+		mockRepo.EXPECT().GetTemplateByID(ctx, workspaceID, templateID, int64(0)).Return(stored, nil)
+		mockRepo.EXPECT().UpdateTemplate(ctx, workspaceID, gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ string, tmpl *domain.Template, _ int64) error {
+				require.Contains(t, tmpl.Translations, "fr", "the stored translation is kept")
+				assert.Equal(t, &broken, tmpl.Translations["fr"].Email.Text)
+				return nil
+			},
+		)
+
+		require.NoError(t, svc.UpdateTemplate(ctx, workspaceID, newIncoming()))
+	})
+
+	t.Run("a change of channel checks the translations it carries over", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		svc, mockRepo, _, mockAuthService, _ := setupTemplateServiceTest(ctrl)
+		incoming := newIncoming()
+		incoming.Channel = "web"
+		incoming.Email = nil
+		incoming.Web = &domain.WebTemplate{Content: domain.MapOfAny{"type": "doc"}, HTML: "<p>New</p>"}
+
+		mockAuthService.EXPECT().AuthenticateUserForWorkspace(ctx, workspaceID).Return(ctx, &domain.User{ID: userID}, writePerms, nil)
+		mockRepo.EXPECT().GetTemplateByID(ctx, workspaceID, templateID, int64(0)).Return(newStored(nil, "fr"), nil)
+		// No UpdateTemplate: a web template carrying email translations is not saved.
+
+		err := svc.UpdateTemplate(ctx, workspaceID, incoming)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "email content not allowed for web channel")
+	})
+
+	t.Run("a translation the edit sends is validated, and its refusal names it", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		svc, mockRepo, _, mockAuthService, _ := setupTemplateServiceTest(ctrl)
+		incoming := newIncoming()
+		fr := newTranslation("Nouveau sujet")
+		broken := "{% if vip %}VIP"
+		fr.Email.Text = &broken
+		incoming.Translations = map[string]domain.TemplateTranslation{"fr": fr}
+
+		mockAuthService.EXPECT().AuthenticateUserForWorkspace(ctx, workspaceID).Return(ctx, &domain.User{ID: userID}, writePerms, nil)
+		mockRepo.EXPECT().GetTemplateByID(ctx, workspaceID, templateID, int64(0)).Return(newStored(nil, "fr"), nil)
+		// No UpdateTemplate: the strict mock refuses it.
+
+		err := svc.UpdateTemplate(ctx, workspaceID, incoming)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "translation 'fr'")
+	})
+
 	t.Run("preserved translations are not re-checked against workspace languages", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
@@ -2660,4 +2789,108 @@ func TestTemplateService_UpdateTemplate_AbsentFields(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "translation language 'de' is not in workspace's configured languages")
 	})
+}
+
+// A message really sent whose signature happens to start like the preview placeholder
+// ("abc123…") keeps its links, and its data, which carries the workspace object, costs no
+// workspace read.
+func TestCompileTemplate_RealSignatureStartingLikeThePreviewOne(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockAuthService := domainmocks.NewMockAuthService(ctrl)
+	// No GetByID expectation: reading the workspace fails the test.
+	mockWorkspaceRepo := domainmocks.NewMockWorkspaceRepository(ctrl)
+	svc := service.NewTemplateService(domainmocks.NewMockTemplateRepository(ctrl), mockWorkspaceRepo, mockAuthService, &MockLogger{}, "https://api.example.com", licensedForTranslations(ctrl))
+	ctx := context.Background()
+	mockAuthService.EXPECT().AuthenticateUserForWorkspace(gomock.Any(), "ws_1").Return(ctx, &domain.User{ID: "u"}, &domain.UserWorkspace{
+		UserID: "u", WorkspaceID: "ws_1", Role: "member",
+		Permissions: domain.UserPermissions{domain.PermissionResourceTemplates: {Read: true}},
+	}, nil)
+
+	sent := "https://track.example.com/notification-center?email=john.doe@example.com&email_hmac=" + domain.PreviewEmailHMAC + "9f86d081884c7d65&wid=ws_1"
+	var data notifuse_mjml.MapOfAny
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"contact": {"email": "emma.clarke@example.com"},
+		"workspace": {"base_url": "https://track.example.com", "website_url": "https://example.com"},
+		"notification_center_url": "`+sent+`"
+	}`), &data))
+
+	resp, err := svc.CompileTemplate(ctx, domain.CompileTemplateRequest{
+		WorkspaceID:      "ws_1",
+		MessageID:        "m_1",
+		VisualEditorTree: createValidTestTree(createTestTextBlock("txt1", `<a href="{{ notification_center_url }}">Preferences</a>`)),
+		TemplateData:     data,
+	})
+	require.NoError(t, err)
+	require.True(t, resp.Success)
+	assert.Equal(t, sent, resp.TemplateData["notification_center_url"])
+}
+
+// TestCompileTemplate_PreviewLinksFollowTheTestContact: the console seeds a template's test data
+// with links made for john.doe@example.com. A test contact changed since (emma.clarke) kept them,
+// so the preview's unsubscribe and notification center links named someone else. The links are
+// rebuilt for the test contact, as a send builds them; those of a message really sent are not.
+func TestCompileTemplate_PreviewLinksFollowTheTestContact(t *testing.T) {
+	const endpoint = "https://track.example.com"
+	consoleLink := func(query string) string { return endpoint + "/notification-center?" + query }
+	cases := []struct {
+		name        string
+		hmac        string
+		wantRebuilt bool
+	}{
+		{name: "preview links of the editor's test data", hmac: domain.PreviewEmailHMAC, wantRebuilt: true},
+		{name: "links of a message really sent", hmac: "f00dfeed", wantRebuilt: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockAuthService := domainmocks.NewMockAuthService(ctrl)
+			mockWorkspaceRepo := domainmocks.NewMockWorkspaceRepository(ctrl)
+			svc := service.NewTemplateService(domainmocks.NewMockTemplateRepository(ctrl), mockWorkspaceRepo, mockAuthService, &MockLogger{}, "https://api.example.com", licensedForTranslations(ctrl))
+			ctx := context.Background()
+			customEndpoint := endpoint
+			mockAuthService.EXPECT().AuthenticateUserForWorkspace(gomock.Any(), "ws_1").Return(ctx, &domain.User{ID: "u"}, &domain.UserWorkspace{
+				UserID: "u", WorkspaceID: "ws_1", Role: "member",
+				Permissions: domain.UserPermissions{domain.PermissionResourceTemplates: {Read: true}},
+			}, nil)
+			mockWorkspaceRepo.EXPECT().GetByID(gomock.Any(), "ws_1").Return(&domain.Workspace{
+				ID: "ws_1", Settings: domain.WorkspaceSettings{CustomEndpointURL: &customEndpoint},
+			}, nil).AnyTimes()
+
+			// The test data as the console sends it: JSON, decoded into plain maps.
+			var data notifuse_mjml.MapOfAny
+			require.NoError(t, json.Unmarshal([]byte(`{
+				"contact": {"first_name": "Emma", "email": "emma.clarke@example.com"},
+				"list": {"id": "newsletter", "name": "Newsletter"},
+				"unsubscribe_url": "`+consoleLink("action=unsubscribe&email=john.doe@example.com&lid=newsletter&lname=Newsletter&wid=ws_1&mid=preview&email_hmac="+tc.hmac)+`",
+				"notification_center_url": "`+consoleLink("email=john.doe@example.com&email_hmac="+tc.hmac+"&wid=ws_1")+`"
+			}`), &data))
+
+			resp, err := svc.CompileTemplate(ctx, domain.CompileTemplateRequest{
+				WorkspaceID:      "ws_1",
+				MessageID:        "preview",
+				VisualEditorTree: createValidTestTree(createTestTextBlock("txt1", `<a href="{{ unsubscribe_url }}">Unsubscribe</a> <a href="{{ notification_center_url }}">Preferences</a>`)),
+				TemplateData:     data,
+			})
+			require.NoError(t, err)
+			require.True(t, resp.Success)
+
+			unsubscribe := resp.TemplateData["unsubscribe_url"].(string)
+			center := resp.TemplateData["notification_center_url"].(string)
+			if !tc.wantRebuilt {
+				assert.Contains(t, unsubscribe, "email=john.doe@example.com", "a sent message keeps the links it went out with")
+				assert.Contains(t, center, "email=john.doe@example.com")
+				return
+			}
+			// Built as a send builds them: same parameters, for the test contact, still preview-signed.
+			links := domain.ContactLinks{Endpoint: endpoint, WorkspaceID: "ws_1", MessageID: "preview", Email: "emma.clarke@example.com", EmailHMAC: domain.PreviewEmailHMAC, ListID: "newsletter", ListName: "Newsletter"}
+			assert.Equal(t, links.ListURLs()["unsubscribe_url"], unsubscribe)
+			assert.Equal(t, links.ContactURLs()["notification_center_url"], center)
+			assert.NotContains(t, *resp.HTML, "john.doe")
+			assert.Contains(t, *resp.HTML, "emma.clarke%40example.com")
+			// A link the data does not hold is not added.
+			assert.NotContains(t, resp.TemplateData, "confirm_subscription_url")
+		})
+	}
 }

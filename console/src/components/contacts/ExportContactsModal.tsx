@@ -6,6 +6,8 @@ import { ContactsSearch } from '../../router'
 import { Workspace, List, Segment } from '../../services/api/types'
 import { contactsApi, Contact, ListContactsRequest } from '../../services/api/contacts'
 import { getCustomFieldLabel } from '../../hooks/useCustomFieldLabel'
+import { useTrackingConsentOptions } from './trackingConsentOptions'
+import { useNumberFormat } from '../layout'
 
 interface ExportContactsModalProps {
   visible: boolean
@@ -27,11 +29,13 @@ export function ExportContactsModal({
   listsData
 }: ExportContactsModalProps) {
   const { t } = useLingui()
+  const { int } = useNumberFormat()
   const [isExporting, setIsExporting] = useState(false)
   const [fetchedCount, setFetchedCount] = useState(0)
   const [startTime, setStartTime] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const { filters: consentFilterOptions } = useTrackingConsentOptions()
 
   // Get display label for a filter value
   const getFilterDisplayValue = (key: string, value: string): string => {
@@ -39,13 +43,22 @@ export function ExportContactsModal({
       const list = listsData.find((l) => l.id === value)
       return list?.name || value
     }
+    if (key === 'tracking_opens_consent' || key === 'tracking_clicks_consent') {
+      return consentFilterOptions.find((option) => option.value === value)?.label || value
+    }
     return value
   }
+
+  // The segment view exports its segment, as the table lists it.
+  const exportedSegments = filters.segment_id ? [filters.segment_id] : filters.segments
 
   // Build list of active filters for display
   const getActiveFilters = () => {
     const activeFilters: { key: string; label: string; value: string }[] = []
 
+    if (filters.search) {
+      activeFilters.push({ key: 'search', label: t`Search`, value: filters.search })
+    }
     if (filters.email) {
       activeFilters.push({ key: 'email', label: t`Email`, value: filters.email })
     }
@@ -57,6 +70,9 @@ export function ExportContactsModal({
     }
     if (filters.last_name) {
       activeFilters.push({ key: 'last_name', label: t`Last Name`, value: filters.last_name })
+    }
+    if (filters.full_name) {
+      activeFilters.push({ key: 'full_name', label: t`Full Name`, value: filters.full_name })
     }
     if (filters.phone) {
       activeFilters.push({ key: 'phone', label: t`Phone`, value: filters.phone })
@@ -81,8 +97,22 @@ export function ExportContactsModal({
         value: filters.contact_list_status
       })
     }
-    if (filters.segments && filters.segments.length > 0) {
-      filters.segments.forEach((segmentId) => {
+    if (filters.tracking_opens_consent) {
+      activeFilters.push({
+        key: 'tracking_opens_consent',
+        label: t`Opens tracking consent`,
+        value: getFilterDisplayValue('tracking_opens_consent', filters.tracking_opens_consent)
+      })
+    }
+    if (filters.tracking_clicks_consent) {
+      activeFilters.push({
+        key: 'tracking_clicks_consent',
+        label: t`Clicks tracking consent`,
+        value: getFilterDisplayValue('tracking_clicks_consent', filters.tracking_clicks_consent)
+      })
+    }
+    if (exportedSegments && exportedSegments.length > 0) {
+      exportedSegments.forEach((segmentId) => {
         const segment = segmentsData.find((s) => s.id === segmentId)
         activeFilters.push({
           key: 'segment',
@@ -148,12 +178,16 @@ export function ExportContactsModal({
           external_id: filters.external_id,
           first_name: filters.first_name,
           last_name: filters.last_name,
+          full_name: filters.full_name,
+          search: filters.search,
           phone: filters.phone,
           country: filters.country,
           language: filters.language,
           list_id: filters.list_id,
-          contact_list_status: filters.contact_list_status,
-          segments: filters.segments,
+          contact_list_status: filters.list_id ? filters.contact_list_status : undefined,
+          segments: exportedSegments,
+          tracking_opens_consent: filters.tracking_opens_consent,
+          tracking_clicks_consent: filters.tracking_clicks_consent,
           with_contact_lists: false // Skip for performance
         }
 
@@ -221,6 +255,10 @@ export function ExportContactsModal({
         getCustomFieldLabel('custom_json_3', workspace),
         getCustomFieldLabel('custom_json_4', workspace),
         getCustomFieldLabel('custom_json_5', workspace),
+        'tracking_opens_consent',
+        'tracking_clicks_consent',
+        'tracking_consent_updated_at',
+        'tracking_consent_source',
         'created_at',
         'updated_at'
       ]
@@ -261,6 +299,10 @@ export function ExportContactsModal({
         c.custom_json_3 ? JSON.stringify(c.custom_json_3) : '',
         c.custom_json_4 ? JSON.stringify(c.custom_json_4) : '',
         c.custom_json_5 ? JSON.stringify(c.custom_json_5) : '',
+        c.tracking_opens_consent || '',
+        c.tracking_clicks_consent || '',
+        c.tracking_consent_updated_at || '',
+        c.tracking_consent_source || '',
         c.created_at,
         c.updated_at
       ])
@@ -348,7 +390,7 @@ export function ExportContactsModal({
           <div className="my-4">
             <Space align="center">
               <Spin size="small" />
-              <span>{t`Fetched ${fetchedCount.toLocaleString()} contacts...`}</span>
+              <span>{t`Fetched ${int(fetchedCount)} contacts...`}</span>
             </Space>
             {elapsedTime > 0 && (
               <div className="text-gray-500 text-sm mt-2">

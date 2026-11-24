@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Notifuse/notifuse/pkg/notifuse_mjml"
+	"github.com/Notifuse/notifuse/pkg/trackingtoken"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1892,9 +1893,7 @@ func TestBuildTemplateData(t *testing.T) {
 		// Check tracking pixel URL
 		trackingPixelURL, ok := data["tracking_opens_url"].(string)
 		assert.True(t, ok)
-		assert.Contains(t, trackingPixelURL, "https://api.example.com/opens")
-		assert.Contains(t, trackingPixelURL, "mid=msg-456")
-		assert.Contains(t, trackingPixelURL, "wid=ws-123")
+		assertSignedOpenURL(t, trackingPixelURL, "https://api.example.com", workspaceSecretKey, "msg-456", "ws-123")
 
 		// Check confirm subscription URL
 		confirmURL, ok := data["confirm_subscription_url"].(string)
@@ -1977,9 +1976,7 @@ func TestBuildTemplateData(t *testing.T) {
 		// Check tracking opens URL still exists even without API endpoint
 		trackingPixelURL, ok := data["tracking_opens_url"].(string)
 		assert.True(t, ok)
-		assert.Contains(t, trackingPixelURL, "/opens")
-		assert.Contains(t, trackingPixelURL, "mid=msg-456")
-		assert.Contains(t, trackingPixelURL, "wid=ws-123")
+		assertSignedOpenURL(t, trackingPixelURL, "https://api.example.com", workspaceSecretKey, "msg-456", "ws-123")
 
 		// No unsubscribe URL should be present
 		_, exists := data["unsubscribe_url"]
@@ -2156,6 +2153,30 @@ func TestBuildTemplateData_GlobalFeed(t *testing.T) {
 }
 
 // TestGenerateEmailRedirectionEndpoint tests the generation of the URL for tracking email redirections
+// assertSignedOpenURL checks that url is an open tracking URL under endpoint, never an
+// /opens query URL, and that its token verifies as an open for mid and wid under the key
+// derived from workspaceSecretKey.
+func assertSignedOpenURL(t *testing.T, url, endpoint, workspaceSecretKey, mid, wid string) {
+	t.Helper()
+	assert.NotContains(t, url, "/opens")
+	require.True(t, strings.HasPrefix(url, endpoint+"/t/"), "open tracking URL %q should start with %s/t/", url, endpoint)
+	tok, err := trackingtoken.Parse(strings.TrimPrefix(url, endpoint+"/t/"), trackingtoken.PurposeOpen)
+	require.NoError(t, err)
+	assert.Equal(t, mid, tok.MessageID)
+	assert.Equal(t, wid, tok.WorkspaceID)
+	key, err := trackingtoken.DeriveKey(workspaceSecretKey)
+	require.NoError(t, err)
+	assert.True(t, tok.Verify(key, trackingtoken.PurposeOpen), "open token should verify under the workspace key")
+	assert.False(t, tok.Verify(key, trackingtoken.PurposeClick), "an open token must not verify as a click")
+}
+
+func TestTrackingSigningKey(t *testing.T) {
+	want, err := trackingtoken.DeriveKey("secret")
+	require.NoError(t, err)
+	assert.Equal(t, want, TrackingSigningKey("secret"))
+	assert.Nil(t, TrackingSigningKey(""))
+}
+
 func TestGenerateEmailRedirectionEndpoint(t *testing.T) {
 	testTimestamp := int64(1699564800)
 
@@ -2195,7 +2216,7 @@ func TestGenerateEmailRedirectionEndpoint(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			url := notifuse_mjml.GenerateEmailRedirectionEndpoint(tt.workspaceID, tt.messageID, tt.apiEndpoint, tt.destinationURL, testTimestamp)
+			url := notifuse_mjml.GenerateEmailRedirectionEndpoint(nil, tt.workspaceID, tt.messageID, tt.apiEndpoint, tt.destinationURL, testTimestamp)
 			assert.True(t, len(url) > len(tt.expectedPrefix), "URL should be longer than prefix")
 			assert.Equal(t, tt.expectedPrefix, url[:len(tt.expectedPrefix)], "URL should start with encrypted redirect prefix")
 		})
@@ -2649,6 +2670,105 @@ func TestTemplate_ResolveEmailContent(t *testing.T) {
 	})
 }
 
+// TestTemplate_ResolveEmailContent_InheritsSenderAndReplyTo covers translations saved without a
+// sender or reply-to, which is how the console saves every translation: they send from the
+// template's sender with its reply-to, not from the integration's default sender without one.
+func TestTemplate_ResolveEmailContent_InheritsSenderAndReplyTo(t *testing.T) {
+	newTemplate := func(base *EmailTemplate, it *EmailTemplate) *Template {
+		return &Template{
+			Email:        base,
+			Translations: map[string]TemplateTranslation{"it": {Email: it}},
+		}
+	}
+
+	t.Run("translation without sender or reply-to inherits the template's", func(t *testing.T) {
+		preview := "Anteprima"
+		tmpl := newTemplate(
+			&EmailTemplate{Subject: "Hello", SenderID: "newsletter-sender", ReplyTo: "support@example.com"},
+			&EmailTemplate{Subject: "Ciao", SubjectPreview: &preview, EditorMode: EditorModeVisual},
+		)
+
+		got := tmpl.ResolveEmailContent("it", "en")
+
+		require.NotNil(t, got)
+		assert.Equal(t, "newsletter-sender", got.SenderID)
+		assert.Equal(t, "support@example.com", got.ReplyTo)
+		assert.Equal(t, "Ciao", got.Subject, "the translation keeps its own subject")
+		require.NotNil(t, got.SubjectPreview)
+		assert.Equal(t, "Anteprima", *got.SubjectPreview, "the translation keeps its own preview")
+		assert.Equal(t, EditorModeVisual, got.EditorMode)
+	})
+
+	t.Run("translation with its own sender and reply-to keeps them", func(t *testing.T) {
+		tmpl := newTemplate(
+			&EmailTemplate{Subject: "Hello", SenderID: "newsletter-sender", ReplyTo: "support@example.com"},
+			&EmailTemplate{Subject: "Ciao", SenderID: "it-sender", ReplyTo: "supporto@example.com"},
+		)
+
+		got := tmpl.ResolveEmailContent("it", "en")
+
+		assert.Equal(t, "it-sender", got.SenderID)
+		assert.Equal(t, "supporto@example.com", got.ReplyTo)
+	})
+
+	t.Run("each field is inherited on its own", func(t *testing.T) {
+		tmpl := newTemplate(
+			&EmailTemplate{Subject: "Hello", SenderID: "newsletter-sender", ReplyTo: "support@example.com"},
+			&EmailTemplate{Subject: "Ciao", SenderID: "it-sender"},
+		)
+
+		got := tmpl.ResolveEmailContent("it", "en")
+
+		assert.Equal(t, "it-sender", got.SenderID)
+		assert.Equal(t, "support@example.com", got.ReplyTo)
+
+		tmpl = newTemplate(
+			&EmailTemplate{Subject: "Hello", SenderID: "newsletter-sender", ReplyTo: "support@example.com"},
+			&EmailTemplate{Subject: "Ciao", ReplyTo: "assistenza@example.com"},
+		)
+
+		got = tmpl.ResolveEmailContent("it", "en")
+
+		assert.Equal(t, "newsletter-sender", got.SenderID)
+		assert.Equal(t, "assistenza@example.com", got.ReplyTo)
+	})
+
+	t.Run("template without sender or reply-to leaves the translation empty", func(t *testing.T) {
+		tmpl := newTemplate(
+			&EmailTemplate{Subject: "Hello"},
+			&EmailTemplate{Subject: "Ciao"},
+		)
+
+		got := tmpl.ResolveEmailContent("it", "en")
+
+		assert.Empty(t, got.SenderID, "the integration's default sender is then picked, as before")
+		assert.Empty(t, got.ReplyTo)
+	})
+
+	t.Run("resolving changes neither the stored translation nor the template", func(t *testing.T) {
+		base := &EmailTemplate{Subject: "Hello", SenderID: "newsletter-sender", ReplyTo: "support@example.com"}
+		it := &EmailTemplate{Subject: "Ciao"}
+		tmpl := newTemplate(base, it)
+
+		got := tmpl.ResolveEmailContent("it", "en")
+
+		assert.NotSame(t, it, got, "the stored translation must not be handed out to be filled in")
+		assert.Empty(t, tmpl.Translations["it"].Email.SenderID)
+		assert.Empty(t, tmpl.Translations["it"].Email.ReplyTo)
+		assert.Equal(t, "newsletter-sender", base.SenderID)
+		assert.Equal(t, "support@example.com", base.ReplyTo)
+	})
+
+	t.Run("default content is returned as stored", func(t *testing.T) {
+		base := &EmailTemplate{Subject: "Hello", SenderID: "newsletter-sender"}
+		tmpl := newTemplate(base, &EmailTemplate{Subject: "Ciao"})
+
+		assert.Same(t, base, tmpl.ResolveEmailContent("", "en"))
+		assert.Same(t, base, tmpl.ResolveEmailContent("en", "en"))
+		assert.Same(t, base, tmpl.ResolveEmailContent("de", "en"))
+	})
+}
+
 func TestTemplate_ResolveWebContent(t *testing.T) {
 	defaultWeb := &WebTemplate{HTML: "<p>Default</p>"}
 	frWeb := &WebTemplate{HTML: "<p>Français</p>"}
@@ -3050,5 +3170,169 @@ func TestTranslationsWiden_IgnoresDerivedFields(t *testing.T) {
 		_ = TranslationsWiden(stored, incoming)
 		assert.Equal(t, "<html>A</html>", stored["fr"].Email.CompiledPreview)
 		assert.Equal(t, "<p>a</p>", stored["fr"].Web.HTML)
+	})
+}
+
+func TestGetTemplateUsageRequest_FromURLParams(t *testing.T) {
+	t.Run("workspace_id is required", func(t *testing.T) {
+		var req GetTemplateUsageRequest
+		require.Error(t, req.FromURLParams(url.Values{}))
+	})
+
+	t.Run("template_id is optional", func(t *testing.T) {
+		var req GetTemplateUsageRequest
+		require.NoError(t, req.FromURLParams(url.Values{"workspace_id": {"ws1"}}))
+		assert.Equal(t, GetTemplateUsageRequest{WorkspaceID: "ws1"}, req)
+
+		require.NoError(t, req.FromURLParams(url.Values{"workspace_id": {"ws1"}, "template_id": {"welcome"}}))
+		assert.Equal(t, GetTemplateUsageRequest{WorkspaceID: "ws1", TemplateID: "welcome"}, req)
+	})
+
+	t.Run("a template_id PostgreSQL cannot read is refused", func(t *testing.T) {
+		for _, id := range []string{"wel\x00come", "wel\xffcome"} {
+			var req GetTemplateUsageRequest
+			err := req.FromURLParams(url.Values{"workspace_id": {"ws1"}, "template_id": {id}})
+			require.Error(t, err, "%q", id)
+			assert.Contains(t, err.Error(), "template_id must be valid UTF-8 text without NUL bytes")
+		}
+	})
+}
+
+func TestTemplateUsage_JSON(t *testing.T) {
+	one, zero := 1, 0
+	decode := func(t *testing.T, u TemplateUsage) map[string]interface{} {
+		t.Helper()
+		raw, err := json.Marshal(u)
+		require.NoError(t, err)
+		var decoded map[string]interface{}
+		require.NoError(t, json.Unmarshal(raw, &decoded))
+		return decoded
+	}
+
+	t.Run("without template_id there is no references key, and empty collections are not null", func(t *testing.T) {
+		decoded := decode(t, NewTemplateUsage(false))
+		assert.NotContains(t, decoded, "references")
+		assert.Equal(t, map[string]interface{}{}, decoded["usage"])
+		assert.Equal(t, []interface{}{}, decoded["hidden_types"])
+	})
+
+	t.Run("with template_id references is an array, even empty", func(t *testing.T) {
+		decoded := decode(t, NewTemplateUsage(true))
+		assert.Equal(t, []interface{}{}, decoded["references"])
+	})
+
+	t.Run("a hidden type's counter is absent, a readable zero is present", func(t *testing.T) {
+		u := NewTemplateUsage(false)
+		u.Usage["welcome"] = &TemplateUsageCounts{Broadcasts: &one, TransactionalNotifications: &zero, Automations: &zero}
+		u.HiddenTypes = []TemplateUsageType{TemplateUsageTypeLists}
+		decoded := decode(t, u)
+		assert.Equal(t, map[string]interface{}{
+			"broadcasts": float64(1), "transactional_notifications": float64(0), "automations": float64(0),
+		}, decoded["usage"].(map[string]interface{})["welcome"])
+		assert.Equal(t, []interface{}{"lists"}, decoded["hidden_types"])
+	})
+
+	t.Run("a reference without status has no status key", func(t *testing.T) {
+		u := NewTemplateUsage(true)
+		*u.References = append(*u.References,
+			TemplateUsageReference{Type: TemplateUsageReferenceBroadcast, ID: "bc1", Name: "Black Friday", Status: "scheduled"},
+			TemplateUsageReference{Type: TemplateUsageReferenceList, ID: "l1", Name: "Newsletter"})
+		decoded := decode(t, u)
+		assert.Equal(t, []interface{}{
+			map[string]interface{}{"type": "broadcast", "id": "bc1", "name": "Black Friday", "status": "scheduled"},
+			map[string]interface{}{"type": "list", "id": "l1", "name": "Newsletter"},
+		}, decoded["references"])
+	})
+}
+
+func TestTemplateUsageCounts_Set(t *testing.T) {
+	var c TemplateUsageCounts
+	for i, typ := range TemplateUsageTypes {
+		c.Set(typ, i+1)
+	}
+	c.Set(TemplateUsageType("segments"), 99)
+	raw, err := json.Marshal(c)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"broadcasts":1,"transactional_notifications":2,"automations":3,"lists":4}`, string(raw))
+}
+
+func TestTemplate_ResolvedLanguage(t *testing.T) {
+	tmpl := &Template{
+		Email: &EmailTemplate{Subject: "Default"},
+		Translations: map[string]TemplateTranslation{
+			"fr": {Email: &EmailTemplate{Subject: "Français"}},
+			"de": {Web: &WebTemplate{}},
+		},
+	}
+	cases := map[string]struct{ contact, def, want string }{
+		"no contact language":         {"", "en", ""},
+		"the default language":        {"fr", "fr", ""},
+		"a known translation":         {"fr", "en", "fr"},
+		"an unknown language":         {"es", "en", ""},
+		"a translation without email": {"de", "en", ""},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tmpl.ResolvedLanguage(tc.contact, tc.def))
+		})
+	}
+	assert.Equal(t, "", (&Template{Email: &EmailTemplate{}}).ResolvedLanguage("fr", "en"), "no translations")
+	assert.Equal(t, "", (&Template{Translations: tmpl.Translations}).ResolvedLanguage("fr", "en"), "no email")
+}
+
+func TestTemplate_EmailContentForLanguage(t *testing.T) {
+	base := &EmailTemplate{Subject: "Default", SenderID: "sender", ReplyTo: "reply@example.com"}
+	tmpl := &Template{
+		Email:        base,
+		Translations: map[string]TemplateTranslation{"fr": {Email: &EmailTemplate{Subject: "Français"}}},
+	}
+
+	assert.Same(t, base, tmpl.EmailContentForLanguage(""), "the base content")
+	assert.Same(t, base, tmpl.EmailContentForLanguage("es"), "an unknown key gives the base content")
+
+	fr := tmpl.EmailContentForLanguage("fr")
+	require.NotNil(t, fr)
+	assert.Equal(t, "Français", fr.Subject)
+	assert.Equal(t, "sender", fr.SenderID, "the sender falls back to the template's")
+	assert.Equal(t, "reply@example.com", fr.ReplyTo)
+	assert.Empty(t, tmpl.Translations["fr"].Email.SenderID, "the translation is not filled in place")
+
+	assert.Nil(t, (&Template{Translations: tmpl.Translations}).EmailContentForLanguage("fr"), "no email")
+}
+
+func TestPreviewContactLinks(t *testing.T) {
+	johnDoe := "https://api.example.com/notification-center?email=john.doe@example.com&email_hmac=abc123&wid=ws1"
+	endpoint := func(value string) func() string { return func() string { return value } }
+
+	t.Run("rebuilds a preview link for the test contact", func(t *testing.T) {
+		data := map[string]any{
+			"contact":                 MapOfAny{"email": "emma.clarke@example.com"},
+			"notification_center_url": johnDoe,
+		}
+		assert.True(t, PreviewContactLinks(data, endpoint("https://api.example.com/"), "ws1", ""))
+		want := ContactLinks{Endpoint: "https://api.example.com", WorkspaceID: "ws1", MessageID: "preview", Email: "emma.clarke@example.com", EmailHMAC: PreviewEmailHMAC}
+		assert.Equal(t, want.ContactURLs()["notification_center_url"], data["notification_center_url"])
+	})
+
+	t.Run("leaves the data alone without a test contact email", func(t *testing.T) {
+		data := map[string]any{"contact": map[string]any{}, "notification_center_url": johnDoe}
+		assert.False(t, PreviewContactLinks(data, endpoint("https://api.example.com"), "ws1", "preview"))
+		assert.Equal(t, johnDoe, data["notification_center_url"])
+	})
+
+	t.Run("adds no list link without a list in the test data", func(t *testing.T) {
+		data := map[string]any{"contact": map[string]any{"email": "emma@example.com"}, "unsubscribe_url": johnDoe}
+		PreviewContactLinks(data, endpoint("https://api.example.com"), "ws1", "preview")
+		assert.Equal(t, johnDoe, data["unsubscribe_url"])
+	})
+
+	t.Run("a real signature that starts like the placeholder is no preview link, and needs no endpoint", func(t *testing.T) {
+		sent := "https://api.example.com/notification-center?email=john.doe@example.com&email_hmac=abc123f00dfeed&wid=ws1"
+		data := map[string]any{"contact": map[string]any{"email": "emma@example.com"}, "notification_center_url": sent}
+		asked := false
+		changed := PreviewContactLinks(data, func() string { asked = true; return "https://api.example.com" }, "ws1", "preview")
+		assert.False(t, changed)
+		assert.False(t, asked, "the endpoint is loaded only for a preview link")
+		assert.Equal(t, sent, data["notification_center_url"])
 	})
 }

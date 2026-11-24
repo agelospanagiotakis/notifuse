@@ -1,6 +1,7 @@
-import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react'
+import { createContext, useContext, useState, useEffect, useMemo, ReactNode, useCallback } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { authService } from '../services/api/auth'
-import { workspaceService } from '../services/api/workspace'
+import { membersQuery } from '../services/api/workspaceQueries'
 import { createEmptyPermissions, createFullPermissions } from '../services/api/permissions'
 import { Workspace, UserPermissions } from '../services/api/types'
 import { isRootUser } from '../services/api/auth'
@@ -9,6 +10,8 @@ import type { Entitlements } from '../types/license'
 export interface User {
   id: string
   email: string
+  /** The account's display name, when the server sends one: the avatar's initials. */
+  name?: string
   language?: string
 }
 
@@ -24,6 +27,10 @@ interface AuthContextType {
   // than this bundle, or one that keeps the licence on its root-only endpoint. Null is "not
   // told", not "unlicensed"; LicenseProvider is what turns either into an answer.
   licenseEntitlements: Entitlements | null
+  // Whether this console asks updates.notifuse.com for the releases it is missing, and the
+  // server's compiled version to ask with (null when user.me did not say).
+  checkForUpdates: boolean
+  serverVersion: string | null
 }
 
 // eslint-disable-next-line react-refresh/only-export-components -- Context co-located with provider
@@ -34,12 +41,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [loading, setLoading] = useState(true)
   const [licenseEntitlements, setLicenseEntitlements] = useState<Entitlements | null>(null)
+  const [checkForUpdates, setCheckForUpdates] = useState(false)
+  const [serverVersion, setServerVersion] = useState<string | null>(null)
 
   // Kept next to the setter it always accompanies, so a fourth call site of getCurrentUser()
-  // cannot pick up the workspaces and forget the licence — which is precisely how
-  // refreshWorkspaces() would have gone stale.
-  const adoptLicense = (payload: { entitlements?: Entitlements }) => {
+  // cannot pick up the workspaces and forget the licence or the update-check flag — which is
+  // precisely how refreshWorkspaces() would have gone stale.
+  const adoptServerState = (payload: {
+    entitlements?: Entitlements
+    check_for_updates?: boolean
+    version?: string
+  }) => {
     setLicenseEntitlements(payload.entitlements ?? null)
+    setCheckForUpdates(payload.check_for_updates === true)
+    setServerVersion(payload.version || null)
   }
 
   const checkAuth = useCallback(async () => {
@@ -56,14 +71,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response = await authService.getCurrentUser()
       setUser(response.user)
       setWorkspaces(response.workspaces ?? [])
-      adoptLicense(response)
+      adoptServerState(response)
       setLoading(false)
     } catch {
       // If there's an error (like an expired token), clear the storage
       localStorage.removeItem('auth_token')
       setUser(null)
       setWorkspaces([])
-      adoptLicense({})
+      adoptServerState({})
       setLoading(false)
     }
   }, [])
@@ -84,7 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response = await authService.getCurrentUser()
       setUser(response.user)
       setWorkspaces(response.workspaces ?? [])
-      adoptLicense(response)
+      adoptServerState(response)
     } catch (error) {
       // If there's an error, clear the storage
       localStorage.removeItem('auth_token')
@@ -107,7 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Clear user data
     setUser(null)
     setWorkspaces([])
-    adoptLicense({})
+    adoptServerState({})
   }
 
   const refreshWorkspaces = async () => {
@@ -115,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // getCurrentUser declares workspaces as Workspace[] | null; normalize before it reaches
     // state that consumers index and map over.
     setWorkspaces(response.workspaces ?? [])
-    adoptLicense(response)
+    adoptServerState(response)
   }
 
   // console.log('user', user)
@@ -130,7 +145,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signout,
         loading,
         refreshWorkspaces,
-        licenseEntitlements
+        licenseEntitlements,
+        checkForUpdates,
+        serverVersion
       }}
     >
       {children}
@@ -155,50 +172,115 @@ const ROOT_USER_PERMISSIONS: UserPermissions = createFullPermissions()
 
 const NO_PERMISSIONS: UserPermissions = createEmptyPermissions()
 
-// Custom hook to get user permissions for a specific workspace
+export interface WorkspacePermissions {
+  // Null while the workspace's members load, and when there is no user or no workspace.
+  permissions: UserPermissions | null
+  // The user's role in the workspace; undefined while loading and for a non-member.
+  role: 'root' | 'owner' | 'member' | undefined
+  loading: boolean
+}
+
+interface AnswerCounts {
+  data: number
+  error: number
+  /** When the last answer, or failure, landed. */
+  at: number
+}
+
+/** Where a caller of a key started counting answers, and the counts it last saw. */
+interface AnswerTally {
+  key: string
+  start: AnswerCounts
+  seen: AnswerCounts
+}
+
+/**
+ * The tally after a render that sees `seen`. A new key starts afresh. A reset sets the counts back
+ * to 0, and its refetch may land in the same render: a count lower than the last seen, or an answer
+ * whose count did not grow, is one, and every answer from it counts.
+ */
+function nextTally(tally: AnswerTally, key: string, seen: AnswerCounts): AnswerTally {
+  if (tally.key !== key) return { key, start: seen, seen }
+  const last = tally.seen
+  if (seen.data === last.data && seen.error === last.error && seen.at === last.at) return tally
+  const grew = seen.data > last.data || seen.error > last.error
+  const reset = seen.data < last.data || seen.error < last.error || (!grew && seen.at !== last.at)
+  return { key, start: reset ? { data: 0, error: 0, at: 0 } : tally.start, seen }
+}
+
+// The signed-in user's permissions in a workspace, read from its members list. Pages and the
+// workspace layout stay mounted when the workspace changes, so the list is a query keyed by the
+// workspace: after a switch the hook answers "loading" until the new workspace's list arrives,
+// never the previous workspace's permissions, and a late answer for a previous workspace only
+// fills that workspace's entry. The key is shared with useAuditLogAccess and the audit log, so
+// they fetch the list once.
 // eslint-disable-next-line react-refresh/only-export-components -- Hook co-located with context
-export function useWorkspacePermissions(workspaceId: string) {
+export function useWorkspacePermissions(workspaceId: string): WorkspacePermissions {
   const { user } = useAuth()
-  const [permissions, setPermissions] = useState<UserPermissions | null>(null)
-  const [loading, setLoading] = useState(true)
+  const isRoot = isRootUser(user?.email)
 
-  useEffect(() => {
-    const fetchPermissions = async () => {
-      if (!user || !workspaceId) {
-        setLoading(false)
-        return
-      }
+  const userId = user?.id
 
-      // If user is root, they have full permissions
-      if (isRootUser(user.email)) {
-        setPermissions(ROOT_USER_PERMISSIONS)
-        setLoading(false)
-        return
-      }
+  // The list depends on who asks (a member without Workspace read gets only their own entry),
+  // hence the user in the key.
+  const members = membersQuery(workspaceId, userId)
+  const queryKey = members.queryKey
+  const { data } = useQuery({
+    ...members,
+    enabled: !!userId && !!workspaceId && !isRoot,
+    // Every answer renders this caller again, a failure or a reset included, for the counts below
+    notifyOnChangeProps: ['data', 'dataUpdatedAt', 'errorUpdatedAt']
+  })
 
-      try {
-        const response = await workspaceService.getMembers(workspaceId)
-        const currentUserMember = response.members.find((member) => member.user_id === user.id)
+  // The query's answer counts when this caller started on its key. A cached list may predate a
+  // change of permissions, so only an answer from then on counts, as react-query's
+  // isFetchedAfterMount reads it. Unlike it, a reset (resetQueries sets the counts back to 0, and
+  // its refetch may land in the same render) moves the start to the reset: a caller mounted over a
+  // cached list would otherwise stay loading after the reset's own refetch.
+  const state = useQueryClient().getQueryState(queryKey)
+  const seen: AnswerCounts = {
+    data: state?.dataUpdateCount ?? 0,
+    error: state?.errorUpdateCount ?? 0,
+    at: Math.max(state?.dataUpdatedAt ?? 0, state?.errorUpdatedAt ?? 0)
+  }
+  const key = `${workspaceId}:${userId ?? ''}`
+  const [tally, setTally] = useState<AnswerTally>(() => ({ key, start: seen, seen }))
+  const next = nextTally(tally, key, seen)
+  if (next !== tally) setTally(next)
+  const answeredSince = seen.data > next.start.data || seen.error > next.start.error
 
-        if (currentUserMember) {
-          // The stored map may be partial or null; a resource it does not mention is denied,
-          // which is what the empty base spells out.
-          setPermissions({ ...createEmptyPermissions(), ...currentUserMember.permissions })
-        } else {
-          // User is not a member of this workspace, set empty permissions
-          setPermissions(NO_PERMISSIONS)
-        }
-      } catch (error) {
-        console.error('Failed to fetch user permissions', error)
-        // On error, assume no permissions
-        setPermissions(NO_PERMISSIONS)
-      } finally {
-        setLoading(false)
-      }
+  // Memoised, so a caller that depends on the permissions object sees it change only when the
+  // answer does.
+  return useMemo<WorkspacePermissions>(() => {
+    if (!userId || !workspaceId) {
+      return { permissions: null, role: undefined, loading: false }
+    }
+    // A root user has every permission, with no request.
+    if (isRoot) {
+      return { permissions: ROOT_USER_PERMISSIONS, role: 'root', loading: false }
+    }
+    // A cached list may predate a change of permissions: wait for an answer from this caller's
+    // start, as when each caller fetched its own.
+    if (!answeredSince) {
+      return { permissions: null, role: undefined, loading: true }
+    }
+    // On error with no list, assume no permissions. A failed refetch keeps the list the query
+    // holds, so a network blip neither empties the menu nor sends a page away.
+    if (!data) {
+      return { permissions: NO_PERMISSIONS, role: undefined, loading: false }
     }
 
-    fetchPermissions()
-  }, [workspaceId, user])
-
-  return { permissions, loading }
+    const currentUserMember = data.members.find((member) => member.user_id === userId)
+    if (!currentUserMember) {
+      // User is not a member of this workspace, set empty permissions
+      return { permissions: NO_PERMISSIONS, role: undefined, loading: false }
+    }
+    return {
+      // The stored map may be partial or null; a resource it does not mention is denied, which
+      // is what the empty base spells out.
+      permissions: { ...createEmptyPermissions(), ...currentUserMember.permissions },
+      role: currentUserMember.role === 'owner' ? 'owner' : 'member',
+      loading: false
+    }
+  }, [userId, workspaceId, isRoot, data, answeredSince])
 }

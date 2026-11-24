@@ -1,11 +1,10 @@
 import React, { useCallback, useRef, useEffect, useState, useMemo } from 'react'
 import {
   ReactFlow,
-  Controls,
   Background,
-  MiniMap,
   Panel,
   useReactFlow,
+  useViewport,
   ReactFlowProvider,
   type Node,
   type NodeChange,
@@ -15,20 +14,40 @@ import {
   type OnNodesChange,
   BackgroundVariant
 } from '@xyflow/react'
-import { LayoutGrid } from 'lucide-react'
-import { Tooltip } from 'antd'
+import { LayoutGrid, Maximize, Minus, Plus } from 'lucide-react'
+import { Button, Tooltip } from 'antd'
 import { useLingui } from '@lingui/react/macro'
-import { TriggerNode, DelayNode, EmailNode, ABTestNode, AddToListNode, RemoveFromListNode, FilterNode, WebhookNode, ListStatusBranchNode } from './nodes'
+import {
+  TriggerNode,
+  DelayNode,
+  EmailNode,
+  ABTestNode,
+  AddToListNode,
+  RemoveFromListNode,
+  FilterNode,
+  WebhookNode,
+  ListStatusBranchNode,
+  BranchNode
+} from './nodes'
 import { PlaceholderNode } from './nodes/PlaceholderNode'
 import { NodeConfigPanel } from './NodeConfigPanel'
 import { AddNodeEdge, type AddNodeEdgeData } from './edges/AddNodeEdge'
 import { AutomationEdge, type AutomationEdgeData } from './edges/AutomationEdge'
 import { AddNodeButton } from './AddNodeButton'
-import { NodePalette } from './NodePalette'
+import { useNumberFormat } from '../layout'
+import { colors } from '../../theme/tokens'
 import { useAutomation } from './context'
 import { useAutomationCanvas } from './hooks'
 import type { AutomationFlowNode, AutomationNodeData } from './utils/flowConverter'
+import { anchorOnTrigger, revealDelta, revealDeltaY, TOP_GAP } from './utils/anchorViewport'
 import type { NodeType } from '../../services/api/automation'
+
+// Space between the canvas's banner and the trigger placed under it.
+const BANNER_GAP = 16
+// How many times, and how far apart, the opening placement is tried again while the canvas has no
+// width yet or ReactFlow is not ready to move the view.
+const PLACE_TRIES = 10
+const PLACE_RETRY_MS = 100
 
 // Placeholder nodes are render-only anchors that give the "add node" edges a target. They are
 // derived from the canvas state rather than part of it and carry no automation data, so the array
@@ -56,8 +75,12 @@ const nodeTypes: NodeTypes = {
   filter: FilterNode,
   webhook: WebhookNode,
   list_status_branch: ListStatusBranchNode,
+  branch: BranchNode,
   placeholder: PlaceholderNode
 }
+
+/** Exported for the registry tests. */
+export const AUTOMATION_NODE_TYPES = nodeTypes
 
 // Define edgeTypes OUTSIDE component to prevent re-renders
 const edgeTypes: EdgeTypes = {
@@ -98,20 +121,58 @@ const FloatingAddButton: React.FC<{
   )
 }
 
+// Zoom out, the zoom level, zoom in and fit, bottom-left.
+const ZoomControl: React.FC = () => {
+  const { t } = useLingui()
+  const { percent } = useNumberFormat()
+  const { zoomIn, zoomOut, fitView } = useReactFlow()
+  const { zoom } = useViewport()
+  return (
+    <div className="flex items-center gap-0.5 rounded-md border border-line bg-surface p-0.5 shadow-sm" data-zoom-control>
+      <Button type="text" size="small" aria-label={t`Zoom out`} icon={<Minus size={14} aria-hidden="true" />} onClick={() => void zoomOut()} />
+      <span className="w-11 text-center text-xs text-ink-2 tabular-nums">{percent(zoom, 0)}</span>
+      <Button type="text" size="small" aria-label={t`Zoom in`} icon={<Plus size={14} aria-hidden="true" />} onClick={() => void zoomIn()} />
+      <Tooltip title={t`Fit to screen`}>
+        <Button
+          type="text"
+          size="small"
+          aria-label={t`Fit to screen`}
+          icon={<Maximize size={14} aria-hidden="true" />}
+          onClick={() => void fitView({ padding: 0.4, maxZoom: 0.9, duration: 200 })}
+        />
+      </Tooltip>
+    </div>
+  )
+}
+
+export interface AutomationFlowEditorProps {
+  /** Shown over the top of the canvas: the live banner, a stats error. */
+  overlay?: React.ReactNode
+  /** The stats switch and period, at the top right of the canvas. */
+  statsControl?: React.ReactNode
+}
+
+// The step the editor opens on: the trigger, else the topmost step (a flow made through the API may
+// start on another step).
+const openingStep = <T extends { position: { y: number }; data: { nodeType: string } }>(nodes: T[]): T | undefined =>
+  nodes.find((n) => n.data.nodeType === 'trigger') ??
+  nodes.reduce<T | undefined>((top, n) => (!top || n.position.y < top.position.y ? n : top), undefined)
+
 // Inner component that uses useReactFlow hook
-const AutomationFlowEditorInner: React.FC = () => {
+const AutomationFlowEditorInner: React.FC<AutomationFlowEditorProps> = ({ overlay, statsControl }) => {
   const { t } = useLingui()
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const [buttonPositions, setButtonPositions] = useState<Map<string, { x: number; y: number }>>(new Map())
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null)
-  const fitViewCalledRef = useRef(false)
+  // Set once the view is placed on the trigger, so a later edit never moves it.
+  const anchoredRef = useRef(false)
   const pendingReorganizeRef = useRef(false)
   const reorganizeNodesRef = useRef<() => void>(() => {})
 
   const { getViewport, setViewport, fitView, screenToFlowPosition } = useReactFlow()
 
   // Get context and hook
-  const { listId, workspace, isEditing } = useAutomation()
+  const { listId, workspace, readOnly } = useAutomation()
   const {
     nodes,
     edges,
@@ -130,13 +191,56 @@ const AutomationFlowEditorInner: React.FC = () => {
     onConnect,
     onNodeDragStop,
     handleIsValidConnection,
-    unconnectedOutputs,
+    unconnectedOutputs: allUnconnectedOutputs,
     orphanNodeIds,
     needsReorganize,
     clearReorganizeFlag
   } = useAutomationCanvas()
 
   const hasListSelected = !!listId
+  // Read-only, no "+" to add a step under an open output.
+  const unconnectedOutputs = useMemo(() => (readOnly ? [] : allUnconnectedOutputs), [readOnly, allUnconnectedOutputs])
+
+  // Puts the trigger at the top of the canvas, centred, at `zoom`. Resolves false when there is
+  // nothing to anchor on yet, or when ReactFlow's pan-zoom is not ready and ignores the call.
+  const anchorRef = useRef<(zoom: number) => Promise<boolean>>(async () => false)
+  useEffect(() => {
+    anchorRef.current = async (zoom: number) => {
+      // The trigger, or for a flow made through the API without one, its topmost step.
+      const trigger = openingStep(nodes)
+      const box = reactFlowWrapper.current?.getBoundingClientRect()
+      if (!trigger || !box || box.width === 0) return false
+      // Under the banner (live, changed elsewhere, stats error) when one shows: it would cover the
+      // trigger's top otherwise.
+      const banner = reactFlowWrapper.current?.querySelector('[data-canvas-overlay]')?.getBoundingClientRect()
+      const top =
+        banner && Number.isFinite(banner.bottom) ? Math.max(TOP_GAP, banner.bottom - box.top + BANNER_GAP) : TOP_GAP
+      return setViewport(anchorOnTrigger(trigger, box.width, zoom, top))
+    }
+  }, [nodes, setViewport])
+
+  // Pans just enough to show the selected step, when it is out of view (behind the step panel that
+  // just opened, or moved by the layout); the zoom never changes. Read from a ref, so dragging the
+  // selected step does not pan the canvas under it.
+  const selectedRef = useRef(selectedNode)
+  useEffect(() => {
+    selectedRef.current = selectedNode
+  }, [selectedNode])
+  const revealSelectedRef = useRef(() => {})
+  const draggingRef = useRef(false)
+  useEffect(() => {
+    revealSelectedRef.current = () => {
+      // Never under the pointer: a drag selects the step it starts on.
+      if (draggingRef.current) return
+      const step = selectedRef.current
+      const box = reactFlowWrapper.current?.getBoundingClientRect()
+      if (!step || !box || box.width === 0) return
+      const view = getViewport()
+      const dx = revealDelta(step, view, box.width)
+      const dy = revealDeltaY(step, view, box.height)
+      if (dx !== 0 || dy !== 0) void setViewport({ ...view, x: view.x + dx, y: view.y + dy }, { duration: 200 })
+    }
+  }, [getViewport, setViewport])
 
   // Keep ref updated with latest reorganizeNodes to avoid stale closure issues
   useEffect(() => {
@@ -154,12 +258,13 @@ const AutomationFlowEditorInner: React.FC = () => {
       // Use ref to call the LATEST reorganizeNodes (with current edges)
       setTimeout(() => {
         reorganizeNodesRef.current()
-        setTimeout(() => {
-          fitView({ padding: 0.4, maxZoom: 0.9, duration: 200 })
-        }, 50)
+        // The view stays where the author has it (no zoom out to fit the whole flow after each
+        // branch); only the step they are on, the one just added, is brought back if the layout
+        // moved it out of view.
+        setTimeout(() => revealSelectedRef.current(), 50)
       }, 50)
     }
-  }, [nodes, needsReorganize, fitView, clearReorganizeFlag])
+  }, [nodes, needsReorganize, clearReorganizeFlag])
 
   // Handler for adding node via plus button
   const handleAddNodeFromTerminal = useCallback(
@@ -221,12 +326,14 @@ const AutomationFlowEditorInner: React.FC = () => {
     // Mark nodes with orphan status and add delete callback
     const nodesWithOrphanStatus: AutomationFlowNode[] = nodes.map((node) => ({
       ...node,
+      draggable: !readOnly,
       data: {
         ...node.data,
         isOrphan: orphanNodeIds.has(node.id),
-        onDelete: () => removeNode(node.id)
+        onDelete: readOnly ? undefined : () => removeNode(node.id)
       }
     }))
+    const byId = new Map(nodes.map((node) => [node.id, node]))
 
     // Create invisible placeholder nodes for each unconnected output
     const placeholderNodes: PlaceholderFlowNode[] = unconnectedOutputs.map((output) => ({
@@ -248,7 +355,6 @@ const AutomationFlowEditorInner: React.FC = () => {
       data: {
         sourceNodeId: output.nodeId,
         sourceHandle: output.handleId,
-        label: output.label,
         color: output.color
       } as AddNodeEdgeData
     }))
@@ -260,15 +366,19 @@ const AutomationFlowEditorInner: React.FC = () => {
       zIndex: 1,
       data: {
         ...edge.data,
-        onInsert: (nodeType: NodeType) => {
-          // Auto-reorganize when inserting filter/ab_test
-          if (nodeType === 'filter' || nodeType === 'ab_test') {
-            pendingReorganizeRef.current = true
-          }
-          insertNodeOnEdge(edge.id, nodeType)
-        },
-        onDelete: () => deleteEdge(edge.id),
-        hasListSelected
+        onInsert: readOnly
+          ? undefined
+          : (nodeType: NodeType) => {
+              // Auto-reorganize when inserting filter/ab_test
+              if (nodeType === 'filter' || nodeType === 'ab_test') {
+                pendingReorganizeRef.current = true
+              }
+              insertNodeOnEdge(edge.id, nodeType)
+            },
+        onDelete: readOnly ? undefined : () => deleteEdge(edge.id),
+        hasListSelected,
+        sourceType: byId.get(edge.source)?.data.nodeType,
+        sourceConfig: byId.get(edge.source)?.data.config
       } as AutomationEdgeData
     }))
 
@@ -276,7 +386,7 @@ const AutomationFlowEditorInner: React.FC = () => {
       nodesWithPlaceholders: [...nodesWithOrphanStatus, ...placeholderNodes],
       edgesWithPlaceholders: [...enhancedEdges, ...placeholderEdges]
     }
-  }, [nodes, edges, unconnectedOutputs, orphanNodeIds, insertNodeOnEdge, deleteEdge, hasListSelected, removeNode])
+  }, [nodes, edges, unconnectedOutputs, orphanNodeIds, insertNodeOnEdge, deleteEdge, hasListSelected, removeNode, readOnly])
 
   // Calculate button positions based on unconnected output positions and viewport
   const updateButtonPositions = useCallback(() => {
@@ -307,18 +417,57 @@ const AutomationFlowEditorInner: React.FC = () => {
     updateButtonPositions()
   }, [updateButtonPositions, nodes, edges])
 
-  // Position trigger at top-center on new automation
+  // When a step's panel opens, the canvas narrows: a selected step it now hides slides back into
+  // view, once the panel has taken its room.
+  const selectedId = selectedNode?.id
   useEffect(() => {
-    if (!isEditing && !fitViewCalledRef.current && nodes.length === 1 && nodes[0].data.nodeType === 'trigger' && reactFlowWrapper.current) {
-      fitViewCalledRef.current = true
-      const wrapperRect = reactFlowWrapper.current.getBoundingClientRect()
-      const triggerNode = nodes[0]
-      // Center horizontally, position near top with padding
-      const viewportX = (wrapperRect.width / 2) - triggerNode.position.x - 150 // 150 = half node width approx
-      const viewportY = 80 - triggerNode.position.y // 80px from top
-      setTimeout(() => setViewport({ x: viewportX, y: viewportY, zoom: 1 }), 100)
+    if (!selectedId) return
+    const timer = window.setTimeout(() => revealSelectedRef.current(), 0)
+    return () => window.clearTimeout(timer)
+  }, [selectedId])
+
+  // The editor opens at 100 % on the trigger, new automation or existing one, once ReactFlow is
+  // ready to move the view and the trigger is measured (its width centres it). Not on
+  // useNodesInitialized: the "+" placeholders are rebuilt unmeasured at every change, so it never
+  // turns true. The guard is set once the view did move, or once the author moved it first: a late
+  // placement must not pull the view away from their work.
+  const [flowReady, setFlowReady] = useState(false)
+  const triggerMeasured = !!openingStep(nodes)?.measured?.width
+  useEffect(() => {
+    if (anchoredRef.current || !flowReady || !triggerMeasured) return
+    let timer: number | undefined
+    let cancelled = false
+    // Checked again before each try: the author may have moved the view, or closed the editor.
+    const attempt = (left: number) => {
+      if (cancelled || anchoredRef.current) return
+      void anchorRef.current(1).then((placed) => {
+        if (placed) anchoredRef.current = true
+        else if (left > 0 && !cancelled) timer = window.setTimeout(() => attempt(left - 1), PLACE_RETRY_MS)
+      })
     }
-  }, [isEditing, nodes, setViewport])
+    attempt(PLACE_TRIES)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [flowReady, triggerMeasured])
+
+  const handleNodeDragStart = useCallback(() => {
+    draggingRef.current = true
+  }, [])
+  const handleNodeDragStop = useCallback<NonNullable<typeof onNodeDragStop>>(
+    (...args) => {
+      draggingRef.current = false
+      onNodeDragStop(...args)
+    },
+    [onNodeDragStop]
+  )
+
+  // A pan or zoom of the author's own (an event; a programmatic move has none) ends the opening
+  // placement's retries.
+  const handleMoveStart = useCallback((event: MouseEvent | TouchEvent | null) => {
+    if (event) anchoredRef.current = true
+  }, [])
 
   // Update button positions when viewport changes
   const handleMove = useCallback(() => {
@@ -377,7 +526,7 @@ const AutomationFlowEditorInner: React.FC = () => {
     (event: React.DragEvent) => {
       event.preventDefault()
       const type = event.dataTransfer.getData('application/reactflow') as NodeType
-      if (!type) return
+      if (!type || readOnly) return
 
       // Don't allow email nodes without list
       if (type === 'email' && !hasListSelected) return
@@ -388,109 +537,116 @@ const AutomationFlowEditorInner: React.FC = () => {
       })
       addNode(type, position)
     },
-    [screenToFlowPosition, addNode, hasListSelected]
+    [screenToFlowPosition, addNode, hasListSelected, readOnly]
   )
 
   return (
-    <div className="h-full flex">
-      <NodePalette hasListSelected={hasListSelected} />
-      <div className="flex-1 relative" ref={reactFlowWrapper}>
+    <div className="relative flex h-full min-w-0 flex-1">
+      {/* Clipped: a "+" of a step near the edge never lands on the step panel. */}
+      <div className="relative min-w-0 flex-1 overflow-hidden" ref={reactFlowWrapper} data-canvas>
         <ReactFlow
-        nodes={nodesWithPlaceholders}
-        edges={edgesWithPlaceholders}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        onNodesChange={handleNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        onNodeClick={handleNodeClick}
-        onPaneClick={handlePaneClick}
-        onMove={handleMove}
-        onNodeDragStop={onNodeDragStop}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-        isValidConnection={handleIsValidConnection}
-        minZoom={0.2}
-        maxZoom={1.5}
-        defaultViewport={{ x: 50, y: 50, zoom: 1 }}
-        deleteKeyCode={['Backspace', 'Delete']}
-        className="bg-gray-50"
-        proOptions={{ hideAttribution: true }}
-      >
-        <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
-        <Controls position="top-left" showInteractive={false} />
-        <Panel position="top-left" style={{ marginTop: 120 }}>
-          <div className="bg-white border border-gray-200 rounded shadow-sm">
-            <Tooltip title={t`Reorganize layout`} placement="right">
-              <button
-                className="flex items-center justify-center w-7 h-7 hover:bg-gray-100 cursor-pointer"
-                onClick={handleReorganize}
-              >
-                <LayoutGrid size={16} className="text-gray-600" />
-              </button>
-            </Tooltip>
-          </div>
-        </Panel>
-        <Panel position="bottom-left">
-          <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
-            <div className="text-xs text-gray-500 px-2 py-2 border-b border-gray-200">{t`Minimap`}</div>
-            <MiniMap position="top-left" bgColor="white" maskColor="transparent" style={{ position: 'relative', margin: 0 }} />
-          </div>
-        </Panel>
-      </ReactFlow>
-
-      {/* Floating Add Buttons - OUTSIDE ReactFlow */}
-      {unconnectedOutputs.map((output) => {
-        const key = `${output.nodeId}-${output.handleId || 'default'}`
-        const position = buttonPositions.get(key)
-        if (!position) return null
-
-        return (
-          <FloatingAddButton
-            key={key}
-            nodeId={output.nodeId}
-            sourceHandle={output.handleId}
-            position={position}
-            onAddNode={handleAddNodeFromTerminal}
-            hasListSelected={hasListSelected}
-            isMenuOpen={openMenuKey === key}
-            onMenuToggle={(open) => setOpenMenuKey(open ? key : null)}
-          />
-        )
-      })}
-
-      {/* Fixed Node Configuration Panel - Top Right */}
-      {selectedNode && (
-        <div
-          // One width for every node type: the condition tree, the only thing that ever
-          // justified a wider panel, is edited in a drawer now.
-          className="absolute bg-white border border-gray-200 rounded-lg shadow-lg w-[480px]"
-          style={{
-            top: 16,
-            right: 16,
-            maxHeight: 'calc(100% - 32px)',
-            overflow: 'auto',
-            zIndex: 50
-          }}
+          nodes={nodesWithPlaceholders}
+          edges={edgesWithPlaceholders}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          onNodesChange={handleNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onNodeClick={handleNodeClick}
+          onPaneClick={handlePaneClick}
+          onMove={handleMove}
+          onMoveStart={handleMoveStart}
+          onInit={() => setFlowReady(true)}
+          onNodeDragStart={handleNodeDragStart}
+          onNodeDragStop={handleNodeDragStop}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          isValidConnection={handleIsValidConnection}
+          nodesDraggable={!readOnly}
+          nodesConnectable={!readOnly}
+          edgesReconnectable={!readOnly}
+          minZoom={0.2}
+          maxZoom={1.5}
+          defaultViewport={{ x: 50, y: 50, zoom: 1 }}
+          deleteKeyCode={readOnly ? null : ['Backspace', 'Delete']}
+          className="bg-subtle"
+          proOptions={{ hideAttribution: true }}
         >
+          <Background variant={BackgroundVariant.Dots} gap={16} size={1} color={colors.gray[300]} />
+          {/* One row across the top: Reorganize, the banner (it shrinks first), the stats control. A
+              banner of its own would run under the control in a narrow canvas. The row lets clicks
+              through to the canvas; only its items take them. */}
+          <Panel position="top-left" className="pointer-events-none right-0">
+            <div className="flex items-start gap-3" data-canvas-top>
+              <div className="pointer-events-auto shrink-0">
+                {!readOnly ? (
+                  <Tooltip title={t`Reorganize layout`} placement="right">
+                    <Button
+                      size="small"
+                      aria-label={t`Reorganize layout`}
+                      icon={<LayoutGrid size={14} aria-hidden="true" />}
+                      onClick={handleReorganize}
+                    />
+                  </Tooltip>
+                ) : null}
+              </div>
+              <div className="flex min-w-0 flex-1 justify-center">
+                {overlay ? (
+                  <div className="pointer-events-auto w-full max-w-xl min-w-0" data-canvas-overlay>
+                    {overlay}
+                  </div>
+                ) : null}
+              </div>
+              {statsControl ? <div className="pointer-events-auto shrink-0">{statsControl}</div> : null}
+            </div>
+          </Panel>
+          <Panel position="bottom-left">
+            <ZoomControl />
+          </Panel>
+        </ReactFlow>
+
+        {/* Floating Add Buttons - OUTSIDE ReactFlow */}
+        {unconnectedOutputs.map((output) => {
+          const key = `${output.nodeId}-${output.handleId || 'default'}`
+          const position = buttonPositions.get(key)
+          if (!position) return null
+
+          return (
+            <FloatingAddButton
+              key={key}
+              nodeId={output.nodeId}
+              sourceHandle={output.handleId}
+              position={position}
+              onAddNode={handleAddNodeFromTerminal}
+              hasListSelected={hasListSelected}
+              isMenuOpen={openMenuKey === key}
+              onMenuToggle={(open) => setOpenMenuKey(open ? key : null)}
+            />
+          )
+        })}
+      </div>
+
+      {/* The step's panel: its own column at every width, so the canvas and its "+" buttons sit
+          beside it rather than under it. */}
+      {selectedNode && (
+        <aside aria-label={t`Step`} data-step-aside className="w-aside shrink-0 overflow-hidden border-l border-line bg-surface">
           <NodeConfigPanel
             selectedNode={selectedNode}
             onNodeUpdate={handleNodeUpdateFromPanel}
             workspaceId={workspace.id}
             onClose={unselectNode}
           />
-        </div>
+        </aside>
       )}
-      </div>
     </div>
   )
 }
 
 // Wrapper component that provides ReactFlowProvider
-export const AutomationFlowEditor: React.FC = () => {
+export const AutomationFlowEditor: React.FC<AutomationFlowEditorProps> = (props) => {
   return (
     <ReactFlowProvider>
-      <AutomationFlowEditorInner />
+      <AutomationFlowEditorInner {...props} />
     </ReactFlowProvider>
   )
 }

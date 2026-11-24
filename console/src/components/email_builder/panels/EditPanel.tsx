@@ -1,9 +1,17 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react'
-import type { EmailBlock, SaveOperation, SavedBlock } from '../types'
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import type { EmailBlock, SaveBlockHandler, SavedBlock } from '../types'
+import { headingStylesCss, readHeadingStyles } from '../utils/headingStyles'
 import { EmailBlockClass } from '../EmailBlockClass'
 import { OverlayScrollbarsComponent, type OverlayScrollbarsComponentRef } from 'overlayscrollbars-react'
 import 'overlayscrollbars/overlayscrollbars.css'
 import { BlockToolbar } from '../ui/BlockToolbar'
+
+// The canvas, for the library's drag-and-drop: the rendered email and the element that scrolls it. Looked up through
+// this handle, never in the document: another editor can be mounted, hidden, at the same time.
+export interface CanvasHandle {
+  root: () => HTMLElement | null
+  viewport: () => HTMLElement | null
+}
 
 interface EditPanelProps {
   emailTree: EmailBlock
@@ -15,8 +23,11 @@ interface EditPanelProps {
   testData?: Record<string, unknown>
   onTestDataChange?: (testData: Record<string, unknown>) => void
   onPreview?: () => Promise<void>
-  onSaveBlock: (block: EmailBlock, operation: SaveOperation, nameOrId: string) => void
+  onSaveBlock: SaveBlockHandler
   savedBlocks?: SavedBlock[]
+  // Opens the editor's save dialog for a block
+  onOpenSaveDialog: (blockId: string) => void
+  canvasRef?: React.MutableRefObject<CanvasHandle | null>
 }
 
 export const EditPanel: React.FC<EditPanelProps> = ({
@@ -27,7 +38,9 @@ export const EditPanel: React.FC<EditPanelProps> = ({
   onCloneBlock,
   onDeleteBlock,
   onSaveBlock,
-  savedBlocks
+  savedBlocks,
+  onOpenSaveDialog,
+  canvasRef
 }) => {
   // Ref to store the OverlayScrollbars instance for scroll position preservation
   const scrollContainerRef = useRef<OverlayScrollbarsComponentRef<'div'> | null>(null)
@@ -38,6 +51,25 @@ export const EditPanel: React.FC<EditPanelProps> = ({
   const emailTreeRef = useRef(emailTree)
   const prevSelectedBlockId = useRef(selectedBlockId)
   const editPanelRef = useRef<HTMLDivElement>(null)
+  const headingCss = useMemo(() => {
+    const styles = readHeadingStyles(emailTree)
+    return styles && styles !== 'hand-edited' ? headingStylesCss(styles, '.email-text-preview') : null
+  }, [emailTree])
+  const canvasRootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!canvasRef) return
+    canvasRef.current = {
+      root: () => canvasRootRef.current,
+      viewport: () =>
+        scrollContainerRef.current?.osInstance()?.elements().viewport ??
+        canvasRootRef.current?.closest<HTMLElement>('[data-overlayscrollbars-viewport]') ??
+        null
+    }
+    return () => {
+      canvasRef.current = null
+    }
+  }, [canvasRef])
 
   // State for toolbar positioning
   const [toolbarPosition, setToolbarPosition] = useState<{
@@ -252,9 +284,11 @@ export const EditPanel: React.FC<EditPanelProps> = ({
   return (
     <div
       ref={editPanelRef}
+      // The height of the space the editor gives it: one computed from the window ignores the drawer's header,
+      // which pushed the bottom of a long email out of reach
+      className="h-full min-h-0"
       style={{
         overflow: 'hidden',
-        height: 'calc(100vh - 58px)',
         position: 'relative'
       }}
       onClick={handleBackgroundClick}
@@ -294,6 +328,9 @@ export const EditPanel: React.FC<EditPanelProps> = ({
         }}
       >
         <div
+          ref={canvasRootRef}
+          data-canvas-root
+          className="email-canvas"
           style={{
             width: bodyWidth,
             minWidth: '600px',
@@ -303,6 +340,10 @@ export const EditPanel: React.FC<EditPanelProps> = ({
           }}
           onClick={(e) => e.stopPropagation()}
         >
+          {headingCss && (
+            // The email's heading styles, for its Text blocks on the canvas
+            <style data-heading-styles>{headingCss}</style>
+          )}
           {EmailBlockClass.renderEmailBlock(
             emailTree,
             EmailBlockClass.extractAttributeDefaults(emailTree),
@@ -332,15 +373,9 @@ export const EditPanel: React.FC<EditPanelProps> = ({
         >
           <BlockToolbar
             blockId={selectedBlockId || ''}
-            block={
-              selectedBlockId
-                ? EmailBlockClass.findBlockById(emailTree, selectedBlockId) || undefined
-                : undefined
-            }
             onClone={onCloneBlock}
             onDelete={onDeleteBlock}
-            onSave={onSaveBlock}
-            savedBlocks={savedBlocks}
+            onSave={onOpenSaveDialog}
           />
         </div>
       )}

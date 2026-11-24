@@ -170,7 +170,8 @@ func (r *AutomationRepository) GetByIDTx(ctx context.Context, tx *sql.Tx, worksp
 		&nodesJSON, &statsJSON, &automation.CreatedAt, &automation.UpdatedAt, &deletedAt, &automation.ExitOnReply,
 	)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("automation not found: %s", id)
+		// Typed so automations.get answers 404; the message still reads "automation not found".
+		return nil, &domain.ErrNotFound{Entity: "automation", ID: id}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get automation: %w", err)
@@ -565,33 +566,102 @@ func (r *AutomationRepository) UpdateContactAutomationIfActive(ctx context.Conte
 // their automation has exit_on_reply enabled. When automationID is non-nil only
 // that automation's journey is exited; otherwise all of the contact's
 // exit_on_reply journeys are exited. Returns the number of journeys exited.
+//
+// The same statement raises stats.exited of each automation by the journeys it
+// exited, as IncrementAutomationStat does for the executor's exits. The automation
+// rows are locked in id order first, so two reply exits never deadlock, nor does a
+// reply exit with the enrollment of a single event (automation_enroll_contact). A
+// transaction that enrolls several contacts can still lock them in another order;
+// the statement is atomic, so on a deadlock it is run again, up to
+// exitOnReplyAttempts times. A stats value that is not a JSON object (JSON null, a
+// scalar) is replaced by one, since concatenating to it would store an array that
+// the automation no longer loads.
 func (r *AutomationRepository) ExitContactJourneysOnReply(ctx context.Context, workspaceID, contactEmail string, automationID *string, reason string, before time.Time) (int, error) {
 	db, err := r.getDB(ctx, workspaceID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get database connection: %w", err)
 	}
 
-	query := `
-		UPDATE contact_automations
-		SET status = 'exited', scheduled_at = NULL, exit_reason = $1
-		WHERE contact_email = $2
-		  AND status = 'active'
-		  AND entered_at < $3
-		  AND automation_id IN (
-		      SELECT id FROM automations WHERE exit_on_reply = TRUE AND deleted_at IS NULL
-		  )`
-	args := []interface{}{reason, contactEmail, before}
+	args := []interface{}{reason, contactEmail, before, time.Now().UTC()}
+	automationFilter := ""
 	if automationID != nil && *automationID != "" {
-		query += " AND automation_id = $4"
+		automationFilter = "\n\t\t\t  AND automation_id = $5"
 		args = append(args, *automationID)
 	}
 
-	res, err := db.ExecContext(ctx, query, args...)
+	query := fmt.Sprintf(`
+		WITH exited AS (
+			UPDATE contact_automations
+			SET status = 'exited', scheduled_at = NULL, exit_reason = $1
+			WHERE contact_email = $2
+			  AND status = 'active'
+			  AND entered_at < $3
+			  AND automation_id IN (
+			      SELECT id FROM automations WHERE exit_on_reply = TRUE AND deleted_at IS NULL
+			  )%s
+			RETURNING automation_id
+		), counts AS (
+			SELECT automation_id, COUNT(*) AS n FROM exited GROUP BY automation_id
+		), locked AS (
+			SELECT a.id FROM automations a JOIN counts c ON c.automation_id = a.id
+			ORDER BY a.id FOR UPDATE OF a
+		)
+		UPDATE automations a
+		SET stats = (CASE WHEN jsonb_typeof(a.stats) = 'object' THEN a.stats ELSE '{}'::jsonb END) ||
+			jsonb_build_object('exited', COALESCE((CASE WHEN jsonb_typeof(a.stats) = 'object' THEN a.stats->>'exited' END)::int, 0) + c.n),
+			updated_at = $4
+		FROM counts c JOIN locked l ON l.id = c.automation_id
+		WHERE a.id = c.automation_id
+		RETURNING c.n`, automationFilter)
+
+	var total int
+	attempt := 1
+	for ; ; attempt++ {
+		args[3] = time.Now().UTC() // updated_at, taken again on each attempt
+		total, err = runExitOnReply(ctx, db, query, args)
+		if err == nil || attempt >= exitOnReplyAttempts || !isDeadlock(err) {
+			break
+		}
+	}
 	if err != nil {
+		if isDeadlock(err) {
+			return 0, fmt.Errorf("failed to exit contact journeys on reply after %d deadlocks: %w", attempt, err)
+		}
 		return 0, fmt.Errorf("failed to exit contact journeys on reply: %w", err)
 	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
+	return total, nil
+}
+
+// exitOnReplyAttempts is how many times ExitContactJourneysOnReply runs its
+// statement when it is chosen as a deadlock victim.
+const exitOnReplyAttempts = 3
+
+// runExitOnReply runs the reply exit statement once and sums the journeys exited.
+func runExitOnReply(ctx context.Context, db *sql.DB, query string, args []interface{}) (int, error) {
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	total := 0
+	for rows.Next() {
+		var n int
+		if err := rows.Scan(&n); err != nil {
+			return 0, err
+		}
+		total += n
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+// isDeadlock reports whether err is PostgreSQL's deadlock_detected (40P01).
+func isDeadlock(err error) bool {
+	var pqErr *pq.Error
+	return errors.As(err, &pqErr) && pqErr.Code == "40P01"
 }
 
 // Delete soft-deletes an automation by setting deleted_at timestamp
@@ -610,16 +680,27 @@ func (r *AutomationRepository) DeleteTx(ctx context.Context, tx *sql.Tx, workspa
 
 	now := time.Now().UTC()
 
+	var execer interface {
+		ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+	}
+	if tx != nil {
+		execer = tx
+	} else {
+		execer = db
+	}
+
 	// 1. Drop the automation trigger (ignore errors - trigger might not exist)
 	_ = r.DropAutomationTrigger(ctx, workspaceID, id)
 
-	// 2. Mark all active contact_automations as exited with reason
+	// 2. Mark all active contact_automations as exited with reason. These exits are not added
+	// to stats.exited, unlike a reply's: a deleted automation's stats are never read again
+	// (GetByIDTx and List leave deleted automations out, and the v44 recount skips them).
 	exitQuery := `
 		UPDATE contact_automations
 		SET status = 'exited', scheduled_at = NULL, exit_reason = 'automation_deleted'
 		WHERE automation_id = $1 AND status = 'active'
 	`
-	_, err = db.ExecContext(ctx, exitQuery, id)
+	_, err = execer.ExecContext(ctx, exitQuery, id)
 	if err != nil {
 		return fmt.Errorf("failed to exit active contacts: %w", err)
 	}
@@ -635,15 +716,6 @@ func (r *AutomationRepository) DeleteTx(ctx context.Context, tx *sql.Tx, workspa
 		return fmt.Errorf("failed to build query: %w", err)
 	}
 
-	var execer interface {
-		ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
-	}
-	if tx != nil {
-		execer = tx
-	} else {
-		execer = db
-	}
-
 	result, err := execer.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to soft-delete automation: %w", err)
@@ -654,7 +726,7 @@ func (r *AutomationRepository) DeleteTx(ctx context.Context, tx *sql.Tx, workspa
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rowsAffected == 0 {
-		return fmt.Errorf("automation not found or already deleted: %s", id)
+		return &domain.ErrNotFound{Entity: "automation", ID: id}
 	}
 
 	return nil
@@ -894,7 +966,7 @@ func (r *AutomationRepository) GetContactAutomationTx(ctx context.Context, tx *s
 		&ca.LastRetryAt, &ca.MaxRetries,
 	)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("contact automation not found: %s", id)
+		return nil, fmt.Errorf("%w: %s", domain.ErrContactAutomationNotFound, id)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get contact automation: %w", err)
@@ -1114,37 +1186,53 @@ func (r *AutomationRepository) UpdateContactAutomationTx(ctx context.Context, tx
 	return nil
 }
 
-// GetScheduledContactAutomations retrieves contact automations scheduled for processing
-// Uses FOR UPDATE SKIP LOCKED to prevent concurrent processing of the same records
-// Only returns contacts from LIVE automations (paused automations' contacts stay frozen)
-func (r *AutomationRepository) GetScheduledContactAutomations(ctx context.Context, workspaceID string, beforeTime time.Time, limit int) ([]*domain.ContactAutomation, error) {
+// claimedContactAutomationColumns are the columns a claim returns, in scan order.
+const claimedContactAutomationColumns = `ca.id, ca.automation_id, ca.contact_email, ca.current_node_id, ca.status,
+		       ca.exit_reason, ca.entered_at, ca.scheduled_at, ca.context, ca.retry_count, ca.last_error,
+		       ca.last_retry_at, ca.max_retries`
+
+// ClaimScheduledContactAutomations takes up to limit journeys due now (the database's clock)
+// from live automations, oldest first, and claims them: in the same statement it moves their
+// scheduled_at to NOW() + lease, so no other instance sees them as due until the lease ends.
+// The row locks of FOR UPDATE SKIP LOCKED last until the claim is written, so two instances
+// claiming at once get disjoint journeys. Each returned journey's ScheduledAt is its claim,
+// the token RenewContactAutomationClaim compares. Paused automations' journeys are not taken:
+// they stay frozen at their current step.
+func (r *AutomationRepository) ClaimScheduledContactAutomations(ctx context.Context, workspaceID string, limit int, lease time.Duration) ([]*domain.ContactAutomation, error) {
 	db, err := r.getDB(ctx, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get database connection: %w", err)
 	}
 
-	// Build query with FOR UPDATE SKIP LOCKED to prevent concurrent processing
-	// Join with automations to filter by automation status (only process contacts from live automations)
-	// This implements the "pause" behavior: paused automations' contacts stay frozen at their current node
 	query := `
-		SELECT ca.id, ca.automation_id, ca.contact_email, ca.current_node_id, ca.status,
-		       ca.exit_reason, ca.entered_at, ca.scheduled_at, ca.context, ca.retry_count, ca.last_error,
-		       ca.last_retry_at, ca.max_retries
-		FROM contact_automations ca
-		JOIN automations a ON ca.automation_id = a.id
-		WHERE ca.status = 'active'
-		  AND ca.scheduled_at <= $1
-		  AND a.status = 'live'
-		  AND a.deleted_at IS NULL
-		ORDER BY ca.scheduled_at ASC
-		LIMIT $2
-		FOR UPDATE OF ca SKIP LOCKED
+		WITH picked AS (
+			SELECT ca.id, ca.scheduled_at AS due_at
+			FROM contact_automations ca
+			JOIN automations a ON ca.automation_id = a.id
+			WHERE ca.status = 'active'
+			  AND ca.scheduled_at <= NOW()
+			  AND a.status = 'live'
+			  AND a.deleted_at IS NULL
+			ORDER BY ca.scheduled_at ASC
+			LIMIT $1
+			FOR UPDATE OF ca SKIP LOCKED
+		), claimed AS (
+			UPDATE contact_automations ca
+			SET scheduled_at = NOW() + $2 * INTERVAL '1 millisecond'
+			FROM picked
+			WHERE ca.id = picked.id
+			RETURNING ` + claimedContactAutomationColumns + `, picked.due_at
+		)
+		SELECT id, automation_id, contact_email, current_node_id, status,
+		       exit_reason, entered_at, scheduled_at, context, retry_count, last_error,
+		       last_retry_at, max_retries
+		FROM claimed
+		ORDER BY due_at ASC
 	`
-	args := []interface{}{beforeTime, limit}
 
-	rows, err := db.QueryContext(ctx, query, args...)
+	rows, err := db.QueryContext(ctx, query, limit, lease.Milliseconds())
 	if err != nil {
-		return nil, fmt.Errorf("failed to get scheduled contact automations: %w", err)
+		return nil, fmt.Errorf("failed to claim scheduled contact automations: %w", err)
 	}
 	defer rows.Close()
 
@@ -1162,9 +1250,12 @@ func (r *AutomationRepository) GetScheduledContactAutomations(ctx context.Contex
 			return nil, fmt.Errorf("failed to scan contact automation row: %w", err)
 		}
 
+		// The claim has already moved this journey's scheduled_at: a context that does not
+		// decode into an object (an array, a scalar) is read as none rather than failing the
+		// claim, which would hold the whole batch until its lease ends.
 		if len(contextJSON) > 0 {
 			if err := json.Unmarshal(contextJSON, &ca.Context); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal context: %w", err)
+				ca.Context = nil
 			}
 		}
 
@@ -1178,37 +1269,86 @@ func (r *AutomationRepository) GetScheduledContactAutomations(ctx context.Contex
 	return cas, nil
 }
 
-// GetScheduledContactAutomationsGlobal retrieves contacts from all workspaces using round-robin
-// to prevent starvation of any single workspace
-func (r *AutomationRepository) GetScheduledContactAutomationsGlobal(ctx context.Context, beforeTime time.Time, limit int) ([]*domain.ContactAutomationWithWorkspace, error) {
+// ReleaseContactAutomationClaim makes a claimed journey due now, only while it is still active
+// and still holds the claim token. A run that stops before a journey hands it back this way
+// instead of leaving it to wait out its lease. It returns false when the journey was claimed
+// again since, or ended.
+func (r *AutomationRepository) ReleaseContactAutomationClaim(ctx context.Context, workspaceID, id string, token time.Time) (bool, error) {
+	db, err := r.getDB(ctx, workspaceID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get database connection: %w", err)
+	}
+
+	result, err := db.ExecContext(ctx, `
+		UPDATE contact_automations
+		SET scheduled_at = NOW()
+		WHERE id = $1 AND status = 'active' AND scheduled_at = $2
+	`, id, token)
+	if err != nil {
+		return false, fmt.Errorf("failed to release contact automation claim: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to read released claim: %w", err)
+	}
+	return n == 1, nil
+}
+
+// RenewContactAutomationClaim extends a claim to NOW() + lease, only while the journey is
+// still active and still holds the claim token (its scheduled_at as the claim set it). It
+// returns false when another instance claimed the journey since, or when it ended.
+func (r *AutomationRepository) RenewContactAutomationClaim(ctx context.Context, workspaceID, id string, token time.Time, lease time.Duration) (bool, error) {
+	db, err := r.getDB(ctx, workspaceID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get database connection: %w", err)
+	}
+
+	result, err := db.ExecContext(ctx, `
+		UPDATE contact_automations
+		SET scheduled_at = NOW() + $3 * INTERVAL '1 millisecond'
+		WHERE id = $1 AND status = 'active' AND scheduled_at = $2
+	`, id, token, lease.Milliseconds())
+	if err != nil {
+		return false, fmt.Errorf("failed to renew contact automation claim: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to read renewed claim: %w", err)
+	}
+	return n == 1, nil
+}
+
+// ClaimScheduledContactAutomationsGlobal claims up to limit due journeys across all
+// workspaces, an equal share from each in turn so that no workspace starves. Each workspace
+// is asked only for what the batch still has room for, since a claimed journey left out of
+// the batch would wait out its lease. A workspace that fails is skipped; its error is
+// returned with the journeys claimed elsewhere.
+func (r *AutomationRepository) ClaimScheduledContactAutomationsGlobal(ctx context.Context, limit int, lease time.Duration) ([]*domain.ContactAutomationWithWorkspace, error) {
 	if r.workspaceRepo == nil {
 		return nil, fmt.Errorf("workspace repository is required for global scheduling")
 	}
 
-	// Get all workspaces
 	workspaces, err := r.workspaceRepo.List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspaces: %w", err)
 	}
 
-	if len(workspaces) == 0 {
+	if len(workspaces) == 0 || limit <= 0 {
 		return nil, nil
 	}
 
-	// Round-robin: fetch equal amounts from each workspace
 	perWorkspace := (limit / len(workspaces)) + 1
-	if perWorkspace < 1 {
-		perWorkspace = 1
-	}
 
 	var allContacts []*domain.ContactAutomationWithWorkspace
-
-	// First pass: get perWorkspace from each
+	var errs []error
 	for _, ws := range workspaces {
-		contacts, err := r.GetScheduledContactAutomations(ctx, ws.ID, beforeTime, perWorkspace)
+		room := limit - len(allContacts)
+		if room <= 0 {
+			break
+		}
+		contacts, err := r.ClaimScheduledContactAutomations(ctx, ws.ID, min(perWorkspace, room), lease)
 		if err != nil {
-			// Log error but continue with other workspaces
-			// In production, we'd want proper logging here
+			errs = append(errs, fmt.Errorf("workspace %s: %w", ws.ID, err))
 			continue
 		}
 
@@ -1218,19 +1358,9 @@ func (r *AutomationRepository) GetScheduledContactAutomationsGlobal(ctx context.
 				ContactAutomation: *ca,
 			})
 		}
-
-		// Stop if we have enough
-		if len(allContacts) >= limit {
-			break
-		}
 	}
 
-	// Trim to limit
-	if len(allContacts) > limit {
-		allContacts = allContacts[:limit]
-	}
-
-	return allContacts, nil
+	return allContacts, errors.Join(errs...)
 }
 
 // Node execution logging

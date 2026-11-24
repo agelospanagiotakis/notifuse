@@ -16,6 +16,7 @@ import (
 	// Import the notifuse_mjml package
 
 	"github.com/Notifuse/notifuse/pkg/notifuse_mjml"
+	"github.com/Notifuse/notifuse/pkg/trackingtoken"
 	"github.com/asaskevich/govalidator"
 )
 
@@ -145,11 +146,14 @@ func TranslationsWiden(prior, next map[string]TemplateTranslation) bool {
 // authoredTranslation is a copy of t with every machine-derived field zeroed, so that
 // TranslationsWiden compares only what a human typed. See its comment for why each of the
 // three fields is here; add to this list, never to the comparison, when a new derived
-// field is introduced.
+// field is introduced. The custom text is authored, so it is compared, but normalised:
+// the incoming side was normalised by Validate before the gate runs, the stored side may
+// predate that.
 func authoredTranslation(t TemplateTranslation) TemplateTranslation {
 	if t.Email != nil {
 		email := *t.Email
 		email.CompiledPreview = ""
+		email.Text = NormalizeCustomText(email.Text)
 		t.Email = &email
 	}
 	if t.Web != nil {
@@ -214,17 +218,49 @@ type Template struct {
 
 // ResolveEmailContent returns the EmailTemplate for the given contact language.
 // Falls back to the default template content if no translation exists.
+//
+// A translation carries its own subject, preview and content, but the console saves it with no
+// sender and no reply-to: those are set once, on the template. A translation that leaves either
+// empty therefore takes the default content's, so a translated email leaves from the sender picked
+// on the template rather than the integration's default one. The translation is returned as a
+// copy, never filled in place, as the template may be held and saved again by the caller.
 func (t *Template) ResolveEmailContent(contactLanguage string, workspaceDefaultLanguage string) *EmailTemplate {
-	if t.Email == nil || t.Translations == nil || contactLanguage == "" {
-		return t.Email
-	}
-	if contactLanguage == workspaceDefaultLanguage {
-		return t.Email
+	return t.EmailContentForLanguage(t.ResolvedLanguage(contactLanguage, workspaceDefaultLanguage))
+}
+
+// ResolvedLanguage returns the translation key ResolveEmailContent picks for a contact
+// language, or "" for the default content: no contact language, the workspace's default
+// language, no such translation, or a translation without email content.
+func (t *Template) ResolvedLanguage(contactLanguage string, workspaceDefaultLanguage string) string {
+	if t.Email == nil || t.Translations == nil || contactLanguage == "" || contactLanguage == workspaceDefaultLanguage {
+		return ""
 	}
 	if translation, ok := t.Translations[contactLanguage]; ok && translation.Email != nil {
-		return translation.Email
+		return contactLanguage
 	}
-	return t.Email
+	return ""
+}
+
+// EmailContentForLanguage returns the email content of a translation key as
+// ResolvedLanguage writes it: the default content for "" or a key without email content,
+// otherwise a copy of the translation with the template's sender and reply-to where it
+// leaves them empty.
+func (t *Template) EmailContentForLanguage(language string) *EmailTemplate {
+	if t.Email == nil || language == "" {
+		return t.Email
+	}
+	translation, ok := t.Translations[language]
+	if !ok || translation.Email == nil {
+		return t.Email
+	}
+	resolved := *translation.Email
+	if resolved.SenderID == "" {
+		resolved.SenderID = t.Email.SenderID
+	}
+	if resolved.ReplyTo == "" {
+		resolved.ReplyTo = t.Email.ReplyTo
+	}
+	return &resolved
 }
 
 // ResolveSubjectPreviewOverride picks the preview text to inject into the mj-preview block at
@@ -242,8 +278,8 @@ func ResolveSubjectPreviewOverride(explicit *string, content *EmailTemplate) *st
 }
 
 // ApplyToCompileRequest fills the fields of a send-time compile request that derive from this email
-// variant: the visual editor tree, the code-mode MJML source, and the subject-preview override that
-// makes a translation render its OWN inbox preview text. Every outbound send (broadcast,
+// variant: the visual editor tree, the code-mode MJML source, the subject-preview override that
+// makes a translation render its OWN inbox preview text, and its own custom plain-text version. Every outbound send (broadcast,
 // automation, transactional) must route the resolved email content through here so the preview
 // override travels with the body and cannot be forgotten — a send path that skips this call ends up
 // with no tree/source and fails compilation loudly instead of silently shipping a stale preview.
@@ -259,6 +295,18 @@ func (e *EmailTemplate) ApplyToCompileRequest(req *CompileTemplateRequest, expli
 	req.VisualEditorTree = e.VisualEditorTree
 	req.MjmlSource = e.GetCodeModeMjmlSource()
 	req.SubjectPreviewOverride = ResolveSubjectPreviewOverride(explicitPreviewOverride, e)
+	req.Text = e.Text
+}
+
+// MaxCustomTextSize caps the source of a custom plain-text version, in bytes.
+const MaxCustomTextSize = notifuse_mjml.MaxCustomTextSize
+
+// NormalizeCustomText returns the custom plain-text version as it is stored and compared:
+// line endings as \n, and nil when it holds only whitespace, which means the automatic
+// version. Save, the licence gate and the render all go through it, so two texts that
+// differ only in line endings or emptiness are the same text everywhere.
+func NormalizeCustomText(text *string) *string {
+	return notifuse_mjml.NormalizeCustomText(text)
 }
 
 // ResolveWebContent returns the WebTemplate for the given contact language.
@@ -419,6 +467,18 @@ func (e *EmailTemplate) Validate(testData MapOfAny) error {
 	if e.Subject == "" {
 		return fmt.Errorf("invalid email template: subject is required")
 	}
+
+	// The custom plain-text version: stored normalised, size-capped, and parsed now so a
+	// syntax error is refused at save rather than found at send.
+	e.Text = NormalizeCustomText(e.Text)
+	if e.Text != nil {
+		if len(*e.Text) > MaxCustomTextSize {
+			return fmt.Errorf("invalid email template: text version must be at most %d bytes", MaxCustomTextSize)
+		}
+		if err := notifuse_mjml.ValidateLiquidSyntax(*e.Text); err != nil {
+			return fmt.Errorf("invalid email template: text version: %w", err)
+		}
+	}
 	if len(e.Subject) > 255 {
 		return fmt.Errorf("invalid email template: subject length must be between 1 and 255")
 	}
@@ -447,6 +507,9 @@ func (e *EmailTemplate) Validate(testData MapOfAny) error {
 		}
 		if e.VisualEditorTree.GetChildren() == nil {
 			return fmt.Errorf("invalid email template: visual_editor_tree root block must have children")
+		}
+		if err := notifuse_mjml.ValidateDisplayConditions(e.VisualEditorTree); err != nil {
+			return fmt.Errorf("invalid email template: %w", err)
 		}
 		if e.CompiledPreview == "" {
 			// Prepare template data JSON string
@@ -891,6 +954,10 @@ type TemplateService interface {
 
 	// CompileTemplate compiles a visual editor tree to MJML and HTML
 	CompileTemplate(ctx context.Context, payload CompileTemplateRequest) (*CompileTemplateResponse, error) // Use notifuse_mjml.EmailBlock
+
+	// GetTemplateUsage counts what uses each template, or one template when templateID is
+	// set, over the object types the member may read.
+	GetTemplateUsage(ctx context.Context, workspaceID string, templateID string) (*TemplateUsage, error)
 }
 
 // TemplateRepository provides database operations for templates
@@ -915,6 +982,115 @@ type TemplateRepository interface {
 
 	// DeleteTemplate deletes a template
 	DeleteTemplate(ctx context.Context, workspaceID string, id string) error
+
+	// GetTemplateUsage counts, for the given object types only, what uses each template (or
+	// only templateID when set, with its references). HiddenTypes is left empty.
+	GetTemplateUsage(ctx context.Context, workspaceID string, templateID string, types []TemplateUsageType) (*TemplateUsage, error)
+}
+
+// TemplateUsageType is a kind of object that can use a template.
+type TemplateUsageType string
+
+const (
+	TemplateUsageTypeBroadcasts                 TemplateUsageType = "broadcasts"
+	TemplateUsageTypeTransactionalNotifications TemplateUsageType = "transactional_notifications"
+	TemplateUsageTypeAutomations                TemplateUsageType = "automations"
+	TemplateUsageTypeLists                      TemplateUsageType = "lists"
+)
+
+// TemplateUsageTypes lists every TemplateUsageType, in the order of the response.
+var TemplateUsageTypes = []TemplateUsageType{
+	TemplateUsageTypeBroadcasts,
+	TemplateUsageTypeTransactionalNotifications,
+	TemplateUsageTypeAutomations,
+	TemplateUsageTypeLists,
+}
+
+// TemplateUsageCounts holds, for one template, how many objects of each type use it. A type
+// the member may not read stays nil and is left out of the JSON, so it never reads as 0.
+type TemplateUsageCounts struct {
+	Broadcasts                 *int `json:"broadcasts,omitempty"`
+	TransactionalNotifications *int `json:"transactional_notifications,omitempty"`
+	Automations                *int `json:"automations,omitempty"`
+	Lists                      *int `json:"lists,omitempty"`
+}
+
+// Set sets the counter of type t to n; an unknown type is ignored.
+func (c *TemplateUsageCounts) Set(t TemplateUsageType, n int) {
+	switch t {
+	case TemplateUsageTypeBroadcasts:
+		c.Broadcasts = &n
+	case TemplateUsageTypeTransactionalNotifications:
+		c.TransactionalNotifications = &n
+	case TemplateUsageTypeAutomations:
+		c.Automations = &n
+	case TemplateUsageTypeLists:
+		c.Lists = &n
+	}
+}
+
+// TemplateUsageReferenceType names one object in references.
+type TemplateUsageReferenceType string
+
+const (
+	TemplateUsageReferenceBroadcast                 TemplateUsageReferenceType = "broadcast"
+	TemplateUsageReferenceTransactionalNotification TemplateUsageReferenceType = "transactional_notification"
+	TemplateUsageReferenceAutomation                TemplateUsageReferenceType = "automation"
+	TemplateUsageReferenceList                      TemplateUsageReferenceType = "list"
+)
+
+// TemplateUsageReference is one object using the template asked for. Status is set for
+// broadcasts and automations only.
+type TemplateUsageReference struct {
+	Type   TemplateUsageReferenceType `json:"type"`
+	ID     string                     `json:"id"`
+	Name   string                     `json:"name"`
+	Status string                     `json:"status,omitempty"`
+}
+
+// TemplateUsage is the response of templates.usage. Usage holds only templates used at least
+// once. References is set, possibly empty, exactly when one template is asked for: at most
+// TemplateUsageReferenceLimit objects per type, while the counts in Usage stay exact.
+type TemplateUsage struct {
+	Usage       map[string]*TemplateUsageCounts `json:"usage"`
+	References  *[]TemplateUsageReference       `json:"references,omitempty"`
+	HiddenTypes []TemplateUsageType             `json:"hidden_types"`
+}
+
+// TemplateUsageReferenceLimit caps the references returned per object type.
+const TemplateUsageReferenceLimit = 50
+
+// NewTemplateUsage returns an empty usage whose collections encode as {} and [], with
+// references when one template is asked for.
+func NewTemplateUsage(withReferences bool) TemplateUsage {
+	u := TemplateUsage{
+		Usage:       map[string]*TemplateUsageCounts{},
+		HiddenTypes: []TemplateUsageType{},
+	}
+	if withReferences {
+		refs := []TemplateUsageReference{}
+		u.References = &refs
+	}
+	return u
+}
+
+// GetTemplateUsageRequest is the query of templates.usage.
+type GetTemplateUsageRequest struct {
+	WorkspaceID string `json:"workspace_id"`
+	TemplateID  string `json:"template_id,omitempty"`
+}
+
+func (r *GetTemplateUsageRequest) FromURLParams(queryParams url.Values) error {
+	r.WorkspaceID = queryParams.Get("workspace_id")
+	r.TemplateID = queryParams.Get("template_id")
+	if r.WorkspaceID == "" {
+		return fmt.Errorf("invalid get template usage request: workspace_id is required")
+	}
+	// The ID is compared with a text column: PostgreSQL refuses a NUL byte or invalid UTF-8.
+	if !utf8.ValidString(r.TemplateID) || strings.ContainsRune(r.TemplateID, 0) {
+		return fmt.Errorf("invalid get template usage request: template_id must be valid UTF-8 text without NUL bytes")
+	}
+	return nil
 }
 
 // ErrTemplateNotFound is returned when a template is not found
@@ -974,6 +1150,10 @@ type TemplateDataRequest struct {
 	ProvidedData        MapOfAny                       `json:"provided_data,omitempty"`
 	TrackingSettings    notifuse_mjml.TrackingSettings `json:"tracking_settings"`
 	Broadcast           *Broadcast                     `json:"broadcast,omitempty"`
+	// WebVersion fills view_in_browser_url with a signed link to the web version of
+	// this message. Set by broadcasts and automations only: transactional emails can
+	// carry sign-in or reset links that must not be readable from a shareable URL.
+	WebVersion bool `json:"web_version,omitempty"`
 }
 
 // Validate ensures that the template data request has all required fields
@@ -1020,14 +1200,17 @@ func BuildTemplateData(req TemplateDataRequest) (MapOfAny, error) {
 
 		templateData["contact"] = contactData
 
-		notificationCenterParams := url.Values{}
-		notificationCenterParams.Set("email", req.ContactWithList.Contact.Email)
-		notificationCenterParams.Set("email_hmac", emailHMAC)
-		notificationCenterParams.Set("wid", req.WorkspaceID)
-
-		notificationCenterURL := fmt.Sprintf("%s/notification-center?%s",
-			req.TrackingSettings.Endpoint, notificationCenterParams.Encode())
-		templateData["notification_center_url"] = notificationCenterURL
+		// The notification center, its tracking dialog and the one-click tracking opt-out
+		// (which asks for a confirmation before it writes anything). TrackLinks leaves them untouched.
+		links := ContactLinks{
+			Endpoint:    req.TrackingSettings.Endpoint,
+			WorkspaceID: req.WorkspaceID,
+			Email:       req.ContactWithList.Contact.Email,
+			EmailHMAC:   emailHMAC,
+		}
+		for key, value := range links.ContactURLs() {
+			templateData[key] = value
+		}
 
 	} else {
 		// Create empty contact object if none provided
@@ -1067,49 +1250,21 @@ func BuildTemplateData(req TemplateDataRequest) (MapOfAny, error) {
 			"name": req.ContactWithList.ListName,
 		}
 
-		// Create unsubscribe link
-		// Build unsubscribe URL query params
-		unsubscribeParams := url.Values{}
-		unsubscribeParams.Set("action", "unsubscribe")
-		unsubscribeParams.Set("lid", req.ContactWithList.ListID)
-		unsubscribeParams.Set("lname", req.ContactWithList.ListName)
-		unsubscribeParams.Set("wid", req.WorkspaceID)
-		unsubscribeParams.Set("mid", req.MessageID)
-		unsubscribeParams.Set("email", req.ContactWithList.Contact.Email)
-		unsubscribeParams.Set("email_hmac", emailHMAC)
-
-		unsubscribeURL := fmt.Sprintf("%s/notification-center?%s",
-			req.TrackingSettings.Endpoint, unsubscribeParams.Encode())
-		templateData["unsubscribe_url"] = unsubscribeURL
-
-		// Build oneclick unsubscribe URL query params.
-		// email_hmac is required: the public /unsubscribe-oneclick endpoint has no
-		// bearer token, so ListService.UnsubscribeFromLists authenticates the request
-		// by verifying this HMAC against the workspace secret key (RFC 8058 one-click).
-		oneclickParams := url.Values{}
-		oneclickParams.Set("email", req.ContactWithList.Contact.Email)
-		oneclickParams.Set("email_hmac", emailHMAC)
-		oneclickParams.Set("lids", req.ContactWithList.ListID)
-		oneclickParams.Set("wid", req.WorkspaceID)
-		oneclickParams.Set("mid", req.MessageID)
-
-		oneclickUnsubscribeURL := fmt.Sprintf("%s/unsubscribe-oneclick?%s",
-			req.TrackingSettings.Endpoint, oneclickParams.Encode())
-		templateData["oneclick_unsubscribe_url"] = oneclickUnsubscribeURL
-
-		// Build confirmation URL query params for double opt-in
-		confirmParams := url.Values{}
-		confirmParams.Set("action", "confirm")
-		confirmParams.Set("lid", req.ContactWithList.ListID)
-		confirmParams.Set("lname", req.ContactWithList.ListName)
-		confirmParams.Set("wid", req.WorkspaceID)
-		confirmParams.Set("mid", req.MessageID)
-		confirmParams.Set("email", req.ContactWithList.Contact.Email)
-		confirmParams.Set("email_hmac", emailHMAC)
-
-		confirmURL := fmt.Sprintf("%s/notification-center?%s",
-			req.TrackingSettings.Endpoint, confirmParams.Encode())
-		templateData["confirm_subscription_url"] = confirmURL
+		// The unsubscribe link, the one-click unsubscribe (its email_hmac is required: the public
+		// /unsubscribe-oneclick endpoint has no bearer token, so ListService.UnsubscribeFromLists
+		// authenticates the request by verifying this HMAC, RFC 8058) and the double opt-in link.
+		links := ContactLinks{
+			Endpoint:    req.TrackingSettings.Endpoint,
+			WorkspaceID: req.WorkspaceID,
+			MessageID:   req.MessageID,
+			Email:       req.ContactWithList.Contact.Email,
+			EmailHMAC:   emailHMAC,
+			ListID:      req.ContactWithList.ListID,
+			ListName:    req.ContactWithList.ListName,
+		}
+		for key, value := range links.ListURLs() {
+			templateData[key] = value
+		}
 	}
 
 	// Add global feed data if the broadcast carries a payload. Presence is the only condition:
@@ -1130,20 +1285,178 @@ func BuildTemplateData(req TemplateDataRequest) (MapOfAny, error) {
 	// Add tracking data
 	templateData["message_id"] = req.MessageID
 
-	// Add tracking pixel if API endpoint is provided
+	// Open tracking URL (with timestamp for bot detection), signed with the
+	// workspace's tracking key like the pixel TrackLinks inserts. An empty secret,
+	// which BeforeSave rules out, leaves the key empty and the token unsigned.
+	// Empty when the send decided not to track opens for this recipient: a
+	// template using it would otherwise put the pixel back.
+	templateData["tracking_opens_url"] = ""
+	if !req.TrackingSettings.SuppressOpens {
+		templateData["tracking_opens_url"] = notifuse_mjml.GenerateOpenTrackingURL(
+			TrackingSigningKey(req.WorkspaceSecretKey), req.WorkspaceID, req.MessageID, req.TrackingSettings.Endpoint, time.Now().Unix())
+	}
 
-	// Format: {apiEndpoint}/api/pixel?id={messageID}&t=o&w={workspaceID}
-	messageID := url.QueryEscape(req.MessageID)
-	workspaceID := url.QueryEscape(req.WorkspaceID)
-
-	// Tracking pixel for opens (with timestamp for bot detection)
-	sentTimestamp := time.Now().Unix()
-	trackingPixelURL := fmt.Sprintf("%s/opens?mid=%s&wid=%s&ts=%d",
-		req.TrackingSettings.Endpoint, messageID, workspaceID, sentTimestamp)
-
-	templateData["tracking_opens_url"] = trackingPixelURL
+	// Web version link. Outside its scope the key renders empty, but a value the caller
+	// supplied (a transactional API payload, template test data) is left alone.
+	if req.WebVersion {
+		templateData["view_in_browser_url"] = ""
+		// The token signs the link's host: the page opens there, never on another
+		// workspace's domain.
+		viewHost := trackingtoken.HostOf(req.TrackingSettings.Endpoint)
+		if viewToken, err := trackingtoken.MintView(TrackingSigningKey(req.WorkspaceSecretKey), req.MessageID, req.WorkspaceID, time.Now().Unix(), viewHost); err == nil {
+			templateData["view_in_browser_url"] = strings.TrimRight(req.TrackingSettings.Endpoint, "/") + "/v/" + viewToken
+		}
+	} else if _, supplied := templateData["view_in_browser_url"]; !supplied {
+		templateData["view_in_browser_url"] = ""
+	}
 
 	return templateData, nil
+}
+
+// TrackingSigningKey returns the key that signs a workspace's tracked links, derived
+// from its secret key, or nil for an empty secret (which BeforeSave rules out): links are
+// then minted unsigned, which still tracks but never redirects without a check.
+func TrackingSigningKey(workspaceSecretKey string) []byte {
+	key, err := trackingtoken.DeriveKey(workspaceSecretKey)
+	if err != nil {
+		return nil
+	}
+	return key
+}
+
+// ContactLinks holds what the links a send builds for its contact are made of: the
+// notification center, tracking and list (unsubscribe, one-click, confirm) links.
+// BuildTemplateData builds them at send time; PreviewContactLinks rebuilds the
+// template editor's preview ones the same way, from its test contact.
+type ContactLinks struct {
+	Endpoint    string
+	WorkspaceID string
+	MessageID   string
+	Email       string
+	EmailHMAC   string
+	ListID      string
+	ListName    string
+}
+
+func (l ContactLinks) notificationCenter(params url.Values) string {
+	return fmt.Sprintf("%s/notification-center?%s", l.Endpoint, params.Encode())
+}
+
+// ContactURLs returns the links every send to a contact carries.
+func (l ContactLinks) ContactURLs() map[string]string {
+	center := url.Values{}
+	center.Set("email", l.Email)
+	center.Set("email_hmac", l.EmailHMAC)
+	center.Set("wid", l.WorkspaceID)
+
+	tracking := url.Values{}
+	tracking.Set("action", "tracking")
+	tracking.Set("email", l.Email)
+	tracking.Set("email_hmac", l.EmailHMAC)
+	tracking.Set("wid", l.WorkspaceID)
+	optout := url.Values{}
+	for key, values := range tracking {
+		optout[key] = values
+	}
+	optout.Set("action", "tracking_optout")
+
+	return map[string]string{
+		"notification_center_url":  l.notificationCenter(center),
+		"tracking_preferences_url": l.notificationCenter(tracking),
+		"tracking_optout_url":      l.notificationCenter(optout),
+	}
+}
+
+// ListURLs returns the links of a send made for a list.
+func (l ContactLinks) ListURLs() map[string]string {
+	listAction := func(action string) string {
+		params := url.Values{}
+		params.Set("action", action)
+		params.Set("lid", l.ListID)
+		params.Set("lname", l.ListName)
+		params.Set("wid", l.WorkspaceID)
+		params.Set("mid", l.MessageID)
+		params.Set("email", l.Email)
+		params.Set("email_hmac", l.EmailHMAC)
+		return l.notificationCenter(params)
+	}
+	oneclick := url.Values{}
+	oneclick.Set("email", l.Email)
+	oneclick.Set("email_hmac", l.EmailHMAC)
+	oneclick.Set("lids", l.ListID)
+	oneclick.Set("wid", l.WorkspaceID)
+	oneclick.Set("mid", l.MessageID)
+	return map[string]string{
+		"unsubscribe_url":          listAction("unsubscribe"),
+		"oneclick_unsubscribe_url": fmt.Sprintf("%s/unsubscribe-oneclick?%s", l.Endpoint, oneclick.Encode()),
+		"confirm_subscription_url": listAction("confirm"),
+	}
+}
+
+// PreviewEmailHMAC is the placeholder signature of the links in the template editor's test
+// data: a preview link opens the notification center in its preview mode and signs nothing.
+const PreviewEmailHMAC = "abc123"
+
+// PreviewContactLinks rebuilds the preview links of a template's test data for its test
+// contact, as a send builds them for the contact it goes to: the console seeds the test data
+// with links made for john.doe@example.com, and a test contact changed since kept them. Only a
+// link carrying the preview signature is rebuilt, so the data of a message really sent (shown
+// again from the logs) keeps the links it went out with; a link the data does not hold is not
+// added. The list links follow the test data's list. endpoint is asked for only when the data
+// holds a preview link, so a caller can load it lazily. Returns whether anything changed.
+func PreviewContactLinks(data map[string]any, endpoint func() string, workspaceID, messageID string) bool {
+	previewKeys := map[string]bool{}
+	for key, value := range data {
+		if link, ok := value.(string); ok && isPreviewLink(link) {
+			previewKeys[key] = true
+		}
+	}
+	if len(previewKeys) == 0 {
+		return false
+	}
+	contact, _ := data["contact"].(map[string]any)
+	if typed, ok := data["contact"].(MapOfAny); ok {
+		contact = typed
+	}
+	email, _ := contact["email"].(string)
+	if email == "" {
+		return false
+	}
+	if messageID == "" {
+		messageID = "preview"
+	}
+	links := ContactLinks{Endpoint: strings.TrimRight(endpoint(), "/"), WorkspaceID: workspaceID, MessageID: messageID, Email: email, EmailHMAC: PreviewEmailHMAC}
+	list, _ := data["list"].(map[string]any)
+	if typed, ok := data["list"].(MapOfAny); ok {
+		list = typed
+	}
+	links.ListID, _ = list["id"].(string)
+	links.ListName, _ = list["name"].(string)
+
+	built := links.ContactURLs()
+	if links.ListID != "" {
+		for key, value := range links.ListURLs() {
+			built[key] = value
+		}
+	}
+	changed := false
+	for key, value := range built {
+		if !previewKeys[key] || data[key] == value {
+			continue
+		}
+		data[key] = value
+		changed = true
+	}
+	return changed
+}
+
+// isPreviewLink reports whether a link carries the preview signature.
+func isPreviewLink(link string) bool {
+	parsed, err := url.Parse(link)
+	if err != nil {
+		return false
+	}
+	return parsed.Query().Get("email_hmac") == PreviewEmailHMAC
 }
 
 // BuildWorkspaceTemplateVars builds the `workspace` template object exposing the

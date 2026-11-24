@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -1235,4 +1236,198 @@ func TestTemplateHandler_LicenceRefusalIsA402(t *testing.T) {
 
 		assertRefusal(t, resp)
 	})
+}
+
+// TestHandleCompile_TrackingSettingsCarryNoSigningKey sends a raw JSON body, as an API
+// client would, naming a signing key and another workspace in tracking_settings. The
+// key must never reach the service: without it, preview links are unsigned and never
+// redirect without a check. The service pins the workspace (template_service_test.go).
+func TestHandleCompile_TrackingSettingsCarryNoSigningKey(t *testing.T) {
+	mockService, _, serverURL, secretKey, cleanup := setupTemplateHandlerTest(t)
+	defer cleanup()
+
+	mjmlSrc := "<mjml><mj-body><mj-section><mj-column><mj-text>Hello</mj-text></mj-column></mj-section></mj-body></mjml>"
+	htmlOut := "<html><body>Hello</body></html>"
+	payload := map[string]interface{}{
+		"workspace_id": "workspace123",
+		"message_id":   "msg-1",
+		"mjml_source":  mjmlSrc,
+		"tracking_settings": map[string]interface{}{
+			"workspace_id":    "other",
+			"enable_tracking": true,
+			"signing_key":     "AAAA",
+			"SigningKey":      "AAAA",
+		},
+	}
+
+	var received domain.CompileTemplateRequest
+	mockService.EXPECT().CompileTemplate(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, req domain.CompileTemplateRequest) (*domain.CompileTemplateResponse, error) {
+			received = req
+			return &domain.CompileTemplateResponse{Success: true, MJML: &mjmlSrc, HTML: &htmlOut}, nil
+		})
+
+	resp := sendRequest(t, http.MethodPost, fmt.Sprintf("%s/api/templates.compile", serverURL), createTestToken(secretKey), payload)
+	defer func() { _ = resp.Body.Close() }()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "workspace123", received.WorkspaceID)
+	assert.True(t, received.TrackingSettings.EnableTracking)
+	assert.Empty(t, received.TrackingSettings.SigningKey)
+}
+
+func TestHandleCompile_AsksForThePlainTextVersion(t *testing.T) {
+	mockService, _, serverURL, secretKey, cleanup := setupTemplateHandlerTest(t)
+	defer cleanup()
+
+	mjmlSrc := "<mjml><mj-body><mj-section><mj-column><mj-text>Hello</mj-text></mj-column></mj-section></mj-body></mjml>"
+	htmlOut := "<html><body>Hello</body></html>"
+	text := "Hello\n"
+
+	// The client cannot switch the text off: include_text is not part of the API.
+	payload := map[string]interface{}{
+		"workspace_id": "workspace123",
+		"message_id":   "msg-1",
+		"mjml_source":  mjmlSrc,
+		"include_text": false,
+	}
+
+	mockService.EXPECT().CompileTemplate(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, req domain.CompileTemplateRequest) (*domain.CompileTemplateResponse, error) {
+			assert.True(t, req.IncludeText)
+			return &domain.CompileTemplateResponse{Success: true, MJML: &mjmlSrc, HTML: &htmlOut, Text: &text}, nil
+		})
+
+	apiURL := fmt.Sprintf("%s/api/templates.compile", serverURL)
+	token := createTestToken(secretKey)
+	resp := sendRequest(t, http.MethodPost, apiURL, token, payload)
+	defer func() { _ = resp.Body.Close() }()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var body map[string]interface{}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	assert.Equal(t, text, body["text"])
+}
+
+func TestHandleCompile_CustomText(t *testing.T) {
+	mockService, _, serverURL, secretKey, cleanup := setupTemplateHandlerTest(t)
+	defer cleanup()
+
+	mjmlSrc := "<mjml><mj-body><mj-section><mj-column><mj-text>Hello</mj-text></mj-column></mj-section></mj-body></mjml>"
+	htmlOut := "<html><body>Hello</body></html>"
+	rendered := "Hi Ada"
+
+	mockService.EXPECT().CompileTemplate(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, req domain.CompileTemplateRequest) (*domain.CompileTemplateResponse, error) {
+			require.NotNil(t, req.Text, "the custom text source reaches the compile")
+			assert.Equal(t, "Hi {{ name }}", *req.Text)
+			return &domain.CompileTemplateResponse{
+				Success: true, MJML: &mjmlSrc, HTML: &htmlOut,
+				Text: &rendered, TextSource: "custom",
+			}, nil
+		})
+
+	resp := sendRequest(t, http.MethodPost, fmt.Sprintf("%s/api/templates.compile", serverURL), createTestToken(secretKey), map[string]interface{}{
+		"workspace_id": "workspace123",
+		"message_id":   "msg-1",
+		"mjml_source":  mjmlSrc,
+		"text":         "Hi {{ name }}",
+	})
+	defer func() { _ = resp.Body.Close() }()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var body map[string]interface{}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	assert.Equal(t, "Hi Ada", body["text"])
+	assert.Equal(t, "custom", body["text_source"])
+	_, hasError := body["text_error"]
+	assert.False(t, hasError)
+}
+
+// templates.delete answers a refusal with its reason, and permission errors as the other
+// endpoints do, rather than 500.
+func TestTemplateHandler_HandleDelete_ErrorMapping(t *testing.T) {
+	request := domain.DeleteTemplateRequest{WorkspaceID: "workspace123", ID: "template1"}
+
+	testCases := []struct {
+		name           string
+		serviceErr     error
+		expectedStatus int
+		check          func(t *testing.T, body map[string]interface{})
+	}{
+		{
+			name:           "a refusal of a managed template answers 400 with its reason",
+			serviceErr:     fmt.Errorf("delete: %w", domain.NewValidationError("cannot delete integration-managed template: template is managed by integration supabase")),
+			expectedStatus: http.StatusBadRequest,
+			check: func(t *testing.T, body map[string]interface{}) {
+				assert.Equal(t, "validation error: cannot delete integration-managed template: template is managed by integration supabase", body["error"])
+			},
+		},
+		{
+			name:           "a revoked API key answers 401",
+			serviceErr:     fmt.Errorf("failed to authenticate user: %w", fmt.Errorf("%w: %w", domain.ErrAPIKeyRevoked, errors.New("user not found"))),
+			expectedStatus: http.StatusUnauthorized,
+			check: func(t *testing.T, body map[string]interface{}) {
+				assert.Equal(t, "API key has been revoked", body["error"])
+			},
+		},
+		{
+			name:           "a missing permission answers 403 naming it",
+			serviceErr:     domain.NewPermissionError(domain.PermissionResourceTemplates, domain.PermissionTypeWrite, "Insufficient permissions: write access to templates required"),
+			expectedStatus: http.StatusForbidden,
+			check: func(t *testing.T, body map[string]interface{}) {
+				assert.Equal(t, string(domain.PermissionResourceTemplates), body["resource"])
+				assert.Equal(t, string(domain.PermissionTypeWrite), body["permission"])
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockService, _, serverURL, secretKey, cleanup := setupTemplateHandlerTest(t)
+			defer cleanup()
+			mockService.EXPECT().DeleteTemplate(gomock.Any(), request.WorkspaceID, request.ID).Return(tc.serviceErr)
+
+			resp := sendRequest(t, http.MethodPost, serverURL+"/api/templates.delete", createTestToken(secretKey), request)
+			defer func() { _ = resp.Body.Close() }()
+
+			require.Equal(t, tc.expectedStatus, resp.StatusCode)
+			var body map[string]interface{}
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+			tc.check(t, body)
+		})
+	}
+}
+
+// A template request body over 1 MiB is refused with 413 before it is parsed, on the three
+// endpoints that take a template, and the service is never called. A body just under the limit
+// is decoded and goes on to the request's own validation.
+func TestTemplateHandler_RequestBodyLimit(t *testing.T) {
+	const limit = 1 << 20
+	_, _, serverURL, secretKey, cleanup := setupTemplateHandlerTest(t)
+	defer cleanup()
+	token := createTestToken(secretKey)
+
+	// bodyOf is a JSON object of exactly size bytes, with a name the requests do not read.
+	bodyOf := func(size int) string {
+		head, tail := `{"workspace_id":"workspace123","padding":"`, `"}`
+		return head + strings.Repeat("a", size-len(head)-len(tail)) + tail
+	}
+
+	for _, endpoint := range []string{"templates.create", "templates.update", "templates.compile"} {
+		t.Run(endpoint+" over the limit", func(t *testing.T) {
+			resp := sendRequest(t, http.MethodPost, serverURL+"/api/"+endpoint, token, bodyOf(limit+1))
+			defer func() { _ = resp.Body.Close() }()
+			assert.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
+			var body map[string]interface{}
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+			assert.Contains(t, body["error"], "Request body too large")
+		})
+		t.Run(endpoint+" at the limit", func(t *testing.T) {
+			resp := sendRequest(t, http.MethodPost, serverURL+"/api/"+endpoint, token, bodyOf(limit))
+			defer func() { _ = resp.Body.Close() }()
+			// The request is decoded and fails its own validation, which a padding-only body does.
+			assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		})
+	}
 }

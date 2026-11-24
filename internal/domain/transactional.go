@@ -101,8 +101,11 @@ type TransactionalNotificationCreateParams struct {
 
 // TransactionalNotificationUpdateParams contains the parameters for updating an existing transactional notification
 type TransactionalNotificationUpdateParams struct {
-	Name             string                         `json:"name,omitempty"`
-	Description      string                         `json:"description,omitempty"`
+	Name string `json:"name,omitempty"`
+	// Description is a pointer so an absent key (nil: unchanged) differs from an explicit ""
+	// (clears it). As a plain string, a console clearing the field sent "" and the service kept
+	// the old text while answering 200. A null counts as absent.
+	Description      *string                        `json:"description,omitempty"`
 	Channels         ChannelTemplates               `json:"channels,omitempty"`
 	TrackingSettings notifuse_mjml.TrackingSettings `json:"tracking_settings,omitempty"`
 	Metadata         MapOfAny                       `json:"metadata,omitempty"`
@@ -153,7 +156,7 @@ type TransactionalNotificationSendParams struct {
 	ID           string                 `json:"id" validate:"required"`      // ID of the notification to send
 	ExternalID   *string                `json:"external_id,omitempty"`       // External ID for idempotency checks
 	Contact      *Contact               `json:"contact" validate:"required"` // Contact to send the notification to
-	Channels     []TransactionalChannel `json:"channels,omitempty"`          // Specific channels to send through (if empty, use all configured channels)
+	Channels     []TransactionalChannel `json:"channels,omitempty"`          // Channels to send through; empty means all configured channels, but the API (SendTransactionalRequest.Validate) requires at least one
 	Data         MapOfAny               `json:"data,omitempty"`              // Data to populate the template with
 	Metadata     MapOfAny               `json:"metadata,omitempty"`          // Additional metadata for tracking
 	EmailOptions EmailOptions           `json:"email_options,omitempty"`     // Email options for the notification
@@ -168,6 +171,13 @@ type TestTemplateRequest struct {
 	RecipientEmail string       `json:"recipient_email"`
 	Language       string       `json:"language,omitempty"`
 	EmailOptions   EmailOptions `json:"email_options,omitempty"`
+	// ListID sends the test for a mailing list: it carries that list's unsubscribe links
+	// and the List-Unsubscribe header, as a real send does, and they act on the list.
+	ListID string `json:"list_id,omitempty"`
+	// OmitListUnsubscribeHeader keeps the list's links but leaves out the header, as a
+	// broadcast that also goes to the list's unsubscribed contacts does. No effect
+	// without ListID.
+	OmitListUnsubscribeHeader bool `json:"omit_list_unsubscribe_header,omitempty"`
 }
 
 func (r *TestTemplateRequest) Validate() error {
@@ -188,6 +198,14 @@ func (r *TestTemplateRequest) Validate() error {
 	}
 	if !govalidator.IsEmail(r.RecipientEmail) {
 		return fmt.Errorf("invalid recipient_email format")
+	}
+	if r.ListID != "" {
+		if len(r.ListID) > 32 {
+			return fmt.Errorf("invalid list_id: length must be between 1 and 32")
+		}
+		if !govalidator.IsAlphanumeric(r.ListID) {
+			return fmt.Errorf("invalid list_id: must be alphanumeric")
+		}
 	}
 
 	// Validate CC and BCC email addresses if provided
@@ -241,7 +259,9 @@ type TransactionalNotificationService interface {
 	// SendNotification sends a transactional notification to a contact
 	SendNotification(ctx context.Context, workspaceID string, params TransactionalNotificationSendParams) (string, error)
 
-	TestTemplate(ctx context.Context, workspaceID string, templateID string, integrationID string, senderID string, recipientEmail string, language string, options EmailOptions) error
+	// TestTemplate sends a test email. With listID it is sent for that mailing list,
+	// with the list's List-Unsubscribe header unless omitListUnsubscribeHeader is set.
+	TestTemplate(ctx context.Context, workspaceID string, templateID string, integrationID string, senderID string, recipientEmail string, language string, listID string, omitListUnsubscribeHeader bool, options EmailOptions) error
 }
 
 // Request and response types for transactional notifications
@@ -402,7 +422,7 @@ func (req *UpdateTransactionalRequest) Validate() error {
 	// than on content: a body that sends them emptied is asking for a change, and
 	// rejecting it as an empty update is the same blind spot as ignoring it.
 	if req.Updates.Name == "" &&
-		req.Updates.Description == "" &&
+		req.Updates.Description == nil &&
 		req.Updates.Channels == nil &&
 		req.Updates.Metadata == nil &&
 		!req.Updates.TrackingSettingsSpecified() {

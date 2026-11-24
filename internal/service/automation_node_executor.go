@@ -299,7 +299,7 @@ func (e *EmailNodeExecutor) Execute(ctx context.Context, params NodeExecutionPar
 	messageID := fmt.Sprintf("%s_%s", params.WorkspaceID, uuid.New().String())
 
 	// 6. Setup tracking settings, including this contact's web analytics identity
-	trackingSettings := e.buildTrackingSettings(params, workspace, config.TemplateID, messageID)
+	trackingSettings, trackingDecision := e.buildTrackingSettings(params, workspace, config.TemplateID, messageID)
 
 	// 7. Build template data using shared domain.BuildTemplateData
 	var listID, listName string
@@ -312,6 +312,18 @@ func (e *EmailNodeExecutor) Execute(ctx context.Context, params NodeExecutionPar
 		listName = list.Name
 	}
 
+	providedData := domain.MapOfAny{
+		"automation_id":   params.Automation.ID,
+		"automation_name": params.Automation.Name,
+	}
+	// The event that started this journey, which the enrolment stored (see
+	// schema.AutomationEnrollContactWithTriggerFunction): a custom event's properties, the
+	// list or segment the contact joined, the link clicked. A journey that started before
+	// 44.0 has none, and {{ trigger_event }} is then simply absent.
+	if trigger, ok := triggerEventFromContext(params.Contact); ok {
+		providedData["trigger_event"] = trigger
+	}
+
 	templateData, err := domain.BuildTemplateData(domain.TemplateDataRequest{
 		WorkspaceID:         params.WorkspaceID,
 		WorkspaceSecretKey:  workspace.Settings.SecretKey,
@@ -319,10 +331,8 @@ func (e *EmailNodeExecutor) Execute(ctx context.Context, params NodeExecutionPar
 		ContactWithList:     domain.ContactWithList{Contact: params.ContactData, ListID: listID, ListName: listName},
 		MessageID:           messageID,
 		TrackingSettings:    trackingSettings,
-		ProvidedData: domain.MapOfAny{
-			"automation_id":   params.Automation.ID,
-			"automation_name": params.Automation.Name,
-		},
+		ProvidedData:        providedData,
+		WebVersion:          true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to build template data: %w", err)
@@ -333,7 +343,8 @@ func (e *EmailNodeExecutor) Execute(ctx context.Context, params NodeExecutionPar
 	if params.ContactData.Language != nil && !params.ContactData.Language.IsNull {
 		contactLang = params.ContactData.Language.String
 	}
-	emailContent := template.ResolveEmailContent(contactLang, workspace.Settings.DefaultLanguage)
+	renderedLanguage := template.ResolvedLanguage(contactLang, workspace.Settings.DefaultLanguage)
+	emailContent := template.EmailContentForLanguage(renderedLanguage)
 
 	// 9. Compile template
 	compileReq := notifuse_mjml.CompileTemplateRequest{
@@ -356,6 +367,15 @@ func (e *EmailNodeExecutor) Execute(ctx context.Context, params NodeExecutionPar
 		return nil, fmt.Errorf("%s", errMsg)
 	}
 	htmlContent := *compiledTemplate.HTML
+	if compiledTemplate.TextError != "" {
+		e.logger.WithFields(map[string]interface{}{
+			"automation_id":    params.Automation.ID,
+			"workspace_id":     params.WorkspaceID,
+			"template_id":      template.ID,
+			"template_version": template.Version,
+			"error":            compiledTemplate.TextError,
+		}).Warn("Custom text version could not be used, sending the automatic one")
+	}
 
 	// 10. Process subject line through Liquid templating
 	subject, err := notifuse_mjml.ProcessLiquidTemplate(
@@ -408,12 +428,19 @@ func (e *EmailNodeExecutor) Execute(ctx context.Context, params NodeExecutionPar
 			FromName:            sender.Name,
 			Subject:             subject,
 			HTMLContent:         htmlContent,
+			TextContent:         compiledTemplate.CustomText(),
 			RateLimitPerMinute:  emailProvider.RateLimitPerMinute,
 			ContactAutomationID: contactAutomationID,
 			// The list this email is sent for, as broadcasts set it. The worker stores
 			// it as message_history.list_id, which the complaint/bounce trigger needs
 			// to record the contact's status on the list.
 			ListID: listID,
+			// The version and data it was rendered from, as broadcasts record them: the
+			// worker stores both in message_history, where the web version and the
+			// console's message preview render the email again from them.
+			TemplateVersion:  int(template.Version),
+			TemplateData:     templateData,
+			RenderedLanguage: &renderedLanguage,
 			EmailOptions: domain.EmailOptions{
 				ReplyTo: emailContent.ReplyTo,
 			},
@@ -422,6 +449,7 @@ func (e *EmailNodeExecutor) Execute(ctx context.Context, params NodeExecutionPar
 		CreatedAt:   time.Now().UTC(),
 		UpdatedAt:   time.Now().UTC(),
 	}
+	entry.Payload.OpensTracked, entry.Payload.ClicksTracked = trackingDecision.TrackedFlags()
 
 	// 13. Add List-Unsubscribe header for RFC-8058 compliance
 	if url, ok := templateData["oneclick_unsubscribe_url"].(string); ok && url != "" {
@@ -465,7 +493,11 @@ func (e *EmailNodeExecutor) Execute(ctx context.Context, params NodeExecutionPar
 // true for every hostname when it is empty, so a workspace that enabled web
 // analytics without naming a domain must mint nothing here rather than inherit
 // that fail-open. The per-link host match runs later, in TrackLinks, against
-// these same hosts.
+// these same hosts. The token is also withheld from a contact whose click
+// consent does not allow tracking: it identifies them on the site.
+//
+// Opens and clicks follow the workspace policy and the contact's consent; the
+// decision is returned so the queue entry records what the email tracks.
 //
 // Splitting this out of Execute is what makes that gate testable: with the
 // emptiness check gone, a token is minted but applyIdentityParam still writes
@@ -478,10 +510,12 @@ func (e *EmailNodeExecutor) buildTrackingSettings(
 	workspace *domain.Workspace,
 	templateID string,
 	messageID string,
-) notifuse_mjml.TrackingSettings {
+) (notifuse_mjml.TrackingSettings, domain.EmailTrackingDecision) {
+	decision := domain.ResolveEmailTracking(workspace.Settings.TrackingPolicy(), params.ContactData, "")
+
 	var identifyToken string
 	var identifyAllowedHosts []string
-	if wa := workspace.Settings.WebAnalytics; wa.CanIdentifyFromEmailLinks() {
+	if wa := workspace.Settings.WebAnalytics; decision.Identify && wa.CanIdentifyFromEmailLinks() {
 		token, err := domain.BuildWebIdentifyToken(
 			params.ContactData.Email,
 			workspace.Settings.SecretKey,
@@ -504,23 +538,25 @@ func (e *EmailNodeExecutor) buildTrackingSettings(
 		}
 	}
 
-	return notifuse_mjml.TrackingSettings{
+	settings := notifuse_mjml.TrackingSettings{
 		// Custom endpoint if set, else the API endpoint.
-		Endpoint:       workspace.Settings.ResolveEndpoint(e.apiEndpoint),
-		EnableTracking: workspace.Settings.EmailTrackingEnabled,
-		UTMSource:      "automation",
-		UTMMedium:      "email",
-		UTMCampaign:    params.Automation.Name,
-		UTMContent:     templateID,
-		WorkspaceID:    params.WorkspaceID,
-		MessageID:      messageID,
+		Endpoint:    workspace.Settings.ResolveEndpoint(e.apiEndpoint),
+		UTMSource:   "automation",
+		UTMMedium:   "email",
+		UTMCampaign: params.Automation.Name,
+		UTMContent:  templateID,
+		WorkspaceID: params.WorkspaceID,
+		MessageID:   messageID,
 		// Request-scoped, and both json:"-": the credential reaches the compiler
 		// without ever reaching a stored tracking_settings row. That says nothing
 		// about the HTML the compiler returns, which Execute does persist — see
 		// the queue entry it builds.
 		IdentifyToken:        identifyToken,
 		IdentifyAllowedHosts: identifyAllowedHosts,
+		SigningKey:           domain.TrackingSigningKey(workspace.Settings.SecretKey),
 	}
+	decision.Apply(&settings)
+	return settings, decision
 }
 
 // parseEmailNodeConfig parses email node configuration from map
@@ -621,10 +657,14 @@ func (e *BranchNodeExecutor) Execute(ctx context.Context, params NodeExecutionPa
 	}, nil
 }
 
-// evaluateConditionsWithDB uses QueryBuilder to check if contact matches conditions
+// evaluateConditionsWithDB uses QueryBuilder to check if contact matches conditions.
+//
+// A custom JSON value that cannot be converted reads as missing (BuildDefensiveSQL), as in
+// trigger conditions: raising would only burn the journey's retries on a value that will not
+// change by itself.
 func (e *BranchNodeExecutor) evaluateConditionsWithDB(ctx context.Context, db *sql.DB, email string, conditions *domain.TreeNode) (bool, error) {
 	// Build SQL using QueryBuilder (same as segments/triggers)
-	sqlStr, args, err := e.queryBuilder.BuildSQL(conditions)
+	sqlStr, args, err := e.queryBuilder.BuildDefensiveSQL(conditions)
 	if err != nil {
 		return false, err
 	}
@@ -744,9 +784,10 @@ func (e *FilterNodeExecutor) Execute(ctx context.Context, params NodeExecutionPa
 	}, nil
 }
 
-// evaluateConditionsWithDB uses QueryBuilder to check if contact matches conditions
+// evaluateConditionsWithDB uses QueryBuilder to check if contact matches conditions, a custom
+// JSON value that cannot be converted reading as missing (see BranchNodeExecutor's).
 func (e *FilterNodeExecutor) evaluateConditionsWithDB(ctx context.Context, db *sql.DB, email string, conditions *domain.TreeNode) (bool, error) {
-	sqlStr, args, err := e.queryBuilder.BuildSQL(conditions)
+	sqlStr, args, err := e.queryBuilder.BuildDefensiveSQL(conditions)
 	if err != nil {
 		return false, err
 	}
@@ -812,18 +853,12 @@ func (e *AddToListNodeExecutor) Execute(ctx context.Context, params NodeExecutio
 		UpdatedAt: now,
 	}
 
+	// A contact already in the list is updated in place, and a bounced or complained one is left
+	// as it is, both without an error: an error is a write that did not happen. Failing the step
+	// keeps the journey on it, and the executor retries it.
 	err = e.contactListRepo.AddContactToList(ctx, params.WorkspaceID, contactList)
 	if err != nil {
-		// Log but don't fail - contact might already be in list
-		return &NodeExecutionResult{
-			NextNodeID: params.Node.NextNodeID,
-			Status:     domain.ContactAutomationStatusActive,
-			Output: buildNodeOutput(domain.NodeTypeAddToList, map[string]interface{}{
-				"list_id": config.ListID,
-				"status":  config.Status,
-				"error":   err.Error(),
-			}),
-		}, nil
+		return nil, fmt.Errorf("failed to add contact to list %s: %w", config.ListID, err)
 	}
 
 	return &NodeExecutionResult{
@@ -882,13 +917,18 @@ func (e *RemoveFromListNodeExecutor) Execute(ctx context.Context, params NodeExe
 	// Remove contact from list
 	err = e.contactListRepo.RemoveContactFromList(ctx, params.WorkspaceID, params.Contact.ContactEmail, config.ListID)
 	if err != nil {
-		// Log but don't fail - contact might not be in list
+		// A contact that was never in the list is already where this step wants it.
+		var notFound *domain.ErrContactListNotFound
+		if !errors.As(err, &notFound) {
+			// Any other error is a removal that did not happen: fail the step so it is retried.
+			return nil, fmt.Errorf("failed to remove contact from list %s: %w", config.ListID, err)
+		}
 		return &NodeExecutionResult{
 			NextNodeID: params.Node.NextNodeID,
 			Status:     domain.ContactAutomationStatusActive,
 			Output: buildNodeOutput(domain.NodeTypeRemoveFromList, map[string]interface{}{
-				"list_id": config.ListID,
-				"error":   err.Error(),
+				"list_id":     config.ListID,
+				"not_in_list": true,
 			}),
 		}, nil
 	}
@@ -1119,16 +1159,23 @@ func parseABTestNodeConfig(config map[string]interface{}) (*domain.ABTestNodeCon
 type WebhookNodeExecutor struct {
 	httpClient *http.Client
 	logger     logger.Logger
+	// timeout bounds each call; zero means WebhookNodeTimeout. Tests set it shorter.
+	timeout time.Duration
 }
 
+// WebhookNodeTimeout is how long a webhook node waits for its endpoint. A normal stop lets the
+// node under way finish for automationShutdownDrain, which must exceed it: a call cut by the
+// drain leaves the journey on the node, and the endpoint is posted to again after the restart.
+const WebhookNodeTimeout = 30 * time.Second
+
 // NewWebhookNodeExecutor creates a webhook node executor that sends with
-// httpClient. A nil client gets the SSRF-safe one, with the node's 30s timeout,
+// httpClient. A nil client gets the SSRF-safe one, with WebhookNodeTimeout,
 // rather than an unguarded default: a caller that forgets to wire a client must
 // fail closed.
 func NewWebhookNodeExecutor(log logger.Logger, httpClient *http.Client) *WebhookNodeExecutor {
 	if httpClient == nil {
 		httpClient = safehttpclient.New()
-		httpClient.Timeout = 30 * time.Second
+		httpClient.Timeout = WebhookNodeTimeout
 	}
 	return &WebhookNodeExecutor{
 		httpClient: httpClient,
@@ -1157,7 +1204,13 @@ func (e *WebhookNodeExecutor) Execute(ctx context.Context, params NodeExecutionP
 		return nil, fmt.Errorf("failed to marshal webhook payload: %w", err)
 	}
 
-	// 3. Create HTTP request
+	// 3. Create HTTP request, bounded by the node's own timeout whatever the client's
+	timeout := e.timeout
+	if timeout <= 0 {
+		timeout = WebhookNodeTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, config.URL, bytes.NewReader(payloadBytes))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create webhook request: %w", err)
@@ -1267,4 +1320,17 @@ func parseWebhookNodeConfig(config map[string]interface{}) (*domain.WebhookNodeC
 	}
 
 	return &c, nil
+}
+
+// triggerEventFromContext returns the trigger event stored in a journey's context, if any.
+// Only an object counts: the enrolment writes one or nothing, so anything else is not ours.
+func triggerEventFromContext(contact *domain.ContactAutomation) (map[string]interface{}, bool) {
+	if contact == nil || contact.Context == nil {
+		return nil, false
+	}
+	trigger, ok := contact.Context["trigger"].(map[string]interface{})
+	if !ok || len(trigger) == 0 {
+		return nil, false
+	}
+	return trigger, true
 }

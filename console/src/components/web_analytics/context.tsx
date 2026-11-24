@@ -1,27 +1,25 @@
-import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useAuth } from '../../contexts/AuthContext'
-import { Workspace } from '../../services/api/workspace'
-import { WebAnalyticsSettings } from '../../services/api/web_analytics'
 import { getBrowserTimezone } from '../../lib/timezoneNormalizer'
 import {
   computeComparisonRange,
   computeDateRange,
-  DayjsRange,
   determineGranularity,
   determineGranularityForRange,
   getAvailableGranularities,
   resolveRange
 } from './lib/dates'
+import { WebAnalyticsContext, type WebAnalyticsContextValue } from './webAnalyticsContext'
 import {
   ComparisonMode,
   DATE_PRESETS,
   DatePreset,
   Granularity,
-  ResolvedRange,
   WebDimensionFilter,
   WebMetricFilter
 } from './lib/types'
+import { DEFAULT_MIN_SESSIONS, minSessionsParam } from './lib/minSessions'
 
 // The tab tuple now lives in ./lib/types, the leaf module every web analytics
 // module already imports: the AI tool definitions need the names as a value, and
@@ -49,53 +47,10 @@ export interface WebAnalyticsSearch {
 
 export const DEFAULT_PERIOD: DatePreset = 'previous_7_days'
 export const DEFAULT_COMPARISON: ComparisonMode = 'previous_period'
-export const DEFAULT_MIN_SESSIONS = 10
+export { DEFAULT_MIN_SESSIONS }
 
 const PERIOD_STORAGE_KEY = 'web_analytics_period'
 const COMPARISON_STORAGE_KEY = 'web_analytics_comparison'
-
-interface WebAnalyticsContextValue {
-  workspaceId: string
-  workspace?: Workspace
-  settings?: WebAnalyticsSettings
-  customDimensionLabels?: Record<string, string>
-
-  timezone: string
-  period: DatePreset
-  comparison: ComparisonMode
-  showComparison: boolean
-  customStart?: string
-  customEnd?: string
-
-  range: DayjsRange
-  resolved: ResolvedRange
-  compareRange: DayjsRange | null
-  resolvedCompare: ResolvedRange | null
-
-  granularity: Granularity
-  availableGranularities: Granularity[]
-  setGranularity: (granularity: Granularity | null) => void
-
-  filters: WebDimensionFilter[]
-  metricFilters: WebMetricFilter[]
-  minSessions: number
-  dimensions: string[]
-  tag?: string
-
-  setPeriod: (period: DatePreset) => void
-  setCustomRange: (start: string, end: string) => void
-  setComparison: (comparison: ComparisonMode) => void
-  setTimezone: (timezone: string) => void
-  setFilters: (filters: WebDimensionFilter[]) => void
-  /** Adds a filter, or removes it when the same one is already applied. */
-  toggleFilter: (filter: WebDimensionFilter | WebDimensionFilter[]) => void
-  setMetricFilters: (filters: WebMetricFilter[]) => void
-  setMinSessions: (minSessions: number) => void
-  setDimensions: (dimensions: string[]) => void
-  setTag: (tag?: string) => void
-}
-
-const WebAnalyticsContext = createContext<WebAnalyticsContextValue | null>(null)
 
 function parseJsonParam<T>(raw: string | undefined): T[] {
   if (!raw) return []
@@ -284,20 +239,12 @@ export function WebAnalyticsProvider(props: { workspaceId: string; children: Rea
     toggleFilter,
     setMetricFilters: (next) =>
       patchSearch({ metricFilters: next.length > 0 ? JSON.stringify(next) : undefined }),
-    setMinSessions: (next) =>
-      patchSearch({ minSessions: next > 1 ? next : undefined }),
+    // Only the default leaves the URL: 1 (no floor) is a choice of its own, not the absence of one.
+    setMinSessions: (next) => patchSearch({ minSessions: minSessionsParam(next) }),
     setDimensions: (next) =>
       patchSearch({ dimensions: next.length > 0 ? next.join(',') : undefined }),
     setTag: (next) => patchSearch({ tag: next })
   }
 
   return <WebAnalyticsContext.Provider value={value}>{children}</WebAnalyticsContext.Provider>
-}
-
-export function useWebAnalytics(): WebAnalyticsContextValue {
-  const context = useContext(WebAnalyticsContext)
-  if (!context) {
-    throw new Error('useWebAnalytics must be used inside a WebAnalyticsProvider')
-  }
-  return context
 }

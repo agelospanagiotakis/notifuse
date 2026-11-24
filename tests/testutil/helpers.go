@@ -578,9 +578,15 @@ func WaitForBroadcastStatus(t *testing.T, client *APIClient, broadcastID string,
 // Returns the final status reached or an error if timeout occurs.
 func WaitForBroadcastStatusWithExecution(t *testing.T, client *APIClient, broadcastID string, acceptableStatuses []string, timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)
-	pollInterval := 1 * time.Second
-	taskExecutionInterval := 2 * time.Second
+	// The harness makes a send-now task due shortly after it is scheduled (see
+	// NewServerManager), and a broadcast takes more than one task run: polling at
+	// this pace keeps the wait close to that instead of rounding each run up to
+	// seconds. Only failures and status changes are logged, so a long wait stays
+	// readable in CI logs.
+	pollInterval := 250 * time.Millisecond
+	taskExecutionInterval := 500 * time.Millisecond
 	lastTaskExecution := time.Now()
+	lastStatus := ""
 
 	t.Logf("Starting WaitForBroadcastStatusWithExecution for broadcast %s (timeout: %v)", broadcastID, timeout)
 	t.Logf("Acceptable statuses: %v", acceptableStatuses)
@@ -594,20 +600,18 @@ func WaitForBroadcastStatusWithExecution(t *testing.T, client *APIClient, broadc
 		// Execute pending tasks periodically
 		if time.Since(lastTaskExecution) >= taskExecutionInterval {
 			taskExecutionCount++
-			t.Logf("Executing pending tasks (cycle %d)", taskExecutionCount)
 
 			execResp, err := client.ExecutePendingTasks(10)
 			if err != nil {
-				t.Logf("Warning: ExecutePendingTasks failed: %v", err)
+				t.Logf("Warning: ExecutePendingTasks failed (cycle %d): %v", taskExecutionCount, err)
 			} else {
 				execResp.Body.Close()
-				t.Logf("Task execution completed successfully")
 			}
 
 			lastTaskExecution = time.Now()
 
 			// Give tasks time to process
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		}
 
 		// Check broadcast status
@@ -627,8 +631,10 @@ func WaitForBroadcastStatusWithExecution(t *testing.T, client *APIClient, broadc
 		if broadcastData, ok := result["broadcast"].(map[string]interface{}); ok {
 			if status, ok := broadcastData["status"].(string); ok {
 				// Log current status every few iterations
-				if iterationCount%3 == 1 {
-					t.Logf("Broadcast %s current status: %s (iteration %d)", broadcastID, status, iterationCount)
+				if status != lastStatus {
+					t.Logf("Broadcast %s current status: %s (iteration %d, %d task executions)",
+						broadcastID, status, iterationCount, taskExecutionCount)
+					lastStatus = status
 				}
 
 				// Check if we've reached an acceptable status
@@ -1222,10 +1228,17 @@ func GetMailpitMessage(t *testing.T, messageID string) (*MailpitMessage, error) 
 	}
 	defer headersResp.Body.Close()
 
-	if headersResp.StatusCode == http.StatusOK {
-		if err := json.NewDecoder(headersResp.Body).Decode(&msg.Headers); err != nil {
-			t.Logf("Warning: failed to decode Mailpit headers: %v", err)
-		}
+	// A message returned without its headers would let an assertion that a header is
+	// absent pass on nothing, so headers that could not be read are an error. Every email
+	// has headers, so an empty set (a null body included) means they were not read.
+	if headersResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code from Mailpit headers of message %s: %d", messageID, headersResp.StatusCode)
+	}
+	if err := json.NewDecoder(headersResp.Body).Decode(&msg.Headers); err != nil {
+		return nil, fmt.Errorf("failed to decode Mailpit headers of message %s: %w", messageID, err)
+	}
+	if len(msg.Headers) == 0 {
+		return nil, fmt.Errorf("no headers returned by Mailpit for message %s", messageID)
 	}
 
 	return &msg, nil
@@ -1252,10 +1265,26 @@ func GetMailpitMessageRaw(t *testing.T, messageID string) (string, error) {
 	return string(body), nil
 }
 
+// GetMailpitMessageEventually reads a message, polling again after a failed read until the
+// timeout. A scan that skipped a message it could not read would miss the email it looks for,
+// or pass an assertion that no such email exists.
+func GetMailpitMessageEventually(t *testing.T, messageID string, timeout time.Duration) (*MailpitMessage, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		msg, err := GetMailpitMessage(t, messageID)
+		if err == nil || !time.Now().Before(deadline) {
+			return msg, err
+		}
+		t.Logf("Failed to read Mailpit message %s, polling again: %v", messageID, err)
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
 // WaitForMailpitMessageByRecipient polls Mailpit until an email for the given recipient is found,
 // then returns the full MailpitMessage (with Subject, HTML, Text fields).
 func WaitForMailpitMessageByRecipient(t *testing.T, recipientEmail string, timeout time.Duration) (*MailpitMessage, error) {
 	deadline := time.Now().Add(timeout)
+	var lastErr error
 	httpClient := &http.Client{Timeout: 5 * time.Second}
 	pollInterval := 500 * time.Millisecond
 
@@ -1277,15 +1306,28 @@ func WaitForMailpitMessageByRecipient(t *testing.T, recipientEmail string, timeo
 			continue
 		}
 
+	scan:
 		for _, msg := range apiResp.Messages {
 			for _, to := range msg.To {
 				if strings.EqualFold(recipientEmail, to.Address) {
 					t.Logf("Found email for recipient: %s (message ID: %s)", recipientEmail, msg.ID)
-					return GetMailpitMessage(t, msg.ID)
+					found, err := GetMailpitMessage(t, msg.ID)
+					if err == nil {
+						return found, nil
+					}
+					// A passing Mailpit failure: poll again until the deadline. The scan stops
+					// at this newest match, so a failed read never falls back to an older
+					// email to the same recipient.
+					lastErr = err
+					t.Logf("Failed to read Mailpit message %s: %v", msg.ID, err)
+					break scan
 				}
 			}
 		}
 		time.Sleep(pollInterval)
+	}
+	if lastErr != nil {
+		return nil, fmt.Errorf("timeout waiting for email to %s after %v: %w", recipientEmail, timeout, lastErr)
 	}
 	return nil, fmt.Errorf("timeout waiting for email to %s after %v", recipientEmail, timeout)
 }
@@ -1295,8 +1337,9 @@ func WaitForMailpitMessageByRecipient(t *testing.T, recipientEmail string, timeo
 func GetMailpitMessageCount(t *testing.T, subject string) (int, error) {
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 
-	// Use the search API to find messages by subject
-	// Mailpit supports search queries in the format: subject:"text"
+	// The search API answers for a subject without a space. The subject goes into the URL
+	// unescaped and unquoted, so Mailpit refuses one with a space (400) and the count comes
+	// from listing the messages: the path most callers take.
 	searchURL := fmt.Sprintf("http://localhost:8025/api/v1/search?query=subject:%s", subject)
 	resp, err := httpClient.Get(searchURL)
 	if err != nil {
@@ -1305,7 +1348,7 @@ func GetMailpitMessageCount(t *testing.T, subject string) (int, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		// Fall back to listing all messages if search not supported
+		// A refused query (a subject with a space): count by listing
 		return getMailpitMessageCountByListing(t, subject)
 	}
 
@@ -1314,7 +1357,15 @@ func GetMailpitMessageCount(t *testing.T, subject string) (int, error) {
 		return 0, fmt.Errorf("failed to decode Mailpit search response: %w", err)
 	}
 
-	return apiResp.Total, nil
+	// messages_count is the search's count; total is the whole mailbox.
+	return apiResp.MessagesCount, nil
+}
+
+// CountMailpitMessagesBySubject counts the listed messages whose subject contains subject. It
+// reads the list alone, no message's headers, and compares the subjects itself rather than
+// going through Mailpit's search.
+func CountMailpitMessagesBySubject(t *testing.T, subject string) (int, error) {
+	return getMailpitMessageCountByListing(t, subject)
 }
 
 // getMailpitMessageCountByListing counts messages by listing all and filtering by subject
@@ -1380,6 +1431,43 @@ func GetAllMailpitRecipients(t *testing.T, subject string) (map[string]bool, err
 
 	t.Logf("Found %d unique recipients for subject containing '%s'", len(recipients), subject)
 	return recipients, nil
+}
+
+// GetMailpitMessagesByRecipient returns, for each recipient of a message whose subject
+// contains subject, every such message they received, with its headers.
+func GetMailpitMessagesByRecipient(t *testing.T, subject string) (map[string][]*MailpitMessage, error) {
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+
+	resp, err := httpClient.Get("http://localhost:8025/api/v1/messages?limit=10000")
+	if err != nil {
+		return nil, fmt.Errorf("failed to list Mailpit messages: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code listing Mailpit messages: %d", resp.StatusCode)
+	}
+
+	var apiResp MailpitMessagesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return nil, fmt.Errorf("failed to decode Mailpit response: %w", err)
+	}
+
+	messages := make(map[string][]*MailpitMessage)
+	for _, summary := range apiResp.Messages {
+		if !strings.Contains(summary.Subject, subject) {
+			continue
+		}
+		msg, err := GetMailpitMessageEventually(t, summary.ID, 5*time.Second)
+		if err != nil {
+			return nil, err
+		}
+		for _, to := range summary.To {
+			if email := strings.ToLower(strings.TrimSpace(to.Address)); email != "" {
+				messages[email] = append(messages[email], msg)
+			}
+		}
+	}
+	return messages, nil
 }
 
 // WaitForMailpitMessages waits until the expected count of messages arrive in Mailpit

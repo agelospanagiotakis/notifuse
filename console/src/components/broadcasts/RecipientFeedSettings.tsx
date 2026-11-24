@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import {
-  Switch,
   Input,
   Button,
   Space,
@@ -43,6 +42,8 @@ export function RecipientFeedSettings({
   const { t } = useLingui()
   const { message } = App.useApp()
   const [testEmail, setTestEmail] = useState('')
+  // A feed just switched on has no URL yet: "URL is required" waits until the field is left empty.
+  const [urlTouched, setUrlTouched] = useState(false)
   const [testResult, setTestResult] = useState<TestRecipientFeedResponse | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
 
@@ -84,53 +85,51 @@ export function RecipientFeedSettings({
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <Text strong>{t`Per-Recipient Data Feed`}</Text>
-        <Switch
-          checked={settings.enabled}
-          onChange={(checked) => handleChange('enabled', checked)}
-          disabled={disabled}
-        />
-      </div>
-
       {settings.enabled ? (
         <div className="space-y-4">
-          <Alert
-            description={t`This feature makes an HTTP request for each recipient before sending their email. This can significantly slow down broadcast processing. If the feed request fails after retries, the broadcast will pause automatically.`}
-            type="info"
-            className="!mb-6"
-          />
-
           <Form.Item
             label={
               <Space size={4}>
-                <span>{t`Per-recipient feed URL`}</span>
+                <span>{t`Feed URL`}</span>
                 <Tooltip title={t`The URL must use HTTPS. A POST request will be sent with contact information for each recipient.`}>
                   <QuestionCircleOutlined className="text-gray-400 cursor-help" />
                 </Tooltip>
               </Space>
             }
             required
-            validateStatus={settings.enabled && !settings.url ? 'error' : undefined}
-            help={settings.enabled && !settings.url ? t`URL is required` : undefined}
+            colon={false}
+            validateStatus={urlTouched && !settings.url ? 'error' : undefined}
+            help={urlTouched && !settings.url ? t`URL is required` : undefined}
           >
             <Space.Compact className="w-full">
               <Input
                 placeholder="https://api.example.com/recipient-data"
                 value={settings.url}
                 onChange={(e) => handleChange('url', e.target.value)}
+                onBlur={() => setUrlTouched(true)}
                 disabled={disabled}
               />
-              <Button
-                type="primary"
-                ghost
-                onClick={() => setModalOpen(true)}
-                disabled={disabled || !settings.url || !broadcastId}
-              >
-                {t`Test`}
-              </Button>
+              {/* The test calls the feed for a stored broadcast; a disabled button fires no mouse event, hence the span. */}
+              <Tooltip title={broadcastId ? undefined : t`Save the broadcast first`}>
+                <span className="inline-flex">
+                  <Button
+                    type="primary"
+                    ghost
+                    onClick={() => setModalOpen(true)}
+                    disabled={disabled || !settings.url || !broadcastId}
+                  >
+                    {t`Test`}
+                  </Button>
+                </span>
+              </Tooltip>
             </Space.Compact>
           </Form.Item>
+
+          {/* Under the URL: what calling it for each recipient costs. */}
+          <Alert
+            description={t`This feature makes an HTTP request for each recipient before sending their email. This can significantly slow down broadcast processing. If the feed request fails after retries, the broadcast will pause automatically.`}
+            type="info"
+          />
 
           <HeadersEditor
             value={settings.headers}
@@ -224,11 +223,7 @@ export function RecipientFeedSettings({
             </div>
           </Modal>
         </div>
-      ) : (
-        <Text type="secondary">
-          {t`Enable to fetch personalized data for each recipient before sending their email. The data will be accessible in your templates using the "recipient_feed" variable.`}
-        </Text>
-      )}
+      ) : null}
     </div>
   )
 }

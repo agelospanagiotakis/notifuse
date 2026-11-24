@@ -33,7 +33,11 @@ const broadcastListColumns = `id,
 			cancelled_at,
 			paused_at,
 			pause_reason,
-			data_feed`
+			data_feed,
+			tracking_mode,
+			COALESCE(test_phase_recipient_count, 0),
+			COALESCE(winner_phase_recipient_count, 0),
+			COALESCE(test_paused_seconds, 0)`
 
 // escapeLikePattern escapes the characters that carry special meaning in a SQL
 // LIKE/ILIKE pattern so a user-provided search term is matched literally.
@@ -120,9 +124,12 @@ func (r *broadcastRepository) CreateBroadcastTx(ctx context.Context, tx *sql.Tx,
 			cancelled_at,
 			paused_at,
 			pause_reason,
-			data_feed
+			data_feed,
+			tracking_mode,
+			test_phase_recipient_count,
+			winner_phase_recipient_count
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NULLIF($22, ''), $23, $24
 		)
 	`
 
@@ -148,6 +155,9 @@ func (r *broadcastRepository) CreateBroadcastTx(ctx context.Context, tx *sql.Tx,
 		broadcast.PausedAt,
 		broadcast.PauseReason,
 		broadcast.DataFeed,
+		broadcast.TrackingMode,
+		broadcast.TestPhaseRecipientCount,
+		broadcast.WinnerPhaseRecipientCount,
 	)
 
 	if err != nil {
@@ -157,15 +167,9 @@ func (r *broadcastRepository) CreateBroadcastTx(ctx context.Context, tx *sql.Tx,
 	return nil
 }
 
-// GetBroadcast retrieves a broadcast by ID
-func (r *broadcastRepository) GetBroadcast(ctx context.Context, workspaceID, id string) (*domain.Broadcast, error) {
-	// Get the workspace database connection
-	workspaceDB, err := r.workspaceRepo.GetConnection(ctx, workspaceID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get workspace connection: %w", err)
-	}
-
-	query := `
+// getBroadcastQuery reads one broadcast by id; GetBroadcast and getBroadcastTx
+// share it so the columns scanBroadcast expects are listed once.
+const getBroadcastQuery = `
 		SELECT
 			id,
 			workspace_id,
@@ -187,10 +191,24 @@ func (r *broadcastRepository) GetBroadcast(ctx context.Context, workspaceID, id 
 			cancelled_at,
 			paused_at,
 			pause_reason,
-			data_feed
+			data_feed,
+			tracking_mode,
+			COALESCE(test_phase_recipient_count, 0),
+			COALESCE(winner_phase_recipient_count, 0),
+			COALESCE(test_paused_seconds, 0)
 		FROM broadcasts
 		WHERE id = $1 AND workspace_id = $2
 	`
+
+// GetBroadcast retrieves a broadcast by ID
+func (r *broadcastRepository) GetBroadcast(ctx context.Context, workspaceID, id string) (*domain.Broadcast, error) {
+	// Get the workspace database connection
+	workspaceDB, err := r.workspaceRepo.GetConnection(ctx, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workspace connection: %w", err)
+	}
+
+	query := getBroadcastQuery
 
 	row := workspaceDB.QueryRowContext(ctx, query, id, workspaceID)
 
@@ -207,32 +225,17 @@ func (r *broadcastRepository) GetBroadcast(ctx context.Context, workspaceID, id 
 
 // GetBroadcastTx retrieves a broadcast by ID within a transaction
 func (r *broadcastRepository) GetBroadcastTx(ctx context.Context, tx *sql.Tx, workspaceID, id string) (*domain.Broadcast, error) {
-	query := `
-		SELECT
-			id,
-			workspace_id,
-			name,
-			status,
-			audience,
-			schedule,
-			test_settings,
-			utm_parameters,
-			metadata,
-			winning_template,
-			test_sent_at,
-			winner_sent_at,
-			enqueued_count,
-			created_at,
-			updated_at,
-			started_at,
-			completed_at,
-			cancelled_at,
-			paused_at,
-			pause_reason,
-			data_feed
-		FROM broadcasts
-		WHERE id = $1 AND workspace_id = $2
-	`
+	return r.getBroadcastTx(ctx, tx, workspaceID, id, "")
+}
+
+// GetBroadcastForUpdateTx retrieves a broadcast by ID within a transaction and
+// locks its row until the transaction ends.
+func (r *broadcastRepository) GetBroadcastForUpdateTx(ctx context.Context, tx *sql.Tx, workspaceID, id string) (*domain.Broadcast, error) {
+	return r.getBroadcastTx(ctx, tx, workspaceID, id, "FOR UPDATE")
+}
+
+func (r *broadcastRepository) getBroadcastTx(ctx context.Context, tx *sql.Tx, workspaceID, id, lock string) (*domain.Broadcast, error) {
+	query := getBroadcastQuery + lock
 
 	row := tx.QueryRowContext(ctx, query, id, workspaceID)
 
@@ -272,13 +275,16 @@ func (r *broadcastRepository) UpdateBroadcastTx(ctx context.Context, tx *sql.Tx,
 			test_sent_at = $11,
 			winner_sent_at = $12,
 			updated_at = $13,
-			started_at = $14,
+			started_at = COALESCE($14, started_at),
 			completed_at = $15,
 			cancelled_at = $16,
 			paused_at = $17,
 			pause_reason = $18,
 			enqueued_count = $19,
-			data_feed = $20
+			data_feed = $20,
+			tracking_mode = NULLIF($21, ''),
+			test_phase_recipient_count = $22,
+			winner_phase_recipient_count = $23
 		WHERE id = $1 AND workspace_id = $2
 			AND status != 'cancelled'
 			AND status != 'processed'
@@ -305,6 +311,9 @@ func (r *broadcastRepository) UpdateBroadcastTx(ctx context.Context, tx *sql.Tx,
 		broadcast.PauseReason,
 		broadcast.EnqueuedCount,
 		broadcast.DataFeed,
+		broadcast.TrackingMode,
+		broadcast.TestPhaseRecipientCount,
+		broadcast.WinnerPhaseRecipientCount,
 	)
 
 	if err != nil {
@@ -328,13 +337,17 @@ func (r *broadcastRepository) UpdateBroadcastTx(ctx context.Context, tx *sql.Tx,
 // so pause/resume/cancel flows can transition a Processed broadcast.
 // Only updates: status, started_at, completed_at, cancelled_at, paused_at,
 // pause_reason, updated_at.
+//
+// started_at, here and in UpdateBroadcastTx, is only ever set, never cleared: a nil start
+// date keeps the stored one. A sending run stamps it with MarkBroadcastStarted while a
+// cancel or an update holding an older copy of the broadcast may be writing it back.
 func (r *broadcastRepository) UpdateBroadcastStatusTx(ctx context.Context, tx *sql.Tx, broadcast *domain.Broadcast) error {
 	broadcast.UpdatedAt = time.Now().UTC()
 
 	query := `
 		UPDATE broadcasts SET
 			status = $3,
-			started_at = $4,
+			started_at = COALESCE($4, started_at),
 			completed_at = $5,
 			cancelled_at = $6,
 			paused_at = $7,
@@ -366,6 +379,85 @@ func (r *broadcastRepository) UpdateBroadcastStatusTx(ctx context.Context, tx *s
 		return &domain.ErrBroadcastNotFound{ID: broadcast.ID}
 	}
 	return nil
+}
+
+// MarkBroadcastStarted sets started_at only while it is NULL, in a single statement, so a
+// start date already stored is never overwritten and no column a concurrent writer may be
+// changing (status, counters) is written. No row written means the date was already set
+// or the broadcast is gone; neither is an error for the caller, which only records a start.
+func (r *broadcastRepository) MarkBroadcastStarted(ctx context.Context, workspaceID, broadcastID string, startedAt time.Time) error {
+	db, err := r.workspaceRepo.GetConnection(ctx, workspaceID)
+	if err != nil {
+		return fmt.Errorf("failed to get workspace connection: %w", err)
+	}
+
+	query := `UPDATE broadcasts SET started_at = $3 WHERE id = $1 AND workspace_id = $2 AND started_at IS NULL`
+	if _, err := db.ExecContext(ctx, query, broadcastID, workspaceID, startedAt); err != nil {
+		return fmt.Errorf("failed to mark broadcast started: %w", err)
+	}
+	return nil
+}
+
+// AddTestPauseTx adds seconds to test_paused_seconds, inside tx, if the broadcast is still
+// paused since pausedAt, and reports whether it did. The increment is made on the row, not
+// from a copy, so a write that read the broadcast earlier does not undo it.
+func (r *broadcastRepository) AddTestPauseTx(ctx context.Context, tx *sql.Tx, workspaceID, broadcastID string, pausedAt time.Time, seconds int) (bool, error) {
+	query := `
+		UPDATE broadcasts SET test_paused_seconds = test_paused_seconds + $3
+		WHERE id = $1 AND workspace_id = $2 AND status = 'paused' AND paused_at = $4`
+	result, err := tx.ExecContext(ctx, query, broadcastID, workspaceID, seconds, pausedAt)
+	if err != nil {
+		return false, fmt.Errorf("failed to count the time the A/B test spent paused: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	return n > 0, nil
+}
+
+// StartScheduledBroadcast moves a broadcast still scheduled to the status its sending starts
+// in, chosen on the row it writes: testing for an A/B test with no winner yet, processing
+// otherwise. Chosen on the row, a save committed after the caller read the broadcast is
+// taken into account, and the run that starts the sending never writes its own older copy
+// over it. READ COMMITTED whatever the server's default, as UpdateBroadcastStatusUnless: a
+// write waiting on the row lock re-checks the status once the holder commits, so a cancel or
+// a return to draft committed first leaves the row alone.
+func (r *broadcastRepository) StartScheduledBroadcast(ctx context.Context, workspaceID, broadcastID string, at time.Time) (bool, error) {
+	db, err := r.workspaceRepo.GetConnection(ctx, workspaceID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get workspace connection: %w", err)
+	}
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return false, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	query := `
+		UPDATE broadcasts SET
+			status = CASE
+				WHEN COALESCE((test_settings->>'enabled')::boolean, false) AND winning_template IS NULL
+				THEN 'testing' ELSE 'processing' END,
+			updated_at = $3
+		WHERE id = $1 AND workspace_id = $2 AND status = 'scheduled'`
+
+	result, err := tx.ExecContext(ctx, query, broadcastID, workspaceID, at)
+	if err != nil {
+		return false, fmt.Errorf("failed to start the scheduled broadcast: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return false, nil
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	return true, nil
 }
 
 // UpdateBroadcastStatusUnless writes the status, pause time and pause reason,
@@ -424,38 +516,48 @@ func (r *broadcastRepository) UpdateBroadcastStatusUnless(ctx context.Context, b
 	return true, nil
 }
 
-// ListBroadcastsTx retrieves a list of broadcasts within a transaction
-func (r *broadcastRepository) ListBroadcastsTx(ctx context.Context, tx *sql.Tx, params domain.ListBroadcastsParams) (*domain.BroadcastListResponse, error) {
-	// Build the WHERE clause dynamically from the provided filters so status
-	// and name search can be combined in any arrangement.
+// broadcastListWhere builds the WHERE clause of broadcasts.list and its arguments,
+// numbering its own placeholders. withStatus false leaves the status filter out, for the
+// status counts.
+func broadcastListWhere(params domain.ListBroadcastsParams, withStatus bool) (string, []interface{}) {
 	conditions := []string{"workspace_id = $1"}
 	args := []interface{}{params.WorkspaceID}
-	argIdx := 2
+	next := func(value interface{}) string {
+		args = append(args, value)
+		return fmt.Sprintf("$%d", len(args))
+	}
 
 	// Status filter: prefer the multi-status list, falling back to the single
 	// Status field for backward compatibility.
-	if len(params.Statuses) > 0 {
-		placeholders := make([]string, len(params.Statuses))
-		for i, status := range params.Statuses {
-			placeholders[i] = fmt.Sprintf("$%d", argIdx)
-			args = append(args, status)
-			argIdx++
+	if withStatus {
+		if len(params.Statuses) > 0 {
+			placeholders := make([]string, len(params.Statuses))
+			for i, status := range params.Statuses {
+				placeholders[i] = next(status)
+			}
+			conditions = append(conditions, fmt.Sprintf("status IN (%s)", strings.Join(placeholders, ", ")))
+		} else if params.Status != "" {
+			conditions = append(conditions, "status = "+next(params.Status))
 		}
-		conditions = append(conditions, fmt.Sprintf("status IN (%s)", strings.Join(placeholders, ", ")))
-	} else if params.Status != "" {
-		conditions = append(conditions, fmt.Sprintf("status = $%d", argIdx))
-		args = append(args, params.Status)
-		argIdx++
 	}
 
 	// Search filter: case-insensitive substring match on the broadcast name.
 	if params.Search != "" {
-		conditions = append(conditions, fmt.Sprintf("name ILIKE $%d", argIdx))
-		args = append(args, "%"+escapeLikePattern(params.Search)+"%")
-		argIdx++
+		conditions = append(conditions, "name ILIKE "+next("%"+escapeLikePattern(params.Search)+"%"))
 	}
 
-	whereClause := strings.Join(conditions, " AND ")
+	// A broadcast that never started has a NULL started_at, which this leaves out.
+	if params.StartedAfter != nil {
+		conditions = append(conditions, "started_at >= "+next(params.StartedAfter.UTC()))
+	}
+
+	return strings.Join(conditions, " AND "), args
+}
+
+// ListBroadcastsTx retrieves a list of broadcasts within a transaction
+func (r *broadcastRepository) ListBroadcastsTx(ctx context.Context, tx *sql.Tx, params domain.ListBroadcastsParams) (*domain.BroadcastListResponse, error) {
+	whereClause, args := broadcastListWhere(params, true)
+	argIdx := len(args) + 1
 
 	// First count total records that match the criteria
 	countQuery := "SELECT COUNT(*) FROM broadcasts WHERE " + whereClause
@@ -464,6 +566,15 @@ func (r *broadcastRepository) ListBroadcastsTx(ctx context.Context, tx *sql.Tx, 
 	err := tx.QueryRowContext(ctx, countQuery, args...).Scan(&totalCount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to count broadcasts: %w", err)
+	}
+
+	// The status counts run before the data query: lib/pq refuses a query on the
+	// transaction while another query's rows are open.
+	var statusCounts map[domain.BroadcastStatus]int
+	if params.WithStatusCounts {
+		if statusCounts, err = countBroadcastsByStatus(ctx, tx, params); err != nil {
+			return nil, err
+		}
 	}
 
 	// Then query paginated data using the same filters plus pagination.
@@ -493,9 +604,35 @@ func (r *broadcastRepository) ListBroadcastsTx(ctx context.Context, tx *sql.Tx, 
 	}
 
 	return &domain.BroadcastListResponse{
-		Broadcasts: broadcasts,
-		TotalCount: totalCount,
+		Broadcasts:   broadcasts,
+		TotalCount:   totalCount,
+		StatusCounts: statusCounts,
 	}, nil
+}
+
+// countBroadcastsByStatus counts the broadcasts of each status under every list filter but
+// the status one, so each status tab shows its own number.
+func countBroadcastsByStatus(ctx context.Context, tx *sql.Tx, params domain.ListBroadcastsParams) (map[domain.BroadcastStatus]int, error) {
+	whereClause, args := broadcastListWhere(params, false)
+	rows, err := tx.QueryContext(ctx, "SELECT status, COUNT(*) FROM broadcasts WHERE "+whereClause+" GROUP BY status", args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count broadcasts by status: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	counts := map[domain.BroadcastStatus]int{}
+	for rows.Next() {
+		var status domain.BroadcastStatus
+		var n int
+		if err := rows.Scan(&status, &n); err != nil {
+			return nil, fmt.Errorf("failed to scan broadcast status count: %w", err)
+		}
+		counts[status] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read broadcast status counts: %w", err)
+	}
+	return counts, nil
 }
 
 // ListBroadcasts retrieves a list of broadcasts
@@ -558,6 +695,22 @@ func (r *broadcastRepository) DeleteBroadcastTx(ctx context.Context, tx *sql.Tx,
 	return nil
 }
 
+// HasSendActivityTx reports whether the broadcast has an email in the queue or in the message
+// history, both in the workspace database. Each reads an index: idx_email_queue_source and
+// idx_message_history_broadcast_id.
+func (r *broadcastRepository) HasSendActivityTx(ctx context.Context, tx *sql.Tx, broadcastID string) (bool, error) {
+	query := `
+		SELECT
+			EXISTS (SELECT 1 FROM email_queue WHERE source_type = $1 AND source_id = $2)
+			OR EXISTS (SELECT 1 FROM message_history WHERE broadcast_id = $2)
+	`
+	var active bool
+	if err := tx.QueryRowContext(ctx, query, string(domain.EmailQueueSourceBroadcast), broadcastID).Scan(&active); err != nil {
+		return false, fmt.Errorf("failed to read the broadcast's send activity: %w", err)
+	}
+	return active, nil
+}
+
 // scanBroadcast scans a row into a Broadcast struct
 func scanBroadcast(scanner interface {
 	Scan(dest ...interface{}) error
@@ -566,6 +719,7 @@ func scanBroadcast(scanner interface {
 	var winningTemplate sql.NullString
 	var pauseReason sql.NullString
 	var dataFeed domain.DataFeedSettings
+	var trackingMode sql.NullString
 
 	err := scanner.Scan(
 		&broadcast.ID,
@@ -589,6 +743,10 @@ func scanBroadcast(scanner interface {
 		&broadcast.PausedAt,
 		&pauseReason,
 		&dataFeed,
+		&trackingMode,
+		&broadcast.TestPhaseRecipientCount,
+		&broadcast.WinnerPhaseRecipientCount,
+		&broadcast.TestPausedSeconds,
 	)
 
 	if err != nil {
@@ -602,6 +760,7 @@ func scanBroadcast(scanner interface {
 	if pauseReason.Valid {
 		broadcast.PauseReason = &pauseReason.String
 	}
+	broadcast.TrackingMode = trackingMode.String
 
 	// Set DataFeed pointer if it has any data
 	if dataFeed.GlobalFeed != nil || dataFeed.RecipientFeed != nil || len(dataFeed.GlobalFeedData) > 0 || dataFeed.GlobalFeedFetchedAt != nil {

@@ -2,6 +2,7 @@ package domain_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"testing"
 	"time"
@@ -608,6 +609,76 @@ func TestUpdateBroadcastRequest_Validate(t *testing.T) {
 	}
 }
 
+func TestUpdateBroadcastRequest_Validate_ExcludeUnsubscribedIsFixedOnceSent(t *testing.T) {
+	update := func(t *testing.T, status domain.BroadcastStatus, exclude bool) (*domain.Broadcast, error) {
+		t.Helper()
+		stored := storedBroadcastWithOmittableFields()
+		stored.Status = status
+		var req domain.UpdateBroadcastRequest
+		body := fmt.Sprintf(`{"workspace_id": "workspace123", "id": "broadcast123", "name": "Renamed", "audience": {"exclude_unsubscribed": %t}}`, exclude)
+		require.NoError(t, json.Unmarshal([]byte(body), &req))
+		return req.Validate(stored)
+	}
+
+	t.Run("a paused broadcast refuses a change", func(t *testing.T) {
+		updated, err := update(t, domain.BroadcastStatusPaused, false)
+		require.Error(t, err)
+		assert.Equal(t, "exclude_unsubscribed can only be changed on a draft or scheduled broadcast", err.Error())
+		assert.Nil(t, updated)
+	})
+
+	t.Run("a paused broadcast accepts the stored value", func(t *testing.T) {
+		updated, err := update(t, domain.BroadcastStatusPaused, true)
+		require.NoError(t, err)
+		assert.True(t, updated.Audience.ExcludeUnsubscribed)
+	})
+
+	for _, status := range []domain.BroadcastStatus{domain.BroadcastStatusDraft, domain.BroadcastStatusScheduled} {
+		t.Run(string(status)+" accepts a change", func(t *testing.T) {
+			updated, err := update(t, status, false)
+			require.NoError(t, err)
+			assert.False(t, updated.Audience.ExcludeUnsubscribed)
+		})
+	}
+
+	// A broadcast already sending at the upgrade keeps the scheduled status until its next run.
+	t.Run("a scheduled broadcast that started sending refuses a change to either setting", func(t *testing.T) {
+		started := time.Now().Add(-time.Hour)
+		for _, body := range []string{
+			`{"workspace_id": "workspace123", "id": "broadcast123", "name": "Renamed", "audience": {"exclude_unsubscribed": false}}`,
+			`{"workspace_id": "workspace123", "id": "broadcast123", "name": "Renamed", "tracking_mode": "none"}`,
+		} {
+			stored := storedBroadcastWithOmittableFields()
+			stored.Status = domain.BroadcastStatusScheduled
+			stored.StartedAt = &started
+			var req domain.UpdateBroadcastRequest
+			require.NoError(t, json.Unmarshal([]byte(body), &req))
+			updated, err := req.Validate(stored)
+			require.Error(t, err, body)
+			assert.Contains(t, err.Error(), "can only be changed on a draft or scheduled broadcast")
+			assert.Nil(t, updated)
+		}
+	})
+}
+
+func TestBroadcast_HasStartedSending(t *testing.T) {
+	started := time.Now()
+	for _, tc := range []struct {
+		status    domain.BroadcastStatus
+		startedAt *time.Time
+		want      bool
+	}{
+		{domain.BroadcastStatusDraft, nil, false},
+		{domain.BroadcastStatusScheduled, nil, false},
+		{domain.BroadcastStatusScheduled, &started, true},
+		{domain.BroadcastStatusPaused, nil, true},
+		{domain.BroadcastStatusProcessing, nil, true},
+	} {
+		b := &domain.Broadcast{Status: tc.status, StartedAt: tc.startedAt}
+		assert.Equal(t, tc.want, b.HasStartedSending(), "%s, started %v", tc.status, tc.startedAt != nil)
+	}
+}
+
 // storedBroadcastWithOmittableFields returns a broadcast carrying everything an update
 // body is allowed to leave out: a narrowed audience, an A/B test whose variations hold
 // the templates, a future schedule, UTM parameters and metadata. Seeded richly on
@@ -876,6 +947,7 @@ func TestUpdateBroadcastRequest_Validate_AudienceIsPatchedKeyByKey(t *testing.T)
 
 	t.Run("an explicit false switches the unsubscribed exclusion off", func(t *testing.T) {
 		stored := storedBroadcastWithOmittableFields()
+		stored.Status = domain.BroadcastStatusDraft
 		wantSegments := []string{"segment-vip", "segment-fr"}
 
 		updated, err := decode(t, body(`, "audience": {"exclude_unsubscribed": false}`)).Validate(stored)
@@ -887,6 +959,7 @@ func TestUpdateBroadcastRequest_Validate_AudienceIsPatchedKeyByKey(t *testing.T)
 
 	t.Run("a full audience replaces every key", func(t *testing.T) {
 		stored := storedBroadcastWithOmittableFields()
+		stored.Status = domain.BroadcastStatusDraft
 
 		updated, err := decode(t, body(`, "audience": {"list": "list456", "segments": ["segment-de"], "exclude_unsubscribed": false}`)).Validate(stored)
 		require.NoError(t, err)
@@ -912,6 +985,7 @@ func TestUpdateBroadcastRequest_Validate_AudienceIsPatchedKeyByKey(t *testing.T)
 	// audience quietly merged with the stored one.
 	t.Run("a request built in Go applies its own audience", func(t *testing.T) {
 		stored := storedBroadcastWithOmittableFields()
+		stored.Status = domain.BroadcastStatusDraft
 
 		updated, err := (&domain.UpdateBroadcastRequest{
 			WorkspaceID: "workspace123",
@@ -3341,4 +3415,177 @@ func TestUpdateBroadcastRequest_Validate_GlobalFeedDataLifecycle(t *testing.T) {
 		require.True(t, updated.DataFeed.GlobalFeed.Enabled)
 		assertPayloadPreserved(t, updated)
 	})
+}
+
+// A broadcast that keeps the list's unsubscribed contacts is a notice every member must
+// receive, so its emails offer no one-click unsubscribe (issue #484).
+func TestBroadcast_SendsListUnsubscribeHeader(t *testing.T) {
+	t.Run("excludes unsubscribed contacts: header sent", func(t *testing.T) {
+		b := &domain.Broadcast{Audience: domain.AudienceSettings{List: "list-1", ExcludeUnsubscribed: true}}
+		assert.True(t, b.SendsListUnsubscribeHeader())
+	})
+
+	t.Run("includes unsubscribed contacts: no header", func(t *testing.T) {
+		b := &domain.Broadcast{Audience: domain.AudienceSettings{List: "list-1", ExcludeUnsubscribed: false}}
+		assert.False(t, b.SendsListUnsubscribeHeader())
+	})
+
+	t.Run("zero-value audience: no header, as it already mails unsubscribed contacts", func(t *testing.T) {
+		assert.False(t, (&domain.Broadcast{}).SendsListUnsubscribeHeader())
+	})
+
+	t.Run("nil broadcast: no header", func(t *testing.T) {
+		var b *domain.Broadcast
+		assert.False(t, b.SendsListUnsubscribeHeader())
+	})
+}
+
+func TestBroadcast_ListUnsubscribeURL(t *testing.T) {
+	sends := &domain.Broadcast{Audience: domain.AudienceSettings{List: "list-1", ExcludeUnsubscribed: true}}
+	notice := &domain.Broadcast{Audience: domain.AudienceSettings{List: "list-1", ExcludeUnsubscribed: false}}
+	withURL := map[string]interface{}{"oneclick_unsubscribe_url": "https://e.com/unsubscribe-oneclick?t=1"}
+
+	assert.Equal(t, "https://e.com/unsubscribe-oneclick?t=1", sends.ListUnsubscribeURL(withURL))
+	assert.Empty(t, notice.ListUnsubscribeURL(withURL), "a notice to every member sends no header")
+	assert.Empty(t, sends.ListUnsubscribeURL(map[string]interface{}{}), "no URL in the data")
+	assert.Empty(t, sends.ListUnsubscribeURL(map[string]interface{}{"oneclick_unsubscribe_url": 42}), "not a string")
+	assert.Empty(t, sends.ListUnsubscribeURL(nil))
+	var none *domain.Broadcast
+	assert.Empty(t, none.ListUnsubscribeURL(withURL))
+}
+
+func TestBroadcast_VariationSenderID(t *testing.T) {
+	b := &domain.Broadcast{TestSettings: domain.BroadcastTestSettings{Variations: []domain.BroadcastVariation{
+		{VariationName: "A", TemplateID: "tpl-a", SenderID: "sender-promos"},
+		{VariationName: "B", TemplateID: "tpl-b"},
+	}}}
+
+	assert.Equal(t, "sender-promos", b.VariationSenderID("tpl-a"))
+	assert.Empty(t, b.VariationSenderID("tpl-b"), "no sender chosen: the template's applies")
+	assert.Empty(t, b.VariationSenderID("tpl-unknown"))
+	assert.Empty(t, (*domain.Broadcast)(nil).VariationSenderID("tpl-a"))
+}
+
+func TestBroadcastVariation_SenderIDJSON(t *testing.T) {
+	t.Run("round-trips through the stored test settings", func(t *testing.T) {
+		settings := domain.BroadcastTestSettings{Variations: []domain.BroadcastVariation{
+			{VariationName: "A", TemplateID: "tpl-a", SenderID: "sender-promos"},
+		}}
+		raw, err := settings.Value()
+		require.NoError(t, err)
+
+		var decoded domain.BroadcastTestSettings
+		require.NoError(t, decoded.Scan(raw))
+		assert.Equal(t, "sender-promos", decoded.Variations[0].SenderID)
+	})
+
+	t.Run("settings stored before the field decode with no sender", func(t *testing.T) {
+		var decoded domain.BroadcastTestSettings
+		require.NoError(t, decoded.Scan([]byte(`{"enabled":false,"variations":[{"variation_name":"A","template_id":"tpl-a"}]}`)))
+		assert.Empty(t, decoded.Variations[0].SenderID)
+	})
+
+	t.Run("an unset sender is left out of the JSON", func(t *testing.T) {
+		raw, err := json.Marshal(domain.BroadcastVariation{VariationName: "A", TemplateID: "tpl-a"})
+		require.NoError(t, err)
+		assert.NotContains(t, string(raw), "sender_id")
+	})
+}
+
+func TestBroadcast_Validate_VariationSenders(t *testing.T) {
+	newBroadcast := func(variations ...domain.BroadcastVariation) *domain.Broadcast {
+		return &domain.Broadcast{
+			WorkspaceID: "ws",
+			Name:        "November letter",
+			Status:      domain.BroadcastStatusDraft,
+			Audience:    domain.AudienceSettings{List: "list-1"},
+			TestSettings: domain.BroadcastTestSettings{
+				Enabled:          true,
+				SamplePercentage: 20,
+				Variations:       variations,
+			},
+		}
+	}
+
+	t.Run("the same template twice with different senders is refused", func(t *testing.T) {
+		err := newBroadcast(
+			domain.BroadcastVariation{TemplateID: "tpl-a", SenderID: "sender-1"},
+			domain.BroadcastVariation{TemplateID: "tpl-a", SenderID: "sender-2"},
+		).Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "tpl-a")
+	})
+
+	t.Run("the same template twice with one sender is accepted, as before", func(t *testing.T) {
+		require.NoError(t, newBroadcast(
+			domain.BroadcastVariation{TemplateID: "tpl-a", SenderID: "sender-1"},
+			domain.BroadcastVariation{TemplateID: "tpl-a", SenderID: "sender-1"},
+		).Validate())
+	})
+
+	t.Run("different templates with different senders are accepted", func(t *testing.T) {
+		require.NoError(t, newBroadcast(
+			domain.BroadcastVariation{TemplateID: "tpl-a", SenderID: "sender-1"},
+			domain.BroadcastVariation{TemplateID: "tpl-b", SenderID: "sender-2"},
+		).Validate())
+	})
+}
+
+func TestUpdateBroadcastRequest_TestSettingsProvided(t *testing.T) {
+	var withSettings domain.UpdateBroadcastRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"workspace_id":"ws","id":"b1","name":"n","test_settings":{"enabled":false,"variations":[]}}`), &withSettings))
+	assert.True(t, withSettings.TestSettingsProvided())
+
+	var without domain.UpdateBroadcastRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"workspace_id":"ws","id":"b1","name":"renamed"}`), &without))
+	assert.False(t, without.TestSettingsProvided())
+}
+
+func TestCheckVariationSenders(t *testing.T) {
+	promos := domain.NewEmailSender("promos@example.com", "Promos")
+	provider := &domain.EmailProvider{Senders: []domain.EmailSender{promos}}
+
+	t.Run("variations without a chosen sender need no integration", func(t *testing.T) {
+		require.NoError(t, domain.CheckVariationSenders(nil, []domain.BroadcastVariation{{TemplateID: "tplA"}}))
+	})
+
+	t.Run("a sender of the integration passes", func(t *testing.T) {
+		require.NoError(t, domain.CheckVariationSenders(provider, []domain.BroadcastVariation{{TemplateID: "tplA", SenderID: promos.ID}}))
+	})
+
+	t.Run("a sender the integration does not have is a validation error naming it", func(t *testing.T) {
+		err := domain.CheckVariationSenders(provider, []domain.BroadcastVariation{
+			{TemplateID: "tplA", SenderID: promos.ID},
+			{VariationName: "B", TemplateID: "tplB", SenderID: "gone"},
+		})
+		var validationErr domain.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Contains(t, err.Error(), "gone")
+		assert.Contains(t, err.Error(), "tplB")
+	})
+
+	t.Run("a chosen sender without an integration is a validation error", func(t *testing.T) {
+		err := domain.CheckVariationSenders(nil, []domain.BroadcastVariation{{TemplateID: "tplA", SenderID: promos.ID}})
+		var validationErr domain.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Contains(t, err.Error(), "marketing")
+	})
+}
+
+func TestBroadcast_VariationsToSend(t *testing.T) {
+	b := &domain.Broadcast{TestSettings: domain.BroadcastTestSettings{Variations: []domain.BroadcastVariation{
+		{TemplateID: "tplA"}, {TemplateID: "tplB"},
+	}}}
+	assert.Len(t, b.VariationsToSend(), 2, "before a winner, every variation can still be sent")
+
+	winner := "tplB"
+	b.WinningTemplate = &winner
+	require.Len(t, b.VariationsToSend(), 1)
+	assert.Equal(t, "tplB", b.VariationsToSend()[0].TemplateID)
+}
+
+func TestUnscheduleBroadcastRequest_Validate(t *testing.T) {
+	assert.NoError(t, (&domain.UnscheduleBroadcastRequest{WorkspaceID: "w1", ID: "b1"}).Validate())
+	assert.EqualError(t, (&domain.UnscheduleBroadcastRequest{ID: "b1"}).Validate(), "workspace_id is required")
+	assert.EqualError(t, (&domain.UnscheduleBroadcastRequest{WorkspaceID: "w1"}).Validate(), "broadcast id is required")
 }

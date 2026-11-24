@@ -167,10 +167,25 @@ func TestAutomationHandler_Get(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
-	t.Run("not found", func(t *testing.T) {
-		automationSvc.EXPECT().Get(gomock.Any(), "workspace-123", "nonexistent").Return(nil, errors.New("not found"))
+	t.Run("not found answers 404", func(t *testing.T) {
+		notFound := &domain.ErrNotFound{Entity: "automation", ID: "nonexistent"}
+		automationSvc.EXPECT().Get(gomock.Any(), "workspace-123", "nonexistent").
+			Return(nil, fmt.Errorf("failed to get automation: %w", notFound))
 
 		req := httptest.NewRequest(http.MethodGet, "/api/automations.get?workspace_id=workspace-123&automation_id=nonexistent", nil)
+		req.Header.Set("Authorization", "Bearer "+createTestToken(t, secretKey, "test-user"))
+
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusNotFound, w.Code)
+		assert.Contains(t, w.Body.String(), "Automation not found")
+	})
+
+	t.Run("untyped error answers 500", func(t *testing.T) {
+		automationSvc.EXPECT().Get(gomock.Any(), "workspace-123", "broken").Return(nil, errors.New("connection refused"))
+
+		req := httptest.NewRequest(http.MethodGet, "/api/automations.get?workspace_id=workspace-123&automation_id=broken", nil)
 		req.Header.Set("Authorization", "Bearer "+createTestToken(t, secretKey, "test-user"))
 
 		w := httptest.NewRecorder()
@@ -926,6 +941,240 @@ func TestAutomationHandler_UpdateFailedOnceStored(t *testing.T) {
 
 			assert.Equal(t, tc.status, w.Code)
 			assert.JSONEq(t, tc.body, w.Body.String())
+		})
+	}
+}
+
+func TestAutomationHandler_ListWithJourneyCounts(t *testing.T) {
+	t.Run("journey counts of the listed automations when asked", func(t *testing.T) {
+		_, automationSvc, mux, secretKey := setupAutomationTest(t)
+		listed := []*domain.Automation{createTestAutomation("auto-1", "workspace-123"), createTestAutomation("auto-2", "workspace-123")}
+		automationSvc.EXPECT().List(gomock.Any(), "workspace-123", gomock.Any()).Return(listed, 2, nil)
+		automationSvc.EXPECT().CountJourneys(gomock.Any(), "workspace-123", []string{"auto-1", "auto-2"}).
+			Return(map[string]domain.JourneyCounts{"auto-1": {Active: 3, Total: 3}, "auto-2": {}}, nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/automations.list?workspace_id=workspace-123&with_journey_counts=true", nil)
+		req.Header.Set("Authorization", "Bearer "+createTestToken(t, secretKey, "test-user"))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var response struct {
+			JourneyCounts map[string]domain.JourneyCounts `json:"journey_counts"`
+		}
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&response))
+		assert.Equal(t, map[string]domain.JourneyCounts{"auto-1": {Active: 3, Total: 3}, "auto-2": {}}, response.JourneyCounts)
+	})
+
+	t.Run("an empty page has an empty object", func(t *testing.T) {
+		_, automationSvc, mux, secretKey := setupAutomationTest(t)
+		automationSvc.EXPECT().List(gomock.Any(), "workspace-123", gomock.Any()).Return([]*domain.Automation{}, 0, nil)
+		automationSvc.EXPECT().CountJourneys(gomock.Any(), "workspace-123", []string{}).Return(map[string]domain.JourneyCounts{}, nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/automations.list?workspace_id=workspace-123&with_journey_counts=true", nil)
+		req.Header.Set("Authorization", "Bearer "+createTestToken(t, secretKey, "test-user"))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), `"journey_counts":{}`)
+	})
+
+	t.Run("not asked: no count and no journey_counts", func(t *testing.T) {
+		_, automationSvc, mux, secretKey := setupAutomationTest(t)
+		automationSvc.EXPECT().List(gomock.Any(), "workspace-123", gomock.Any()).
+			Return([]*domain.Automation{createTestAutomation("auto-1", "workspace-123")}, 1, nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/automations.list?workspace_id=workspace-123", nil)
+		req.Header.Set("Authorization", "Bearer "+createTestToken(t, secretKey, "test-user"))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.NotContains(t, w.Body.String(), "journey_counts")
+	})
+
+	t.Run("an invalid with_journey_counts is a 400", func(t *testing.T) {
+		_, _, mux, secretKey := setupAutomationTest(t)
+		req := httptest.NewRequest(http.MethodGet, "/api/automations.list?workspace_id=workspace-123&with_journey_counts=maybe", nil)
+		req.Header.Set("Authorization", "Bearer "+createTestToken(t, secretKey, "test-user"))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("a count error is a 500, a permission error a 403", func(t *testing.T) {
+		_, automationSvc, mux, secretKey := setupAutomationTest(t)
+		automationSvc.EXPECT().List(gomock.Any(), "workspace-123", gomock.Any()).
+			Return([]*domain.Automation{createTestAutomation("auto-1", "workspace-123")}, 1, nil).Times(2)
+		automationSvc.EXPECT().CountJourneys(gomock.Any(), "workspace-123", []string{"auto-1"}).Return(nil, errors.New("db down"))
+		automationSvc.EXPECT().CountJourneys(gomock.Any(), "workspace-123", []string{"auto-1"}).
+			Return(nil, domain.NewPermissionError(domain.PermissionResourceAutomations, domain.PermissionTypeRead, "no"))
+
+		for _, want := range []int{http.StatusInternalServerError, http.StatusForbidden} {
+			req := httptest.NewRequest(http.MethodGet, "/api/automations.list?workspace_id=workspace-123&with_journey_counts=true", nil)
+			req.Header.Set("Authorization", "Bearer "+createTestToken(t, secretKey, "test-user"))
+			w := httptest.NewRecorder()
+			mux.ServeHTTP(w, req)
+			assert.Equal(t, want, w.Code)
+		}
+	})
+}
+
+func TestAutomationHandler_NodeStats(t *testing.T) {
+	const path = "/api/automations.nodeStats?workspace_id=workspace-123&automation_id=auto-1"
+
+	get := func(t *testing.T, mux *http.ServeMux, secretKey []byte, method, url string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, url, nil)
+		req.Header.Set("Authorization", "Bearer "+createTestToken(t, secretKey, "test-user"))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		return w
+	}
+
+	t.Run("the stats of every node, with the period", func(t *testing.T) {
+		_, automationSvc, mux, secretKey := setupAutomationTest(t)
+		since := time.Date(2026, 10, 11, 22, 0, 0, 0, time.UTC)
+		until := time.Date(2026, 11, 10, 22, 59, 59, 0, time.UTC)
+		email := domain.NewNodeStats(domain.NodeTypeEmail)
+		email.Visits = 4
+		email.Email = &domain.NodeEmailStats{Sent: 3}
+		stats := domain.NewNodeStatsResponse("auto-1", &since, &until)
+		stats.Nodes["email-1"] = email
+		automationSvc.EXPECT().GetNodeStats(gomock.Any(), "workspace-123", "auto-1", &since, &until).Return(stats, nil)
+
+		w := get(t, mux, secretKey, http.MethodGet, path+"&since=2026-10-12T00:00:00%2B02:00&until=2026-11-10T22:59:59Z")
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var response domain.NodeStatsResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&response))
+		assert.Equal(t, "auto-1", response.AutomationID)
+		require.NotNil(t, response.Since)
+		assert.True(t, since.Equal(*response.Since))
+		require.Contains(t, response.Nodes, "email-1")
+		assert.Equal(t, int64(4), response.Nodes["email-1"].Visits)
+		assert.Equal(t, int64(3), response.Nodes["email-1"].Email.Sent)
+	})
+
+	t.Run("all time without a period", func(t *testing.T) {
+		_, automationSvc, mux, secretKey := setupAutomationTest(t)
+		automationSvc.EXPECT().GetNodeStats(gomock.Any(), "workspace-123", "auto-1", nil, nil).
+			Return(domain.NewNodeStatsResponse("auto-1", nil, nil), nil)
+
+		w := get(t, mux, secretKey, http.MethodGet, path)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.NotContains(t, w.Body.String(), `"since"`)
+	})
+
+	t.Run("a non-GET is a 405", func(t *testing.T) {
+		_, _, mux, secretKey := setupAutomationTest(t)
+		assert.Equal(t, http.StatusMethodNotAllowed, get(t, mux, secretKey, http.MethodPost, path).Code)
+	})
+
+	t.Run("an invalid query is a 400", func(t *testing.T) {
+		_, _, mux, secretKey := setupAutomationTest(t)
+		for _, url := range []string{
+			"/api/automations.nodeStats?workspace_id=workspace-123",
+			path + "&since=2026-10-12T00:00:00Z",
+			path + "&since=yesterday&until=2026-11-10T22:59:59Z",
+			path + "&since=2026-11-12T00:00:00Z&until=2026-11-10T22:59:59Z",
+		} {
+			w := get(t, mux, secretKey, http.MethodGet, url)
+			assert.Equal(t, http.StatusBadRequest, w.Code, url)
+		}
+	})
+
+	t.Run("service errors: 401, 403, 404, 500", func(t *testing.T) {
+		_, automationSvc, mux, secretKey := setupAutomationTest(t)
+		cases := []struct {
+			err  error
+			want int
+		}{
+			{fmt.Errorf("failed to authenticate user: %w", domain.ErrAPIKeyRevoked), http.StatusUnauthorized},
+			{domain.NewPermissionError(domain.PermissionResourceAutomations, domain.PermissionTypeRead, "no"), http.StatusForbidden},
+			{fmt.Errorf("get node stats: %w", domain.NewPermissionError(domain.PermissionResourceAutomations, domain.PermissionTypeRead, "no")), http.StatusForbidden},
+			{fmt.Errorf("get automation: %w", &domain.ErrNotFound{Entity: "automation", ID: "auto-1"}), http.StatusNotFound},
+			{errors.New("db down"), http.StatusInternalServerError},
+		}
+		for _, c := range cases {
+			automationSvc.EXPECT().GetNodeStats(gomock.Any(), "workspace-123", "auto-1", nil, nil).Return(nil, c.err)
+			w := get(t, mux, secretKey, http.MethodGet, path)
+			assert.Equal(t, c.want, w.Code, c.err.Error())
+			assert.NotContains(t, w.Body.String(), "db down", "the internal error stays in the log")
+		}
+	})
+}
+
+// An unknown or deleted automation is a 404 on update, delete, activate and pause, as on get.
+func TestAutomationHandler_NotFoundMapping(t *testing.T) {
+	_, automationSvc, mux, secretKey := setupAutomationTest(t)
+
+	wrapped := fmt.Errorf("failed to get automation: %w", &domain.ErrNotFound{Entity: "automation", ID: "auto-123"})
+	idBody := func(t *testing.T) []byte {
+		body, err := json.Marshal(map[string]string{"workspace_id": "workspace-123", "automation_id": "auto-123"})
+		require.NoError(t, err)
+		return body
+	}
+
+	testCases := []struct {
+		name     string
+		endpoint string
+		expect   func()
+		body     func(t *testing.T) []byte
+	}{
+		{
+			name:     "update",
+			endpoint: "/api/automations.update",
+			expect: func() {
+				automationSvc.EXPECT().Update(gomock.Any(), "workspace-123", gomock.Any()).Return(wrapped)
+			},
+			body: func(t *testing.T) []byte {
+				body, err := json.Marshal(domain.UpdateAutomationRequest{
+					WorkspaceID: "workspace-123",
+					Automation:  createTestAutomation("auto-123", "workspace-123"),
+				})
+				require.NoError(t, err)
+				return body
+			},
+		},
+		{
+			name:     "delete",
+			endpoint: "/api/automations.delete",
+			expect: func() {
+				automationSvc.EXPECT().Delete(gomock.Any(), "workspace-123", "auto-123").Return(wrapped)
+			},
+			body: idBody,
+		},
+		{
+			name:     "activate",
+			endpoint: "/api/automations.activate",
+			expect: func() {
+				automationSvc.EXPECT().Activate(gomock.Any(), "workspace-123", "auto-123").Return(wrapped)
+			},
+			body: idBody,
+		},
+		{
+			name:     "pause",
+			endpoint: "/api/automations.pause",
+			expect: func() {
+				automationSvc.EXPECT().Pause(gomock.Any(), "workspace-123", "auto-123").Return(wrapped)
+			},
+			body: idBody,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.expect()
+
+			req := httptest.NewRequest(http.MethodPost, tc.endpoint, bytes.NewReader(tc.body(t)))
+			req.Header.Set("Authorization", "Bearer "+createTestToken(t, secretKey, "test-user"))
+
+			w := httptest.NewRecorder()
+			mux.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusNotFound, w.Code)
+			assert.Equal(t, "Automation not found", decodeErrorMessage(t, w))
 		})
 	}
 }

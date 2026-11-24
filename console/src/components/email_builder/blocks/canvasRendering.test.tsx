@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, createEvent, fireEvent, waitFor, act } from '@testing-library/react'
+import { describe, it, expect, vi, afterEach, beforeAll, afterAll } from 'vitest'
+import { render, createEvent, fireEvent, waitFor, act, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MjTextBlock } from './MjTextBlock'
 import { MjButtonBlock } from './MjButtonBlock'
 import { MjImageBlock } from './MjImageBlock'
@@ -502,5 +503,122 @@ describe('editor canvas raw HTML frame height', () => {
     second.fonts.dispatchEvent(new Event('loadingdone'))
     vi.advanceTimersByTime(60)
     expect(second.state.reads).toBe(reads)
+  })
+})
+
+describe('editor canvas marks a block shown under a condition', () => {
+  it.each([
+    ['mj-text', MjTextBlock],
+    ['mj-button', MjButtonBlock],
+    ['mj-image', MjImageBlock]
+  ])('%s', (type, Block) => {
+    const condition = { match: 'all', rules: [{ variable: 'contact.vip', operator: 'is_true' }] }
+    const conditional = { id: `c-${type}`, type, attributes: {}, content: 'x', display_condition: condition } as unknown as EmailBlock
+    const plain = { id: `p-${type}`, type, attributes: {}, content: 'x' } as unknown as EmailBlock
+
+    const { container } = render(<>{new Block(conditional).getEdit(previewProps())}</>)
+    expect(container.querySelector(`[data-block-id="c-${type}"]`)?.getAttribute('data-display-condition')).toBe('true')
+
+    const { container: other } = render(<>{new Block(plain).getEdit(previewProps())}</>)
+    expect(other.querySelector(`[data-block-id="p-${type}"]`)?.hasAttribute('data-display-condition')).toBe(false)
+  })
+})
+
+describe('editor canvas draws an image without a width across its column', () => {
+  it('lays it out as a table at 100 %, as MJML gives it the column width', () => {
+    // As a block, the table's rows sat in an anonymous table sized to the image: a new image was
+    // drawn at its natural size on the left while Align said center.
+    const block = { id: 'img', type: 'mj-image', attributes: { align: 'center', src: 'https://acme.com/a.png' } } as unknown as EmailBlock
+    const { container } = render(<>{new MjImageBlock(block).getEdit(previewProps())}</>)
+    const table = container.querySelector('table') as HTMLTableElement
+    expect(table.style.display).toBe('table')
+    expect(table.style.width).toBe('100%')
+  })
+})
+
+describe('editor canvas headings in a Text block', () => {
+  it('renders a heading as a heading, selected or not', async () => {
+    const block = {
+      id: 'b-heading',
+      type: 'mj-text',
+      attributes: {},
+      content: '<h2 style="text-align: center">Title</h2><p>Body</p>'
+    } as unknown as EmailBlock
+    const unselected = render(<>{new MjTextBlock(block).getEdit(previewProps())}</>)
+    expect(unselected.container.querySelector('h2')?.textContent).toBe('Title')
+    expect(unselected.container.querySelector('h2')?.getAttribute('style')).toBe('text-align: center')
+    unselected.unmount()
+
+    const selected = render(
+      <>{new MjTextBlock(block).getEdit({ ...previewProps(), selectedBlockId: 'b-heading' } as PreviewProps)}</>
+    )
+    await waitFor(() => expect(selected.container.querySelector('.ProseMirror h2')?.textContent).toBe('Title'))
+  })
+})
+
+describe('editor canvas heading structure', () => {
+  // jsdom lays nothing out, and ranges have no rectangles there. ProseMirror reads
+  // them to scroll the selection into view once a selected block's editor focuses.
+  const rangeLayout = Range.prototype as Partial<Pick<Range, 'getClientRects' | 'getBoundingClientRect'>>
+  const originalRangeLayout = {
+    getClientRects: Object.getOwnPropertyDescriptor(Range.prototype, 'getClientRects'),
+    getBoundingClientRect: Object.getOwnPropertyDescriptor(Range.prototype, 'getBoundingClientRect')
+  }
+  beforeAll(() => {
+    rangeLayout.getClientRects = () => [] as unknown as DOMRectList
+    rangeLayout.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0)
+  })
+  afterAll(() => {
+    for (const [name, descriptor] of Object.entries(originalRangeLayout)) {
+      if (descriptor) Object.defineProperty(Range.prototype, name, descriptor)
+      else delete (rangeLayout as Record<string, unknown>)[name]
+    }
+  })
+
+  const textBlock = (id: string, content: string) =>
+    ({ id, type: 'mj-text', attributes: {}, content }) as unknown as EmailBlock
+  const emailWith = (...blocks: EmailBlock[]) =>
+    ({
+      id: 'root',
+      type: 'mjml',
+      attributes: {},
+      children: [{ id: 'body', type: 'mj-body', attributes: {}, children: blocks }]
+    }) as unknown as EmailBlock
+
+  it('marks a block whose heading skips a level after the block before', () => {
+    const before = textBlock('before', '<h2>Section</h2>')
+    const skipping = textBlock('skipping', '<h4>Detail</h4>')
+    const { container } = render(
+      <>{new MjTextBlock(skipping).getEdit({ ...previewProps(), emailTree: emailWith(before, skipping) })}</>
+    )
+    expect(container.textContent).toContain('H4 after H2')
+  })
+
+  it('marks nothing once the levels follow each other', () => {
+    const before = textBlock('before', '<h2>Section</h2>')
+    const following = textBlock('following', '<h3>Detail</h3>')
+    const { container } = render(
+      <>{new MjTextBlock(following).getEdit({ ...previewProps(), emailTree: emailWith(before, following) })}</>
+    )
+    expect(container.textContent).not.toContain(' after H')
+  })
+
+  it('gives the text style menu the level of the heading above the block', async () => {
+    const before = textBlock('before', '<h2>Section</h2>')
+    const current = textBlock('current', '<p>words</p>')
+    render(
+      <>
+        {new MjTextBlock(current).getEdit({
+          ...previewProps(),
+          selectedBlockId: 'current',
+          emailTree: emailWith(before, current)
+        })}
+      </>
+    )
+    const styleButton = await screen.findByRole('button', { name: /^Text style/ })
+    await userEvent.click(styleButton)
+    const menu = await screen.findByRole('menu')
+    expect(within(menu).getByRole('menuitem', { name: /^Heading 3/ })).not.toHaveTextContent('skip')
+    expect(within(menu).getByRole('menuitem', { name: /^Heading 4/ })).toHaveTextContent('skip')
   })
 })

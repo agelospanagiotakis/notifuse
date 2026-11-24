@@ -1,3 +1,4 @@
+import type { MessageData } from './messages_history'
 import { api } from './client'
 
 // Entity data types for each entity type
@@ -26,7 +27,12 @@ export interface MessageHistoryEntityData {
   delivered_at?: string
   opened_at?: string
   clicked_at?: string
-  message_data?: Record<string, unknown>
+  /** The stored envelope: the template data under `data`. */
+  message_data?: MessageData
+  /** What sent the message: at most one is set. */
+  broadcast_id?: string | null
+  automation_id?: string | null
+  transactional_notification_id?: string | null
 }
 
 export interface InboundWebhookEventEntityData {
@@ -82,6 +88,19 @@ export type EntityData =
   | CustomEventEntityData
   | AutomationEventEntityData
 
+/** The entity types timeline.list filters on. */
+export type TimelineEntityType =
+  | 'contact'
+  | 'contact_list'
+  | 'contact_segment'
+  | 'message_history'
+  | 'custom_event'
+  | 'inbound_webhook_event'
+  | 'webhook_event'
+  | 'automation'
+  | 'web_session'
+  | 'web_page'
+
 export interface ContactTimelineEntry {
   id: string
   email: string
@@ -100,6 +119,8 @@ export interface TimelineListRequest {
   email: string
   limit?: number // Default 50, max 100
   cursor?: string
+  // Only these entity types; the server also drops the ones the member may not read.
+  entity_types?: TimelineEntityType[]
 }
 
 export interface TimelineListResponse {
@@ -124,6 +145,9 @@ export const contactTimelineApi = {
     }
     if (params.cursor) {
       searchParams.append('cursor', params.cursor)
+    }
+    if (params.entity_types && params.entity_types.length > 0) {
+      searchParams.append('entity_types', params.entity_types.join(','))
     }
 
     return api.get<TimelineListResponse>(`/api/timeline.list?${searchParams.toString()}`)

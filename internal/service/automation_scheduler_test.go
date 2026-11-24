@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/Notifuse/notifuse/internal/domain"
 	"github.com/Notifuse/notifuse/internal/domain/mocks"
+	pkgmocks "github.com/Notifuse/notifuse/pkg/mocks"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,7 +54,7 @@ func TestAutomationScheduler_StartStop(t *testing.T) {
 
 	// Expect at least one batch processing call
 	mockAutomationRepo.EXPECT().
-		GetScheduledContactAutomationsGlobal(gomock.Any(), gomock.Any(), 50).
+		ClaimScheduledContactAutomationsGlobal(gomock.Any(), 50, inTickResumeLease).
 		Return([]*domain.ContactAutomationWithWorkspace{}, nil).
 		AnyTimes()
 
@@ -87,7 +89,7 @@ func TestAutomationScheduler_Start_AlreadyRunning(t *testing.T) {
 	scheduler := NewAutomationScheduler(executor, mockLogger, 1*time.Second, 50)
 
 	mockAutomationRepo.EXPECT().
-		GetScheduledContactAutomationsGlobal(gomock.Any(), gomock.Any(), 50).
+		ClaimScheduledContactAutomationsGlobal(gomock.Any(), 50, inTickResumeLease).
 		Return([]*domain.ContactAutomationWithWorkspace{}, nil).
 		AnyTimes()
 
@@ -141,7 +143,7 @@ func TestAutomationScheduler_ContextCancellation(t *testing.T) {
 	scheduler := NewAutomationScheduler(executor, mockLogger, 1*time.Second, 50)
 
 	mockAutomationRepo.EXPECT().
-		GetScheduledContactAutomationsGlobal(gomock.Any(), gomock.Any(), 50).
+		ClaimScheduledContactAutomationsGlobal(gomock.Any(), 50, inTickResumeLease).
 		Return([]*domain.ContactAutomationWithWorkspace{}, nil).
 		AnyTimes()
 
@@ -175,7 +177,7 @@ func TestAutomationScheduler_IsRunning(t *testing.T) {
 	scheduler := NewAutomationScheduler(executor, mockLogger, 1*time.Second, 50)
 
 	mockAutomationRepo.EXPECT().
-		GetScheduledContactAutomationsGlobal(gomock.Any(), gomock.Any(), 50).
+		ClaimScheduledContactAutomationsGlobal(gomock.Any(), 50, inTickResumeLease).
 		Return([]*domain.ContactAutomationWithWorkspace{}, nil).
 		AnyTimes()
 
@@ -221,6 +223,7 @@ func TestAutomationScheduler_ProcessBatchOnInterval(t *testing.T) {
 	var mu sync.Mutex
 
 	nodeID := "terminal_node"
+	claim := time.Now().UTC().Add(inTickResumeLease) // the claim token
 	contacts := []*domain.ContactAutomationWithWorkspace{
 		{
 			WorkspaceID: "ws1",
@@ -230,6 +233,9 @@ func TestAutomationScheduler_ProcessBatchOnInterval(t *testing.T) {
 				ContactEmail:  "test@example.com",
 				CurrentNodeID: &nodeID,
 				Status:        domain.ContactAutomationStatusActive,
+				// The same journey is returned by two ticks, and running it moves its
+				// ScheduledAt on, so the renewal below takes any token.
+				ScheduledAt: &claim,
 			},
 		},
 	}
@@ -256,8 +262,8 @@ func TestAutomationScheduler_ProcessBatchOnInterval(t *testing.T) {
 
 	// Setup mock to track calls and return empty after first few
 	mockAutomationRepo.EXPECT().
-		GetScheduledContactAutomationsGlobal(gomock.Any(), gomock.Any(), 50).
-		DoAndReturn(func(ctx context.Context, beforeTime time.Time, limit int) ([]*domain.ContactAutomationWithWorkspace, error) {
+		ClaimScheduledContactAutomationsGlobal(gomock.Any(), 50, inTickResumeLease).
+		DoAndReturn(func(ctx context.Context, limit int, lease time.Duration) ([]*domain.ContactAutomationWithWorkspace, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			callCount++
@@ -268,6 +274,7 @@ func TestAutomationScheduler_ProcessBatchOnInterval(t *testing.T) {
 		}).AnyTimes()
 
 	// Setup expectations for processing contacts
+	mockAutomationRepo.EXPECT().RenewContactAutomationClaim(gomock.Any(), "ws1", "ca1", gomock.Any(), inTickResumeLease).Return(true, nil).AnyTimes()
 	mockAutomationRepo.EXPECT().GetByID(gomock.Any(), "ws1", "auto1").Return(automation, nil).AnyTimes()
 	mockContactRepo.EXPECT().GetContactByEmail(gomock.Any(), "ws1", "test@example.com").Return(contact, nil).AnyTimes()
 	mockAutomationRepo.EXPECT().CreateNodeExecution(gomock.Any(), "ws1", gomock.Any()).Return(nil).AnyTimes()
@@ -311,9 +318,9 @@ func TestAutomationScheduler_ProcessBatchError(t *testing.T) {
 
 	scheduler := NewAutomationScheduler(executor, mockLogger, 50*time.Millisecond, 50)
 
-	// Return error from GetScheduledContactAutomationsGlobal
+	// Return error from ClaimScheduledContactAutomationsGlobal
 	mockAutomationRepo.EXPECT().
-		GetScheduledContactAutomationsGlobal(gomock.Any(), gomock.Any(), 50).
+		ClaimScheduledContactAutomationsGlobal(gomock.Any(), 50, inTickResumeLease).
 		Return(nil, assert.AnError).
 		AnyTimes()
 
@@ -349,7 +356,7 @@ func TestAutomationScheduler_ConcurrentSafety(t *testing.T) {
 	scheduler := NewAutomationScheduler(executor, mockLogger, 50*time.Millisecond, 50)
 
 	mockAutomationRepo.EXPECT().
-		GetScheduledContactAutomationsGlobal(gomock.Any(), gomock.Any(), 50).
+		ClaimScheduledContactAutomationsGlobal(gomock.Any(), 50, inTickResumeLease).
 		Return([]*domain.ContactAutomationWithWorkspace{}, nil).
 		AnyTimes()
 
@@ -396,8 +403,8 @@ func TestAutomationScheduler_PausedAutomationsNotProcessed(t *testing.T) {
 	// Mock returns empty slice - simulating that paused automation contacts are filtered out
 	// by the SQL query's `a.status = 'live'` condition
 	mockAutomationRepo.EXPECT().
-		GetScheduledContactAutomationsGlobal(gomock.Any(), gomock.Any(), 50).
-		DoAndReturn(func(ctx context.Context, beforeTime time.Time, limit int) ([]*domain.ContactAutomationWithWorkspace, error) {
+		ClaimScheduledContactAutomationsGlobal(gomock.Any(), 50, inTickResumeLease).
+		DoAndReturn(func(ctx context.Context, limit int, lease time.Duration) ([]*domain.ContactAutomationWithWorkspace, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			callCount++
@@ -420,4 +427,159 @@ func TestAutomationScheduler_PausedAutomationsNotProcessed(t *testing.T) {
 	assert.GreaterOrEqual(t, finalCount, 1, "Scheduler should have queried at least once")
 	// Test passes if no contacts are processed (empty result from scheduler query)
 	// The key behavior is that the SQL query itself filters out paused automations
+}
+
+// The app stops the scheduler by cancelling its context, then calling Stop. Stop waits for the
+// node in progress to finish and record itself, up to the drain deadline plus a margin.
+func TestAutomationScheduler_Stop_Drain(t *testing.T) {
+	startScheduler := func(t *testing.T, h *shutdownHarness, ctx context.Context) *AutomationScheduler {
+		t.Helper()
+		h.repo.EXPECT().ClaimScheduledContactAutomationsGlobal(gomock.Any(), 50, inTickResumeLease).
+			Return(nil, nil).AnyTimes()
+		scheduler := NewAutomationScheduler(h.executor, h.executor.logger, time.Hour, 50)
+		scheduler.Start(ctx)
+		return scheduler
+	}
+
+	t.Run("Stop waits for the node in progress and its write", func(t *testing.T) {
+		started, stopped := make(chan struct{}), make(chan struct{})
+		h := newShutdownHarness(t, func(ctx context.Context, _ NodeExecutionParams) (*NodeExecutionResult, error) {
+			close(started)
+			<-stopped
+			time.Sleep(300 * time.Millisecond) // still working after the stop
+			assert.NoError(t, ctx.Err(), "the node's context outlives the stop")
+			return &NodeExecutionResult{Status: domain.ContactAutomationStatusCompleted}, nil
+		}, nil)
+		h.executor.shutdownDrain = 2 * time.Second
+		journeys := h.claim("ca-1")
+		h.expectRenewal(journeys[0])
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		scheduler := startScheduler(t, h, ctx)
+		scheduler.stopMargin = 100 * time.Millisecond
+		<-started
+		cancel()
+		close(stopped)
+		scheduler.Stop()
+
+		writes := h.landedWrites()
+		require.Len(t, writes, 1, "the node's journey write landed before Stop returned")
+		assert.Equal(t, domain.ContactAutomationStatusCompleted, writes[0].Status)
+	})
+
+	t.Run("Stop gives up at the drain deadline plus its margin", func(t *testing.T) {
+		started, release := make(chan struct{}), make(chan struct{})
+		h := newShutdownHarness(t, func(context.Context, NodeExecutionParams) (*NodeExecutionResult, error) {
+			close(started)
+			<-release // ignores its context
+			return &NodeExecutionResult{Status: domain.ContactAutomationStatusCompleted}, nil
+		}, nil)
+		h.executor.shutdownDrain = 200 * time.Millisecond
+		journeys := h.claim("ca-1")
+		h.expectRenewal(journeys[0])
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		scheduler := startScheduler(t, h, ctx)
+		scheduler.stopMargin = 100 * time.Millisecond
+		t.Cleanup(func() {
+			close(release)
+			select {
+			case <-scheduler.stoppedChan:
+			case <-time.After(5 * time.Second):
+				t.Error("the scheduler loop did not end after the node returned")
+			}
+		})
+		<-started
+		cancel()
+		stopStart := time.Now()
+		scheduler.Stop()
+		elapsed := time.Since(stopStart)
+
+		assert.GreaterOrEqual(t, elapsed, 300*time.Millisecond, "Stop waited for the drain and its margin")
+		assert.Less(t, elapsed, 2*time.Second, "Stop gave up at the drain deadline plus its margin")
+	})
+
+	t.Run("Stop without a cancelled context starts the drain too", func(t *testing.T) {
+		started := make(chan struct{})
+		nodeCut := make(chan struct{})
+		h := newShutdownHarness(t, func(ctx context.Context, _ NodeExecutionParams) (*NodeExecutionResult, error) {
+			close(started)
+			<-ctx.Done()
+			close(nodeCut)
+			return nil, ctx.Err()
+		}, nil)
+		h.executor.shutdownDrain = 200 * time.Millisecond
+		journeys := h.claim("ca-1")
+		h.expectRenewal(journeys[0])
+
+		scheduler := startScheduler(t, h, context.Background())
+		scheduler.stopMargin = 100 * time.Millisecond
+		<-started
+		stopStart := time.Now()
+		scheduler.Stop()
+
+		select {
+		case <-nodeCut:
+		default:
+			t.Fatal("the node's context was not ended by the drain deadline")
+		}
+		assert.Less(t, time.Since(stopStart), 2*time.Second)
+	})
+}
+
+func TestAutomationScheduler_StopTimeoutDefault(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	executor := &AutomationExecutor{logger: setupMockLogger(ctrl)}
+	scheduler := NewAutomationScheduler(executor, executor.logger, time.Second, 50)
+	assert.Equal(t, 44*time.Second, scheduler.stopTimeout(), "the default drain plus the default margin")
+
+	assert.Equal(t, 44*time.Second, NewAutomationScheduler(nil, executor.logger, time.Second, 50).stopTimeout(),
+		"without an executor, the default drain")
+}
+
+// A batch that keeps failing is logged at Error once per window, then at Debug.
+func TestAutomationScheduler_RepeatedBatchErrorLoggedOnce(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repo := mocks.NewMockAutomationRepository(ctrl)
+	log := pkgmocks.NewMockLogger(ctrl)
+	log.EXPECT().WithField(gomock.Any(), gomock.Any()).Return(log).AnyTimes()
+
+	executor := &AutomationExecutor{automationRepo: repo, logger: log}
+	scheduler := NewAutomationScheduler(executor, log, time.Hour, 50)
+	repo.EXPECT().ClaimScheduledContactAutomationsGlobal(gomock.Any(), 50, inTickResumeLease).Return(nil, assert.AnError).Times(3)
+
+	gomock.InOrder(
+		log.EXPECT().Error("Failed to process automation batch"),
+		log.EXPECT().Debug("Failed to process automation batch").Times(2),
+	)
+	for i := 0; i < 3; i++ {
+		scheduler.processBatch(context.Background())
+	}
+}
+
+// A claim that fails in some workspaces at every tick is logged at Error once per window; the
+// journeys the others gave still run.
+func TestAutomationExecutor_ProcessBatch_RepeatedPartialClaimErrorLoggedOnce(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repo := mocks.NewMockAutomationRepository(ctrl)
+	log := pkgmocks.NewMockLogger(ctrl)
+	log.EXPECT().WithField(gomock.Any(), gomock.Any()).Return(log).AnyTimes()
+	log.EXPECT().WithFields(gomock.Any()).Return(log).AnyTimes()
+
+	executor := &AutomationExecutor{automationRepo: repo, logger: log}
+	partial := errors.New("workspace ws2: db down")
+	repo.EXPECT().ClaimScheduledContactAutomationsGlobal(gomock.Any(), 50, inTickResumeLease).
+		Return([]*domain.ContactAutomationWithWorkspace{{WorkspaceID: "ws1"}}, partial).Times(2)
+	log.EXPECT().Error("Claimed contact automation has no claim token; skipping").Times(2)
+
+	gomock.InOrder(
+		log.EXPECT().Error("Failed to claim scheduled contacts in some workspaces"),
+		log.EXPECT().Debug("Failed to claim scheduled contacts in some workspaces"),
+	)
+	for i := 0; i < 2; i++ {
+		_, err := executor.ProcessBatch(context.Background(), 50)
+		require.NoError(t, err)
+	}
 }

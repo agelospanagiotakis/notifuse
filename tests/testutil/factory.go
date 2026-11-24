@@ -183,6 +183,15 @@ func (tdf *TestDataFactory) CreateTemplate(workspaceID string, opts ...TemplateO
 	return template, nil
 }
 
+// UpdateTemplate saves template as a new version through the template repository,
+// without the optimistic concurrency check, and sets template.Version to it.
+func (tdf *TestDataFactory) UpdateTemplate(workspaceID string, template *domain.Template) error {
+	if err := tdf.templateRepo.UpdateTemplate(context.Background(), workspaceID, template, 0); err != nil {
+		return fmt.Errorf("failed to update template via repository: %w", err)
+	}
+	return nil
+}
+
 // CreateBroadcast creates a test broadcast using the broadcast repository
 func (tdf *TestDataFactory) CreateBroadcast(workspaceID string, opts ...BroadcastOption) (*domain.Broadcast, error) {
 	broadcast := &domain.Broadcast{
@@ -759,6 +768,11 @@ func (tdf *TestDataFactory) SetWorkspaceWebsiteURL(workspaceID, websiteURL strin
 	}
 	workspace.Settings.WebsiteURL = websiteURL
 	return tdf.workspaceRepo.Update(context.Background(), workspace)
+}
+
+// GetWorkspace reads a workspace as stored.
+func (tdf *TestDataFactory) GetWorkspace(workspaceID string) (*domain.Workspace, error) {
+	return tdf.workspaceRepo.GetByID(context.Background(), workspaceID)
 }
 
 // SetWorkspaceCustomEndpointURL sets the workspace's Custom Endpoint URL (the tracking
@@ -2096,6 +2110,15 @@ func WithPostPublished(published bool) BlogPostOption {
 		} else {
 			p.PublishedAt = nil
 		}
+	}
+}
+
+// WithPostPublishedAt publishes the post at the given time, in the past or,
+// for a scheduled post, in the future.
+func WithPostPublishedAt(at time.Time) BlogPostOption {
+	return func(p *domain.BlogPost) {
+		utc := at.UTC()
+		p.PublishedAt = &utc
 	}
 }
 

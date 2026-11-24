@@ -743,3 +743,64 @@ func TestSessionCheckStatus(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, sessionCheckStatus(fmt.Errorf("verify: %w", domain.ErrSessionAuthFailed)))
 	assert.Equal(t, http.StatusInternalServerError, sessionCheckStatus(errors.New("connection refused")))
 }
+
+func TestWriteValidationError(t *testing.T) {
+	t.Run("a wrapped validation error answers 400 with its text", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		handled := writeValidationError(w, fmt.Errorf("service: %w", domain.NewValidationError("cannot delete integration-managed template")))
+		require.True(t, handled)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		var body map[string]interface{}
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		assert.Equal(t, "validation error: cannot delete integration-managed template", body["error"])
+	})
+
+	t.Run("any other error is left to the caller", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		handled := writeValidationError(w, errors.New("db error"))
+		assert.False(t, handled)
+		assert.Equal(t, 0, w.Body.Len())
+	})
+}
+
+// A segment value error answers 422 with the sentence and the fields; through a wrap too. Other
+// errors are left to the caller as before.
+func TestWriteServiceError_SegmentValueError(t *testing.T) {
+	valueErr := &domain.SegmentValueError{Column: "custom_json_2", Path: []string{"score"}, Type: domain.SegmentValueTypeNumber,
+		Email: "joe@example.com", Value: "high", Cause: `invalid input syntax for type numeric: "high"`}
+
+	rr := httptest.NewRecorder()
+	require.True(t, writeServiceError(rr, fmt.Errorf("failed: %w", valueErr), "fallback"))
+	assert.Equal(t, http.StatusUnprocessableEntity, rr.Code)
+	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
+	assert.JSONEq(t, `{
+		"error": "custom_json_2.score: contact joe@example.com holds \"high\", which is not a valid number",
+		"value_error": {"column": "custom_json_2", "path": ["score"], "type": "number", "email": "joe@example.com", "value": "high"}
+	}`, rr.Body.String())
+
+	other := httptest.NewRecorder()
+	assert.False(t, writeServiceError(other, errors.New("failed to preview segment: boom"), "fallback"))
+	assert.Equal(t, 0, other.Body.Len())
+}
+
+// A send whose template does not render is the caller's template or data: 422 with the error,
+// from writeTemplateRenderError and from writeServiceError; any other error is left alone.
+func TestWriteTemplateRenderError(t *testing.T) {
+	renderErr := &domain.TemplateRenderError{Message: "template compilation failed: Liquid error: divided by 0"}
+
+	for name, write := range map[string]func(http.ResponseWriter, error) bool{
+		"writeTemplateRenderError": writeTemplateRenderError,
+		"writeServiceError":        func(w http.ResponseWriter, err error) bool { return writeServiceError(w, err, "fallback") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			require.True(t, write(rr, fmt.Errorf("failed to send notification through any channel: %w", renderErr)))
+			assert.Equal(t, http.StatusUnprocessableEntity, rr.Code)
+			assert.JSONEq(t, `{"error": "template compilation failed: Liquid error: divided by 0"}`, rr.Body.String())
+		})
+	}
+
+	other := httptest.NewRecorder()
+	assert.False(t, writeTemplateRenderError(other, errors.New("failed to send notification through any channel")))
+	assert.Equal(t, 0, other.Body.Len())
+}

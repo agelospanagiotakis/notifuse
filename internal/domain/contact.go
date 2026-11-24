@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/Notifuse/notifuse/pkg/crypto"
 	"github.com/asaskevich/govalidator"
@@ -70,6 +71,13 @@ type Contact struct {
 	CustomJSON4 *NullableJSON `json:"custom_json_4,omitempty" valid:"optional"`
 	CustomJSON5 *NullableJSON `json:"custom_json_5,omitempty" valid:"optional"`
 
+	// Tracking consent. A nil or null value is unknown: the workspace's
+	// EmailTrackingSettings.UnknownConsent decides what it means.
+	TrackingOpensConsent     *NullableString `json:"tracking_opens_consent,omitempty" valid:"optional"`
+	TrackingClicksConsent    *NullableString `json:"tracking_clicks_consent,omitempty" valid:"optional"`
+	TrackingConsentSource    *NullableString `json:"tracking_consent_source,omitempty" valid:"optional"`
+	TrackingConsentUpdatedAt *NullableTime   `json:"tracking_consent_updated_at,omitempty" valid:"optional"`
+
 	// Timestamps
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -98,8 +106,87 @@ func (c *Contact) Validate() error {
 	if !govalidator.IsEmail(c.Email) {
 		return fmt.Errorf("invalid email format")
 	}
+	c.TrackingOpensConsent = canonicalTrackingConsent(c.TrackingOpensConsent)
+	c.TrackingClicksConsent = canonicalTrackingConsent(c.TrackingClicksConsent)
+	if err := ValidateTrackingConsentValue(TrackingConsentValue(c.TrackingOpensConsent)); err != nil {
+		return fmt.Errorf("tracking_opens_consent: %w", err)
+	}
+	if err := ValidateTrackingConsentValue(TrackingConsentValue(c.TrackingClicksConsent)); err != nil {
+		return fmt.Errorf("tracking_clicks_consent: %w", err)
+	}
+	if source := TrackingConsentValue(c.TrackingConsentSource); len(source) > MaxTrackingConsentSourceLength {
+		return fmt.Errorf("tracking_consent_source must be at most %d characters", MaxTrackingConsentSourceLength)
+	}
 
 	return nil
+}
+
+// canonicalTrackingConsent trims a consent value and reads an empty one as
+// absent: no value given, so the stored choice stays. Kept as an empty string,
+// it would escape the unknown filter, and as null it would erase a recorded
+// choice.
+func canonicalTrackingConsent(v *NullableString) *NullableString {
+	if v == nil || v.IsNull {
+		return v
+	}
+	trimmed := trimUnicodeSpace(v.String)
+	if trimmed == "" {
+		return nil
+	}
+	return &NullableString{String: trimmed}
+}
+
+// ProvidesTrackingConsent reports whether the contact names either consent at
+// all, an explicit null included: a write that would touch the consent.
+func (c *Contact) ProvidesTrackingConsent() bool {
+	return c.TrackingOpensConsent != nil || c.TrackingClicksConsent != nil
+}
+
+// DefaultTrackingConsentSource sets the source a consent change is recorded
+// with when the contact names a consent and no source of its own. A caller's
+// source is kept: an API call or an import may carry over a history recorded
+// elsewhere.
+func (c *Contact) DefaultTrackingConsentSource(source string) {
+	if c.ProvidesTrackingConsent() && TrackingConsentValue(c.TrackingConsentSource) == "" {
+		c.TrackingConsentSource = &NullableString{String: source}
+	}
+}
+
+// ImposeTrackingConsentSource records a consent change with source, whatever
+// the caller sent, and drops any date the caller sent so the change is dated
+// now. For writes from an unauthenticated caller, who could otherwise label
+// their change "console" or backdate it.
+func (c *Contact) ImposeTrackingConsentSource(source string) {
+	c.TrackingConsentUpdatedAt = nil
+	if c.ProvidesTrackingConsent() {
+		c.TrackingConsentSource = &NullableString{String: source}
+	} else {
+		c.TrackingConsentSource = nil
+	}
+}
+
+// TrackingConsentSourceForUser is the source of a consent written by an
+// authenticated caller: "api" for an API key, "console" for a user.
+func TrackingConsentSourceForUser(user *User) string {
+	if user != nil && user.Type == UserTypeAPIKey {
+		return TrackingConsentSourceAPI
+	}
+	return TrackingConsentSourceConsole
+}
+
+// TrackingConsentChanged reports whether either consent differs between before
+// and after. A nil pointer and an explicit null are the same unknown value.
+func TrackingConsentChanged(before, after *Contact) bool {
+	var beforeOpens, beforeClicks, afterOpens, afterClicks string
+	if before != nil {
+		beforeOpens = TrackingConsentValue(before.TrackingOpensConsent)
+		beforeClicks = TrackingConsentValue(before.TrackingClicksConsent)
+	}
+	if after != nil {
+		afterOpens = TrackingConsentValue(after.TrackingOpensConsent)
+		afterClicks = TrackingConsentValue(after.TrackingClicksConsent)
+	}
+	return beforeOpens != afterOpens || beforeClicks != afterClicks
 }
 
 // VerifyEmailHMAC verifies if the provided HMAC for an email is valid
@@ -160,6 +247,11 @@ type dbContact struct {
 	UpdatedAt   time.Time
 	DBCreatedAt time.Time
 	DBUpdatedAt time.Time
+
+	TrackingOpensConsent     sql.NullString
+	TrackingClicksConsent    sql.NullString
+	TrackingConsentUpdatedAt sql.NullTime
+	TrackingConsentSource    sql.NullString
 }
 
 // ScanContact scans a contact from the database
@@ -208,6 +300,10 @@ func ScanContact(scanner interface {
 		&dbc.UpdatedAt,
 		&dbc.DBCreatedAt,
 		&dbc.DBUpdatedAt,
+		&dbc.TrackingOpensConsent,
+		&dbc.TrackingClicksConsent,
+		&dbc.TrackingConsentUpdatedAt,
+		&dbc.TrackingConsentSource,
 	)
 
 	if err != nil {
@@ -365,6 +461,19 @@ func ScanContact(scanner interface {
 		}
 	}
 
+	if dbc.TrackingOpensConsent.Valid {
+		c.TrackingOpensConsent = &NullableString{String: dbc.TrackingOpensConsent.String}
+	}
+	if dbc.TrackingClicksConsent.Valid {
+		c.TrackingClicksConsent = &NullableString{String: dbc.TrackingClicksConsent.String}
+	}
+	if dbc.TrackingConsentUpdatedAt.Valid {
+		c.TrackingConsentUpdatedAt = &NullableTime{Time: dbc.TrackingConsentUpdatedAt.Time}
+	}
+	if dbc.TrackingConsentSource.Valid {
+		c.TrackingConsentSource = &NullableString{String: dbc.TrackingConsentSource.String}
+	}
+
 	return c, nil
 }
 
@@ -385,6 +494,14 @@ type GetContactsRequest struct {
 	ListID            string   `json:"list_id,omitempty" valid:"optional"`
 	ContactListStatus string   `json:"contact_list_status,omitempty" valid:"optional"`
 	Segments          []string `json:"segments,omitempty" valid:"optional"`
+
+	// Search matches email, first, last and full name, and external ID (case-insensitive
+	// substring). It is trimmed and at most ContactSearchMaxLength characters.
+	Search string `json:"search,omitempty" valid:"optional"`
+
+	// Tracking consent filters: granted, denied or unknown (no value recorded).
+	TrackingOpensConsent  string `json:"tracking_opens_consent,omitempty" valid:"optional"`
+	TrackingClicksConsent string `json:"tracking_clicks_consent,omitempty" valid:"optional"`
 
 	// Join contact_lists
 	WithContactLists bool `json:"with_contact_lists,omitempty" valid:"optional"`
@@ -408,6 +525,18 @@ func (r *GetContactsRequest) FromQueryParams(params url.Values) error {
 	r.ListID = params.Get("list_id")
 	r.ContactListStatus = params.Get("contact_list_status")
 	r.Cursor = params.Get("cursor")
+	r.Search = strings.TrimSpace(params.Get("search"))
+	if err := validateContactSearch(r.Search); err != nil {
+		return err
+	}
+	r.TrackingOpensConsent = params.Get("tracking_opens_consent")
+	r.TrackingClicksConsent = params.Get("tracking_clicks_consent")
+	if err := validateTrackingConsentFilter("tracking_opens_consent", r.TrackingOpensConsent); err != nil {
+		return err
+	}
+	if err := validateTrackingConsentFilter("tracking_clicks_consent", r.TrackingClicksConsent); err != nil {
+		return err
+	}
 
 	// Parse segments array
 	if segments, ok := params["segments[]"]; ok && len(segments) > 0 {
@@ -443,6 +572,31 @@ func (r *GetContactsRequest) FromQueryParams(params url.Values) error {
 	return nil
 }
 
+// ContactSearchMaxLength is the longest contacts.list search, in characters.
+const ContactSearchMaxLength = 100
+
+func validateContactSearch(search string) error {
+	if !utf8.ValidString(search) || strings.ContainsRune(search, 0) {
+		return fmt.Errorf("invalid search: must be valid UTF-8 text")
+	}
+	if utf8.RuneCountInString(search) > ContactSearchMaxLength {
+		return fmt.Errorf("search must be at most %d characters", ContactSearchMaxLength)
+	}
+	return nil
+}
+
+// TrackingConsentFilterUnknown selects contacts with no consent recorded.
+const TrackingConsentFilterUnknown = "unknown"
+
+func validateTrackingConsentFilter(field, value string) error {
+	switch value {
+	case "", TrackingConsentGranted, TrackingConsentDenied, TrackingConsentFilterUnknown:
+		return nil
+	default:
+		return fmt.Errorf("invalid %s %q: must be granted, denied or unknown", field, value)
+	}
+}
+
 // GetContactsResponse represents the response from getting contacts
 type GetContactsResponse struct {
 	Contacts   []*Contact `json:"contacts"`
@@ -453,6 +607,12 @@ type GetContactsResponse struct {
 func (r *GetContactsRequest) Validate() error {
 	if r.WorkspaceID == "" {
 		return fmt.Errorf("workspace_id is required")
+	}
+	if err := validateTrackingConsentFilter("tracking_opens_consent", r.TrackingOpensConsent); err != nil {
+		return err
+	}
+	if err := validateTrackingConsentFilter("tracking_clicks_consent", r.TrackingClicksConsent); err != nil {
+		return err
 	}
 
 	// Set default limit if not provided
@@ -574,7 +734,7 @@ const (
 	UpsertContactOperationError  = "error"
 
 	// BulkImportChunkSize is the max contacts per INSERT query.
-	// 500 * 36 params = 18,000 (safely under PostgreSQL's 65,535 param limit).
+	// 500 * 40 params = 20,000 (safely under PostgreSQL's 65,535 param limit).
 	BulkImportChunkSize = 500
 
 	// BulkListAssignMaxRows is the max rows (email x listID cross-product) per INSERT.
@@ -676,13 +836,32 @@ type ContactRepository interface {
 	// GetBatchForSegment retrieves a batch of email addresses for segment processing
 	GetBatchForSegment(ctx context.Context, workspaceID string, offset int64, limit int) ([]string, error)
 
+	// GetBatchForSegmentAfter retrieves up to limit email addresses greater than afterEmail, in
+	// email order. Paging by the last email seen, rather than by offset, keeps a contact deleted
+	// or created mid-scan from shifting the window and making the scan skip another contact.
+	GetBatchForSegmentAfter(ctx context.Context, workspaceID string, afterEmail string, limit int) ([]string, error)
+
 	// MarkEmailsAsBounced flips contact_lists.status to 'bounced' on every row
 	// each given email has, except where the row is already 'bounced' or
 	// 'complained'. The row of a contact removed from a list takes the bounce
 	// too and stays removed. The track_contact_list_changes trigger emits
 	// list.bounced for a row still on the list; a removed row's bounce records
-	// nothing.
+	// nothing. The webhook applies with it a bounce received for the first time;
+	// one the provider posts again goes through MarkEmailsAsBouncedUnchangedSince.
 	MarkEmailsAsBounced(ctx context.Context, workspaceID string, emails []string, at time.Time) error
+
+	// MarkEmailsAsBouncedUnchangedSince is MarkEmailsAsBounced restricted, for
+	// each email, to the rows whose updated_at is at or before that email's
+	// reference time. It applies a bounce the provider posts again: a row
+	// changed since Notifuse first received the bounce, such as a bounce
+	// cleared or a contact subscribed again, keeps its status. An empty map
+	// runs no query.
+	MarkEmailsAsBouncedUnchangedSince(ctx context.Context, workspaceID string, since map[string]time.Time, at time.Time) error
+
+	// MarkEmailsAsBouncedAt is MarkEmailsAsBounced with each email bounced at its own time,
+	// in one statement: the demo seed applies the bounces of a history spread over days. An
+	// empty map runs no query.
+	MarkEmailsAsBouncedAt(ctx context.Context, workspaceID string, bouncedAt map[string]time.Time) error
 }
 
 // FromJSON parses JSON data into a Contact struct
@@ -806,6 +985,28 @@ func FromJSON(data interface{}) (*Contact, error) {
 		return nil, err
 	}
 	if err := parseNullableTime(jsonResult, "custom_datetime_5", &contact.CustomDatetime5); err != nil {
+		return nil, err
+	}
+
+	// Tracking consent
+	if err := parseNullableString(jsonResult, "tracking_opens_consent", &contact.TrackingOpensConsent); err != nil {
+		return nil, err
+	}
+	contact.TrackingOpensConsent = canonicalTrackingConsent(contact.TrackingOpensConsent)
+	if err := ValidateTrackingConsentValue(TrackingConsentValue(contact.TrackingOpensConsent)); err != nil {
+		return nil, fmt.Errorf("tracking_opens_consent: %w", err)
+	}
+	if err := parseNullableString(jsonResult, "tracking_clicks_consent", &contact.TrackingClicksConsent); err != nil {
+		return nil, err
+	}
+	contact.TrackingClicksConsent = canonicalTrackingConsent(contact.TrackingClicksConsent)
+	if err := ValidateTrackingConsentValue(TrackingConsentValue(contact.TrackingClicksConsent)); err != nil {
+		return nil, fmt.Errorf("tracking_clicks_consent: %w", err)
+	}
+	if err := parseNullableString(jsonResult, "tracking_consent_source", &contact.TrackingConsentSource); err != nil {
+		return nil, err
+	}
+	if err := parseNullableTime(jsonResult, "tracking_consent_updated_at", &contact.TrackingConsentUpdatedAt); err != nil {
 		return nil, err
 	}
 
@@ -1042,6 +1243,20 @@ func (c *Contact) Merge(other *Contact) {
 	}
 	if other.CustomJSON5 != nil {
 		c.CustomJSON5 = other.CustomJSON5
+	}
+
+	// Tracking consent
+	if other.TrackingOpensConsent != nil {
+		c.TrackingOpensConsent = other.TrackingOpensConsent
+	}
+	if other.TrackingClicksConsent != nil {
+		c.TrackingClicksConsent = other.TrackingClicksConsent
+	}
+	if other.TrackingConsentSource != nil {
+		c.TrackingConsentSource = other.TrackingConsentSource
+	}
+	if other.TrackingConsentUpdatedAt != nil {
+		c.TrackingConsentUpdatedAt = other.TrackingConsentUpdatedAt
 	}
 
 	// Update timestamps

@@ -44,8 +44,9 @@ function group(label: string, nextLabel: string): string {
 const alwaysGroup = group('Always available:', 'When a contact is known')
 const contactGroup = group('When a contact is known', 'Only when the send has a list')
 const listGroup = group('Only when the send has a list', 'Broadcasts only:')
-const broadcastGroup = group('Broadcasts only:', 'Transactional API sends:')
-const availabilityGroups = [alwaysGroup, contactGroup, listGroup, broadcastGroup]
+const broadcastGroup = group('Broadcasts only:', 'Broadcasts and automations:')
+const webVersionGroup = group('Broadcasts and automations:', 'Transactional API sends:')
+const availabilityGroups = [alwaysGroup, contactGroup, listGroup, broadcastGroup, webVersionGroup]
 
 const makeTree = (): EmailBlock => ({
   id: 'mjml-1',
@@ -150,7 +151,18 @@ describe('EMAIL_AI_SYSTEM_PROMPT Liquid variables', () => {
     expect(liquid).toContain('When a contact is known')
     expect(liquid).toContain('Only when the send has a list')
     expect(liquid).toContain('Broadcasts only:')
+    expect(liquid).toContain('Broadcasts and automations:')
     expect(liquid).toContain('Transactional API sends:')
+  })
+
+  // An automation email gets the event that started the journey since 44.0 (V44Migration);
+  // without this line the assistant would invent payload fields or say none exist.
+  it('lists the trigger event of an automation, and says to guard it', () => {
+    const automations = group('Automations only:', 'Guard optional values:')
+    expect(automations).toContain('{{ trigger_event }}')
+    expect(automations).toContain('trigger_event.properties')
+    expect(automations).toMatch(/no trigger_event, so guard it/)
+    expect(automations).toContain('{{ automation_name }}')
   })
 
   it('puts the list-only variables in the list-only group', () => {
@@ -166,6 +178,23 @@ describe('EMAIL_AI_SYSTEM_PROMPT Liquid variables', () => {
     // list-less send can still render.
     expect(contactGroup).toContain('notification_center_url')
     expect(listGroup).not.toContain('notification_center_url')
+  })
+
+  it('puts the tracking preference links with the contact', () => {
+    expect(contactGroup).toContain('{{ tracking_preferences_url }}')
+    expect(contactGroup).toContain('{{ tracking_optout_url }}')
+    expect(listGroup).not.toContain('tracking_optout_url')
+  })
+
+  it('puts the web version link with broadcasts and automations only', () => {
+    // The backend mints it for broadcasts and automations and leaves it empty elsewhere.
+    expect(webVersionGroup).toContain('{{ view_in_browser_url }}')
+    for (const other of [alwaysGroup, contactGroup, listGroup, broadcastGroup]) {
+      expect(other).not.toContain('view_in_browser_url')
+    }
+    expect(liquid).toMatch(/view_in_browser_url[^\n]*empty/)
+    // An absent variable is not "", so only blank hides the link in an older preview.
+    expect(liquid).toContain('{% if view_in_browser_url != blank %}')
   })
 
   it('keeps the header-only urls out of every availability group', () => {
@@ -303,5 +332,49 @@ describe('buildEmailSystemPrompt', () => {
     expect(source).not.toMatch(/@lingui/)
     expect(source).not.toMatch(/\bt`/)
     expect(source).not.toMatch(/\b(?:msg|defineMessage|useLingui|Trans)\b/)
+  })
+})
+
+// A rebuilt email that drops a condition sends the block to every recipient, without
+// anything in the thread to show it.
+describe('display conditions in the prompt', () => {
+  const conditions = section('## Display Conditions')
+
+  it('documents the field and every operator', () => {
+    expect(conditions).toContain('"display_condition"')
+    for (const operator of [
+      'is_true',
+      'is_blank',
+      'is_present',
+      'is_absent',
+      'eq',
+      'neq',
+      'contains',
+      'not_contains',
+      'gt',
+      'gte',
+      'lt',
+      'lte'
+    ]) {
+      expect(conditions).toContain(operator)
+    }
+  })
+
+  it('asks to keep existing conditions when rebuilding the email', () => {
+    expect(conditions).toMatch(/keep every existing display_condition/)
+  })
+
+  it('forbids conditions on columns and groups', () => {
+    expect(conditions).toMatch(/never on mj-column, mj-group or mj-liquid/)
+  })
+})
+
+describe('EMAIL_AI_SYSTEM_PROMPT MJML 5 attributes', () => {
+  it('spaces columns with the section gutter rather than column padding', () => {
+    expect(section('## Best Practices')).toMatch(/"gutter" on the mj-section/)
+  })
+
+  it('names the border of social icons, on the icon and on the block', () => {
+    expect(section('## CRITICAL Attribute Rules')).toMatch(/"border" on mj-social-element[\s\S]*on mj-social/)
   })
 })

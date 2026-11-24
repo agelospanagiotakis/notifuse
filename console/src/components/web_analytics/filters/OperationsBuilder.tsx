@@ -1,8 +1,9 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { Button, Input, Popconfirm, Select } from 'antd'
+import { Button, Form, Popconfirm, Select } from 'antd'
 import type { RefSelectProps } from 'antd/es/select'
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import { useLingui } from '@lingui/react/macro'
+import { RuleValueInput } from './RuleValueInput'
 import { WebFilterAction, WebFilterOperation } from '../../../services/api/web_analytics'
 import { buildDimensionOptions, FILTER_ACTIONS, useFilterVocabulary } from '../lib/filterCatalog'
 
@@ -52,64 +53,80 @@ function OperationRow(props: OperationRowProps) {
 
   const showValueInput =
     props.value.action === 'set_value' || props.value.action === 'set_default_value'
+  // The list's error, once shown, outlines the value that causes it, not the whole row.
+  const { errors } = Form.Item.useStatus()
+  const valueMissing = errors.length > 0 && !props.value.value?.trim()
 
+  // One line when the card is wide enough (dimension, action, value, delete); on a narrow card the
+  // value goes under them.
   return (
-    <div className="flex flex-col gap-2 md:flex-row md:items-center">
-      <div className="flex flex-1 items-center gap-2">
-        <span className="w-4 shrink-0 text-xs text-gray-400">{props.index + 1}.</span>
+    <div
+      data-operation-row
+      className="flex flex-wrap items-center gap-2 border-t border-line-soft py-2.5 first:border-t-0 first:pt-0"
+    >
+      <span className="w-4 shrink-0 text-xs text-ink-4">{props.index + 1}.</span>
+      <div className="min-w-0 flex-1">
         <Select
           ref={handleSelectRef}
           value={props.value.dimension}
           onChange={(dimension) => props.onChange({ ...props.value, dimension })}
           options={props.dimensionOptions}
           placeholder={t`Select dimension`}
-          className="w-full md:!w-[180px] md:shrink-0"
+          aria-label={t`Dimension`}
+          style={{ width: '100%' }}
           showSearch
           optionFilterProp="label"
           open={isOpen}
           onOpenChange={setIsOpen}
         />
       </div>
-      <Select<WebFilterAction, ActionOption>
-        value={props.value.action}
-        onChange={(action) =>
-          props.onChange({
-            ...props.value,
-            action,
-            value: action === 'unset_value' ? '' : props.value.value
-          })
-        }
-        options={props.actionOptions}
-        className="w-full md:!w-[160px] md:shrink-0"
-        optionRender={(option) => (
-          <div>
-            <div>{option.label}</div>
-            <div className="text-xs text-gray-400">{option.data.description}</div>
-          </div>
-        )}
-      />
-      {showValueInput ? (
-        <Input
-          value={props.value.value ?? ''}
-          onChange={(event) => props.onChange({ ...props.value, value: event.target.value })}
-          placeholder={t`Value`}
-          className="min-w-0 flex-1"
+      <div className="w-[140px] shrink-0">
+        <Select<WebFilterAction, ActionOption>
+          value={props.value.action}
+          onChange={(action) =>
+            props.onChange({
+              ...props.value,
+              action,
+              value: action === 'unset_value' ? '' : props.value.value
+            })
+          }
+          options={props.actionOptions}
+          aria-label={t`Action`}
+          style={{ width: '100%' }}
+          // Wider than the select, so each action's description reads on one or two lines.
+          popupMatchSelectWidth={260}
+          optionRender={(option) => (
+            <div>
+              <div>{option.label}</div>
+              <div className="text-xs text-ink-4">{option.data.description}</div>
+            </div>
+          )}
         />
-      ) : (
-        <div className="hidden flex-1 md:block" />
-      )}
+      </div>
+      {showValueInput ? (
+        <div className="order-last basis-full pl-6 @min-[480px]:order-none @min-[480px]:basis-0 @min-[480px]:flex-1 @min-[480px]:pl-0">
+          <RuleValueInput
+            field={props.value.dimension}
+            value={props.value.value ?? ''}
+            onChange={(value) => props.onChange({ ...props.value, value })}
+            placeholder={t`Value`}
+            status={valueMissing ? 'error' : undefined}
+          />
+        </div>
+      ) : null}
       <Popconfirm
         title={t`Delete this operation?`}
         onConfirm={props.onRemove}
         okText={t`Delete`}
+        okButtonProps={{ danger: true }}
         cancelText={t`Cancel`}
         disabled={props.isOnlyOperation}
       >
         <Button
           type="text"
+          aria-label={t`Delete operation`}
           icon={<DeleteOutlined />}
           disabled={props.isOnlyOperation}
-          className="shrink-0 self-end md:self-auto"
         />
       </Popconfirm>
     </div>
@@ -150,9 +167,8 @@ export function OperationsBuilder(props: OperationsBuilderProps) {
   }
 
   return (
-    <div>
-      <div className="mb-3 text-xs text-gray-500">{t`When matched, execute these operations:`}</div>
-      <div className="space-y-2">
+    <div className="@container">
+      <div>
         {operations.map((operation, index) => (
           <OperationRow
             key={index}
@@ -170,17 +186,11 @@ export function OperationsBuilder(props: OperationsBuilderProps) {
           />
         ))}
       </div>
-      <Button
-        type="primary"
-        ghost
-        block
-        size="small"
-        icon={<PlusOutlined />}
-        onClick={addOperation}
-        className="!mt-4"
-      >
-        {t`Add operation`}
-      </Button>
+      <div className="mt-3">
+        <Button type="dashed" block size="small" icon={<PlusOutlined />} onClick={addOperation}>
+          {t`Add operation`}
+        </Button>
+      </div>
     </div>
   )
 }

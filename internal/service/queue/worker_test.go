@@ -31,7 +31,8 @@ func TestDefaultWorkerConfig(t *testing.T) {
 	assert.Equal(t, 10, config.SendConcurrency)
 	assert.Equal(t, 1, config.SMTPSendConcurrency)
 	assert.Equal(t, 2*time.Second, config.RoundWindow)
-	assert.Equal(t, 10*time.Second, config.ShutdownGrace)
+	assert.Equal(t, 40*time.Second, config.ShutdownGrace)
+	assert.Equal(t, 100*time.Second, config.SendTimeout)
 	assert.Equal(t, 5*time.Second, config.AbortWait)
 	assert.Equal(t, time.Minute, config.OrphanCheckInterval)
 }
@@ -642,8 +643,8 @@ func TestEmailQueueWorker_GetStats(t *testing.T) {
 	)
 
 	// Prime the rate limiter with some entries
-	worker.rateLimiter.GetOrCreateLimiter("integration-1", 60)
-	worker.rateLimiter.GetOrCreateLimiter("integration-2", 120)
+	worker.rateLimiter.EffectivePerMinute("integration-1", 60)
+	worker.rateLimiter.EffectivePerMinute("integration-2", 120)
 
 	stats := worker.GetStats()
 
@@ -1487,18 +1488,77 @@ func TestEmailQueueWorker_ProcessEntry_JITGuardActiveJourneyProceeds(t *testing.
 	processOne(worker, workspace, entry)
 }
 
-// TestEmailQueueWorker_ProcessEntry_JITGuardLookupErrorFailsOpen documents the fail-open
-// contract: if the guard lookup errors, the send still proceeds (a missed lookup must not
-// silently drop a legitimate email).
-func TestEmailQueueWorker_ProcessEntry_JITGuardLookupErrorFailsOpen(t *testing.T) {
+// TestEmailQueueWorker_ProcessEntry_JITGuardCompletedJourneyProceeds: the executor
+// completes a journey in the pass that queues its last email, so a completed (or failed)
+// journey still sends. Only an exit, a reply or a removal, cancels the email.
+func TestEmailQueueWorker_ProcessEntry_JITGuardCompletedJourneyProceeds(t *testing.T) {
+	for _, status := range []domain.ContactAutomationStatus{domain.ContactAutomationStatusCompleted, domain.ContactAutomationStatusFailed} {
+		t.Run(string(status), func(t *testing.T) {
+			worker, mockQueueRepo, mockEmailService, mockMessageHistoryRepo, mockAutomationRepo, workspace, entry := jitGuardWorker(t)
+			caID := *entry.Payload.ContactAutomationID
+
+			mockAutomationRepo.EXPECT().GetContactAutomation(gomock.Any(), workspace.ID, caID).
+				Return(&domain.ContactAutomation{ID: caID, Status: status}, nil)
+			mockEmailService.EXPECT().SendEmail(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
+			mockQueueRepo.EXPECT().MarkAsSent(gomock.Any(), workspace.ID, entry.ID).Return(nil)
+			mockMessageHistoryRepo.EXPECT().Upsert(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+			processOne(worker, workspace, entry)
+		})
+	}
+}
+
+// TestEmailQueueWorker_ProcessEntry_JITGuardMissingJourneyIsFinished: a journey that no
+// longer exists was removed with its automation, so its email is dropped unsent.
+func TestEmailQueueWorker_ProcessEntry_JITGuardMissingJourneyIsFinished(t *testing.T) {
+	worker, mockQueueRepo, mockEmailService, mockMessageHistoryRepo, mockAutomationRepo, workspace, entry := jitGuardWorker(t)
+	caID := *entry.Payload.ContactAutomationID
+
+	mockAutomationRepo.EXPECT().GetContactAutomation(gomock.Any(), workspace.ID, caID).
+		Return(nil, fmt.Errorf("%w: %s", domain.ErrContactAutomationNotFound, caID))
+	mockQueueRepo.EXPECT().MarkAsSent(gomock.Any(), workspace.ID, entry.ID).Return(nil)
+	mockEmailService.EXPECT().SendEmail(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	mockMessageHistoryRepo.EXPECT().Upsert(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	processOne(worker, workspace, entry)
+}
+
+// TestEmailQueueWorker_ProcessEntry_JITGuardLookupErrorFailsClosed: a journey that cannot
+// be read is not a reason to send. The entry goes back to the queue for a later attempt,
+// with no message history failure since nothing was sent.
+func TestEmailQueueWorker_ProcessEntry_JITGuardLookupErrorFailsClosed(t *testing.T) {
 	worker, mockQueueRepo, mockEmailService, mockMessageHistoryRepo, mockAutomationRepo, workspace, entry := jitGuardWorker(t)
 	caID := *entry.Payload.ContactAutomationID
 
 	mockAutomationRepo.EXPECT().GetContactAutomation(gomock.Any(), workspace.ID, caID).
 		Return(nil, errors.New("db down"))
-	mockEmailService.EXPECT().SendEmail(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
-	mockQueueRepo.EXPECT().MarkAsSent(gomock.Any(), workspace.ID, entry.ID).Return(nil)
-	mockMessageHistoryRepo.EXPECT().Upsert(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	before := time.Now()
+	mockQueueRepo.EXPECT().MarkAsFailed(gomock.Any(), workspace.ID, entry.ID, gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _, reason string, nextRetry *time.Time) error {
+			assert.Contains(t, reason, "db down")
+			require.NotNil(t, nextRetry)
+			assert.True(t, nextRetry.After(before), "the entry is retried later")
+			return nil
+		})
+	mockQueueRepo.EXPECT().MarkAsSent(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	mockEmailService.EXPECT().SendEmail(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	mockMessageHistoryRepo.EXPECT().Upsert(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	processOne(worker, workspace, entry)
+}
+
+// TestEmailQueueWorker_ProcessEntry_JITGuardLookupErrorOnTheLastAttempt: an entry whose
+// journey could not be read on its last attempt fails for good, as a send would.
+func TestEmailQueueWorker_ProcessEntry_JITGuardLookupErrorOnTheLastAttempt(t *testing.T) {
+	worker, mockQueueRepo, mockEmailService, _, mockAutomationRepo, workspace, entry := jitGuardWorker(t)
+	caID := *entry.Payload.ContactAutomationID
+	entry.Attempts = entry.MaxAttempts - 1
+
+	mockAutomationRepo.EXPECT().GetContactAutomation(gomock.Any(), workspace.ID, caID).
+		Return(nil, errors.New("db down"))
+	mockQueueRepo.EXPECT().MarkAsPermanentlyFailed(gomock.Any(), workspace.ID, entry.ID, gomock.Any()).Return(nil)
+	mockQueueRepo.EXPECT().MarkAsFailed(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	mockEmailService.EXPECT().SendEmail(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
 
 	processOne(worker, workspace, entry)
 }
@@ -1699,9 +1759,12 @@ func TestEmailQueueWorker_CircuitOpenCallback(t *testing.T) {
 	})
 }
 
-// processOne sends one row the way a lane does once the row's token is due.
+// processOne sends one row the way a lane does once the row's token is due, with a token
+// of the integration's current generation.
 func processOne(w *EmailQueueWorker, workspace *domain.Workspace, entry *domain.EmailQueueEntry) *emailerror.ClassifiedError {
-	return w.processEntry(workspace, workspace.GetIntegrationByID(entry.IntegrationID), entry, nil)
+	integration := workspace.GetIntegrationByID(entry.IntegrationID)
+	w.rateLimiter.EffectivePerMinute(integration.ID, integrationRate(integration))
+	return w.processEntry(workspace, integration, entry, nil, w.rateLimiter.CurrentGeneration(integration.ID))
 }
 
 // quietLogger accepts every log call.
@@ -1743,8 +1806,9 @@ func queuedRows(integrationID string, n int) []*domain.EmailQueueEntry {
 	return rows
 }
 
-// throttled is what SES answers above the account's sending rate: a provider error.
-var throttled = errors.New("ThrottlingException: Maximum sending rate exceeded")
+// unavailable is a retryable provider error that does not ask to slow down: an HTTP 503,
+// classified through the status fallback.
+var unavailable = errors.New("status code: 503")
 
 // accessDenied is a provider error SES gives as permanent: the account must be fixed.
 var accessDenied = errors.New("AccessDeniedException: User is not authorized to perform ses:SendEmail")
@@ -1760,20 +1824,24 @@ type fakeQueue struct {
 	sent     map[string]int
 	failed   map[string]int
 	given    map[string]int // MarkAsPermanentlyFailed calls, also counted in failed
-	ctxErrs  []error        // the context error of every outcome written
-	takenBy  map[string]bool
-	onFailed func(id string)
+	released map[string]int // ReleaseThrottled calls
+	// releaseErr, when set, is what ReleaseThrottled returns, leaving the row as it is.
+	releaseErr error
+	ctxErrs    []error // the context error of every outcome written
+	takenBy    map[string]bool
+	onFailed   func(id string)
 }
 
 func newFakeQueue(rows ...*domain.EmailQueueEntry) *fakeQueue {
 	return &fakeQueue{
-		rows:    rows,
-		fetches: map[string][]int{},
-		claims:  map[string]int{},
-		sent:    map[string]int{},
-		failed:  map[string]int{},
-		given:   map[string]int{},
-		takenBy: map[string]bool{},
+		rows:     rows,
+		fetches:  map[string][]int{},
+		claims:   map[string]int{},
+		sent:     map[string]int{},
+		failed:   map[string]int{},
+		given:    map[string]int{},
+		released: map[string]int{},
+		takenBy:  map[string]bool{},
 	}
 }
 
@@ -1834,6 +1902,21 @@ func (q *fakeQueue) wire(m *mocks.MockEmailQueueRepository) {
 			q.mu.Unlock()
 			return q.fail(ctx, id)
 		}).AnyTimes()
+	m.EXPECT().ReleaseThrottled(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, _ string, id string, _ string) error {
+			q.mu.Lock()
+			defer q.mu.Unlock()
+			q.released[id]++
+			q.ctxErrs = append(q.ctxErrs, ctx.Err())
+			if q.releaseErr != nil {
+				return q.releaseErr
+			}
+			if row := q.find(id); row != nil && row.Status == domain.EmailQueueStatusProcessing {
+				row.Status = domain.EmailQueueStatusPending
+				row.Attempts--
+			}
+			return nil
+		}).AnyTimes()
 }
 
 // find returns the row with that ID. Callers hold q.mu.
@@ -1885,6 +1968,10 @@ func (q *fakeQueue) claimCount(integrationID string) int {
 
 func (q *fakeQueue) sentCount(integrationID string) int {
 	return q.count(func(q *fakeQueue) map[string]int { return q.sent }, integrationID)
+}
+
+func (q *fakeQueue) releasedCount(integrationID string) int {
+	return q.count(func(q *fakeQueue) map[string]int { return q.released }, integrationID)
 }
 
 func (q *fakeQueue) failedCount(integrationID string) int {
@@ -2415,7 +2502,7 @@ func TestEmailQueueWorker_LaneCircuit(t *testing.T) {
 				rows: queuedRows("ses-1", 1),
 				setup: func(t *testing.T, lt *laneTest) {
 					// Spend the banked token so that the probe's is a second away.
-					_, _, ok := lt.w.rateLimiter.ReserveBefore("ses-1", 60, time.Now().Add(time.Minute))
+					_, ok := lt.w.rateLimiter.ReserveBefore("ses-1", 60, time.Now().Add(time.Minute))
 					require.True(t, ok)
 					go func() {
 						time.Sleep(100 * time.Millisecond)
@@ -2460,7 +2547,7 @@ func TestEmailQueueWorker_LaneCircuit(t *testing.T) {
 		lt.email.EXPECT().SendEmail(gomock.Any(), gomock.Any(), true).
 			DoAndReturn(func(context.Context, domain.SendEmailProviderRequest, bool) error {
 				sends.Add(1)
-				return throttled
+				return unavailable
 			}).AnyTimes()
 		var opened atomic.Int32
 		lt.w.SetCircuitOpenCallback(func(string, string, *emailerror.ClassifiedError) { opened.Add(1) })
@@ -2511,7 +2598,7 @@ func TestEmailQueueWorker_LaneCircuit(t *testing.T) {
 					time.Sleep(time.Millisecond)
 				}
 				time.Sleep(time.Duration(order[req.MessageID]) * 10 * time.Millisecond)
-				return throttled
+				return unavailable
 			}).AnyTimes()
 
 		within(t, 5*time.Second, func() { lt.w.processWorkspace(sesWorkspace("ses-1")) })
@@ -2542,7 +2629,7 @@ func TestEmailQueueWorker_LaneCircuit(t *testing.T) {
 					time.Sleep(time.Millisecond)
 				}
 				if req.MessageID != rows[3].MessageID {
-					return throttled
+					return unavailable
 				}
 				for !lt.w.circuitBreaker.IsOpen("ses-1") {
 					time.Sleep(time.Millisecond)
@@ -2743,7 +2830,7 @@ func TestEmailQueueWorker_Stop(t *testing.T) {
 		lt.email.EXPECT().SendEmail(gomock.Any(), gomock.Any(), true).
 			DoAndReturn(func(context.Context, domain.SendEmailProviderRequest, bool) error {
 				close(started)
-				time.Sleep(300 * time.Millisecond) // like SMTP, deaf to its context
+				time.Sleep(300 * time.Millisecond) // a provider that does not answer to its context
 				return nil
 			})
 
@@ -2918,4 +3005,55 @@ func TestEmailQueueWorker_Orphans(t *testing.T) {
 		w.processWorkspace(&domain.Workspace{ID: "ws-1"})
 		w.processWorkspace(&domain.Workspace{ID: "ws-1"}) // the second pass found less than a batch
 	})
+}
+
+func TestEmailQueueWorker_ProcessEntry_CarriesCustomText(t *testing.T) {
+	for _, tc := range []struct{ name, text string }{
+		{"a custom text reaches SendEmail", "Hi Ada\nhttps://e.com/u"},
+		{"no custom text leaves it empty for SendEmail to generate", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockQueueRepo := mocks.NewMockEmailQueueRepository(ctrl)
+			mockEmailService := mocks.NewMockEmailServiceInterface(ctrl)
+			mockMessageHistoryRepo := mocks.NewMockMessageHistoryRepository(ctrl)
+			mockLogger := pkgmocks.NewMockLogger(ctrl)
+			mockLogger.EXPECT().WithFields(gomock.Any()).Return(mockLogger).AnyTimes()
+			mockLogger.EXPECT().Debug(gomock.Any()).AnyTimes()
+			mockLogger.EXPECT().Info(gomock.Any()).AnyTimes()
+
+			workspace := &domain.Workspace{
+				ID: "workspace-1",
+				Integrations: []domain.Integration{{
+					ID:            "integration-1",
+					EmailProvider: domain.EmailProvider{Kind: domain.EmailProviderKindSMTP, RateLimitPerMinute: 100},
+				}},
+			}
+			entry := &domain.EmailQueueEntry{
+				ID: "entry-1", Status: domain.EmailQueueStatusPending, SourceType: domain.EmailQueueSourceBroadcast,
+				SourceID: "broadcast-1", IntegrationID: "integration-1", ContactEmail: "ada@example.com", MessageID: "msg-1",
+				Payload: domain.EmailQueuePayload{
+					FromAddress: "s@example.com", Subject: "S", HTMLContent: "<p>Hello</p>", TextContent: tc.text, RateLimitPerMinute: 100,
+				},
+				MaxAttempts: 3,
+			}
+
+			mockQueueRepo.EXPECT().MarkAsProcessing(gomock.Any(), "workspace-1", "entry-1").Return(nil)
+			mockEmailService.EXPECT().SendEmail(gomock.Any(), gomock.Any(), true).
+				DoAndReturn(func(_ context.Context, req domain.SendEmailProviderRequest, _ bool) error {
+					assert.Equal(t, tc.text, req.TextContent)
+					assert.Equal(t, "<p>Hello</p>", req.Content)
+					return nil
+				})
+			mockMessageHistoryRepo.EXPECT().Upsert(gomock.Any(), "workspace-1", gomock.Any(), gomock.Any()).Return(nil)
+			mockQueueRepo.EXPECT().MarkAsSent(gomock.Any(), "workspace-1", "entry-1").Return(nil)
+
+			worker := NewEmailQueueWorker(mockQueueRepo, mocks.NewMockWorkspaceRepository(ctrl), mockEmailService,
+				mockMessageHistoryRepo, DefaultWorkerConfig(), mockLogger)
+			worker.initContexts(context.Background())
+			processOne(worker, workspace, entry)
+		})
+	}
 }

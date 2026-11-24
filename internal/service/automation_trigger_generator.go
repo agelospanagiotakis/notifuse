@@ -31,6 +31,8 @@ var AllowedContactFields = map[string]bool{
 	// Custom JSON fields
 	"custom_json_1": true, "custom_json_2": true, "custom_json_3": true,
 	"custom_json_4": true, "custom_json_5": true,
+	// Tracking consent
+	"tracking_opens_consent": true, "tracking_clicks_consent": true,
 }
 
 // identifierPattern accepts what may be concatenated into a PostgreSQL identifier.
@@ -83,6 +85,9 @@ type TriggerSQL struct {
 // AutomationTriggerGenerator generates PostgreSQL trigger SQL from automation configuration
 type AutomationTriggerGenerator struct {
 	queryBuilder *QueryBuilder
+	// withoutTriggerEvent generates the body triggers had before 44.0: the four-argument
+	// enrolment, with no event. See WithoutTriggerEvent.
+	withoutTriggerEvent bool
 }
 
 // NewAutomationTriggerGenerator creates a new trigger generator
@@ -90,6 +95,14 @@ func NewAutomationTriggerGenerator(queryBuilder *QueryBuilder) *AutomationTrigge
 	return &AutomationTriggerGenerator{
 		queryBuilder: queryBuilder,
 	}
+}
+
+// WithoutTriggerEvent returns a generator of the bodies triggers had before 44.0, which call the
+// four-argument automation_enroll_contact and pass no event. v38 regenerates triggers with it:
+// it runs before v44 installs the five-argument function, and a trigger calling a function
+// that does not exist yet would abort every write that fires it until v44 commits.
+func (g *AutomationTriggerGenerator) WithoutTriggerEvent() *AutomationTriggerGenerator {
+	return &AutomationTriggerGenerator{queryBuilder: g.queryBuilder, withoutTriggerEvent: true}
 }
 
 // Generate creates TriggerSQL for the given automation
@@ -189,6 +202,25 @@ func (g *AutomationTriggerGenerator) buildWHENClause(automation *domain.Automati
 		}
 	}
 
+	// 5. email.link_clicked: the entry's changes carry the clicked URL and the message's
+	// broadcast, template and automation, since a WHEN clause cannot read message_history.
+	// A click on an email this automation sent never restarts it: an every_time automation
+	// would otherwise run again for each link of each of its own emails, a link scanner
+	// clicking them all included.
+	if trigger.EventKind == "email.link_clicked" {
+		conditions = append(conditions, fmt.Sprintf("COALESCE(NEW.changes->'automation_id'->>'new', '') <> %s", sqlLiteral(automation.ID)))
+		if trigger.LinkURL != nil && *trigger.LinkURL != "" {
+			// strpos rather than LIKE: URLs hold '%' and '_', which LIKE reads as wildcards.
+			conditions = append(conditions, fmt.Sprintf("strpos(lower(NEW.changes->'clicked_url'->>'new'), lower(%s)) > 0", sqlLiteral(*trigger.LinkURL)))
+		}
+		if trigger.BroadcastID != nil && *trigger.BroadcastID != "" {
+			conditions = append(conditions, fmt.Sprintf("NEW.changes->'broadcast_id'->>'new' = %s", sqlLiteral(*trigger.BroadcastID)))
+		}
+		if trigger.TemplateID != nil && *trigger.TemplateID != "" {
+			conditions = append(conditions, fmt.Sprintf("NEW.changes->'template_id'->>'new' = %s", sqlLiteral(*trigger.TemplateID)))
+		}
+	}
+
 	// trigger.Conditions is deliberately absent here. Every leaf the condition
 	// compiler supports produces a subquery — EXISTS, NOT EXISTS, or a scalar
 	// (SELECT COUNT(*) ...) comparison — and PostgreSQL rejects any subquery in a
@@ -255,39 +287,62 @@ func (g *AutomationTriggerGenerator) buildFunctionBody(functionName string, auto
 		frequency = "every_time"
 	}
 
+	// The fifth argument, with its separating comma, or nothing for a pre-44 body.
+	payload := ",\n" + strings.Repeat(" ", 8) + triggerEventSQL(automation.Trigger)
+	if g.withoutTriggerEvent {
+		payload = ""
+	}
+
+	// A custom event writes a timeline row of its kind for its insertion and for each update,
+	// soft delete and restore, with operation 'update'. Only the insertion is a new occurrence,
+	// so the body returns for any other row. The check sits in the body rather than in the WHEN
+	// clause so that replacing a body applies it without recreating the trigger (see
+	// regenerateAutomationTriggers). The pre-44 bodies stay as v38 installs them.
+	onlyOnInsert := ""
+	if !g.withoutTriggerEvent && automation.Trigger.EventKind == "custom_event" {
+		onlyOnInsert = `
+    IF NEW.operation IS DISTINCT FROM 'insert' THEN
+        RETURN NEW;
+    END IF;`
+	}
+
 	var body string
 	if guard == "" {
-		body = fmt.Sprintf(`BEGIN
+		body = fmt.Sprintf(`BEGIN%s
     PERFORM automation_enroll_contact(
         %s,
         NEW.email,
         %s,
-        %s
+        %s%s
     );
     RETURN NEW;
 END;`,
+			onlyOnInsert,
 			sqlLiteral(automation.ID),
 			sqlLiteral(automation.RootNodeID),
 			sqlLiteral(frequency),
+			payload,
 		)
 	} else {
 		// An AFTER INSERT body can already see the row that fired it, so a
 		// contact_timeline count condition counts the triggering event itself.
-		body = fmt.Sprintf(`BEGIN
+		body = fmt.Sprintf(`BEGIN%s
     IF (%s) THEN
         PERFORM automation_enroll_contact(
             %s,
             NEW.email,
             %s,
-            %s
+            %s%s
         );
     END IF;
     RETURN NEW;
 END;`,
+			onlyOnInsert,
 			guard,
 			sqlLiteral(automation.ID),
 			sqlLiteral(automation.RootNodeID),
 			sqlLiteral(frequency),
+			payload,
 		)
 	}
 
@@ -302,6 +357,51 @@ RETURNS TRIGGER AS %s
 		body,
 		tag,
 	)
+}
+
+// triggerEventSQL builds the jsonb the trigger hands to automation_enroll_contact as the
+// event that started the journey, kept in contact_automations.context.trigger and given to
+// the automation's emails as {{ trigger_event }}.
+//
+// It describes the contact_timeline row that fired the trigger. That row does not carry a
+// custom event's properties (its changes hold only the event name, external id and goal
+// fields), so for a custom_event trigger the event itself is read from custom_events, by its
+// key (event_name, external_id): the name is the kind after "custom_event.", the external id
+// the row's entity_id. The trigger runs inside the statement that wrote the event, so the row
+// read is the version that fired it. Should it be missing, the name and external id are still
+// given, with empty properties. Its occurred_at replaces the timeline row's, which is when the
+// event was recorded rather than when it happened.
+//
+// The result is always a jsonb expression, which resolves the call to the JSONB overload and
+// never to the VARCHAR one an old workspace may still have (see
+// schema.AutomationEnrollContactWithTriggerFunction).
+func triggerEventSQL(trigger *domain.TimelineTriggerConfig) string {
+	payload := `jsonb_build_object(
+            'kind', NEW.kind,
+            'entity_type', NEW.entity_type,
+            'entity_id', NEW.entity_id,
+            'changes', NEW.changes,
+            'occurred_at', NEW.created_at
+        )`
+	if trigger == nil || !strings.HasPrefix(trigger.EventKind, "custom_event") {
+		return payload
+	}
+	return payload + ` || COALESCE(
+            (SELECT jsonb_build_object(
+                'name', ce.event_name,
+                'external_id', ce.external_id,
+                'properties', ce.properties,
+                'occurred_at', ce.occurred_at
+            )
+            FROM custom_events ce
+            WHERE ce.event_name = substring(NEW.kind from 14)
+              AND ce.external_id = NEW.entity_id),
+            jsonb_build_object(
+                'name', substring(NEW.kind from 14),
+                'external_id', NEW.entity_id,
+                'properties', '{}'::jsonb
+            )
+        )`
 }
 
 // dollarQuoteTag picks a dollar-quote delimiter that does not occur inside body.

@@ -1,7 +1,10 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -40,7 +43,7 @@ func TestTransactionalHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set up SMTP email provider for testing
-	_, err = factory.SetupWorkspaceWithSMTPProvider(workspace.ID)
+	smtpIntegration, err := factory.SetupWorkspaceWithSMTPProvider(workspace.ID)
 	require.NoError(t, err)
 
 	// Login to get auth token
@@ -58,6 +61,229 @@ func TestTransactionalHandler(t *testing.T) {
 
 	t.Run("Template Testing", func(t *testing.T) {
 		testTransactionalTemplateTest(t, client, factory, workspace.ID)
+	})
+
+	// The console enables its test email buttons on templates:read and transactional:write,
+	// so pin that templates:read is needed on top of transactional:write, and that the pair
+	// is enough without any contacts permission.
+	t.Run("Template Testing Permissions", func(t *testing.T) {
+		template, err := factory.CreateTemplate(workspace.ID)
+		require.NoError(t, err)
+
+		memberClient := func(t *testing.T, perms domain.UserPermissions) *testutil.APIClient {
+			t.Helper()
+			member, err := factory.CreateUser()
+			require.NoError(t, err)
+			require.NoError(t, factory.AddUserToWorkspaceWithPermissions(member.ID, workspace.ID, "member", perms))
+			c := testutil.NewAPIClient(suite.ServerManager.GetURL())
+			require.NoError(t, c.Login(member.Email, "password"))
+			c.SetWorkspaceID(workspace.ID)
+			return c
+		}
+		testSend := func(t *testing.T, c *testutil.APIClient) *http.Response {
+			t.Helper()
+			resp, err := c.TestTransactionalTemplate(map[string]interface{}{
+				"workspace_id":    workspace.ID,
+				"template_id":     template.ID,
+				"integration_id":  smtpIntegration.ID,
+				"sender_id":       smtpIntegration.EmailProvider.Senders[0].ID,
+				"recipient_email": fmt.Sprintf("perm-test-%d@example.com", time.Now().UnixNano()),
+			})
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = resp.Body.Close() })
+			return resp
+		}
+
+		t.Run("transactional write without templates read is refused", func(t *testing.T) {
+			resp := testSend(t, memberClient(t, domain.UserPermissions{
+				domain.PermissionResourceTransactional: {Read: true, Write: true},
+				domain.PermissionResourceContacts:      {Read: true, Write: true},
+			}))
+			require.Equal(t, http.StatusForbidden, resp.StatusCode)
+			var body map[string]interface{}
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+			assert.Equal(t, string(domain.PermissionResourceTemplates), body["resource"])
+			assert.Equal(t, string(domain.PermissionTypeRead), body["permission"])
+		})
+
+		t.Run("templates read and transactional write send without any contacts permission", func(t *testing.T) {
+			resp := testSend(t, memberClient(t, domain.UserPermissions{
+				domain.PermissionResourceTemplates:     {Read: true},
+				domain.PermissionResourceTransactional: {Write: true},
+			}))
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			var result domain.TestTemplateResponse
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+			assert.True(t, result.Success, "test send failed: %s", result.Error)
+		})
+
+		// The console offers Create on transactional:write and templates:read, and Edit on
+		// the same pair unless an integration manages the notification, since it then sends
+		// no channels. Pin each request the console sends against those permissions.
+		t.Run("Create and Edit Permissions", func(t *testing.T) {
+			writeOnly := domain.UserPermissions{
+				domain.PermissionResourceTransactional: {Read: true, Write: true},
+			}
+			withTemplates := domain.UserPermissions{
+				domain.PermissionResourceTemplates:     {Read: true},
+				domain.PermissionResourceTransactional: {Read: true, Write: true},
+			}
+			emailChannels := map[string]interface{}{
+				"email": map[string]interface{}{
+					"template_id": template.ID,
+					"settings":    map[string]interface{}{},
+				},
+			}
+			createBody := func(id string) map[string]interface{} {
+				return map[string]interface{}{
+					"workspace_id": workspace.ID,
+					"notification": map[string]interface{}{
+						"id":       id,
+						"name":     "Permission " + id,
+						"channels": emailChannels,
+						"tracking_settings": map[string]interface{}{
+							"enable_tracking": true,
+						},
+					},
+				}
+			}
+			newNotification := func(t *testing.T, opts ...testutil.TransactionalNotificationOption) *domain.TransactionalNotification {
+				t.Helper()
+				opts = append([]testutil.TransactionalNotificationOption{
+					testutil.WithTransactionalNotificationID(fmt.Sprintf("perm-%d", time.Now().UnixNano())),
+					testutil.WithTransactionalNotificationChannels(domain.ChannelTemplates{
+						domain.TransactionalChannelEmail: domain.ChannelTemplate{
+							TemplateID: template.ID,
+							Settings:   map[string]interface{}{},
+						},
+					}),
+				}, opts...)
+				n, err := factory.CreateTransactionalNotification(workspace.ID, opts...)
+				require.NoError(t, err)
+				return n
+			}
+			requireTemplatesReadRefusal := func(t *testing.T, resp *http.Response) {
+				t.Helper()
+				require.Equal(t, http.StatusForbidden, resp.StatusCode)
+				var body map[string]interface{}
+				require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+				assert.Equal(t, string(domain.PermissionResourceTemplates), body["resource"])
+				assert.Equal(t, string(domain.PermissionTypeRead), body["permission"])
+			}
+			closeLater := func(t *testing.T) func(*http.Response, error) *http.Response {
+				return func(resp *http.Response, err error) *http.Response {
+					t.Helper()
+					require.NoError(t, err)
+					t.Cleanup(func() { _ = resp.Body.Close() })
+					return resp
+				}
+			}
+
+			t.Run("create with transactional write only is refused", func(t *testing.T) {
+				c := memberClient(t, writeOnly)
+				resp := closeLater(t)(c.CreateTransactionalNotification(createBody(fmt.Sprintf("perm-create-%d", time.Now().UnixNano()))))
+				requireTemplatesReadRefusal(t, resp)
+			})
+
+			t.Run("create with templates read too succeeds", func(t *testing.T) {
+				c := memberClient(t, withTemplates)
+				resp := closeLater(t)(c.CreateTransactionalNotification(createBody(fmt.Sprintf("perm-create-%d", time.Now().UnixNano()))))
+				assert.Equal(t, http.StatusCreated, resp.StatusCode)
+			})
+
+			t.Run("update with channels and transactional write only is refused", func(t *testing.T) {
+				n := newNotification(t)
+				c := memberClient(t, writeOnly)
+				resp := closeLater(t)(c.UpdateTransactionalNotification(n.ID, map[string]interface{}{
+					"name":     n.Name,
+					"channels": emailChannels,
+				}))
+				requireTemplatesReadRefusal(t, resp)
+			})
+
+			t.Run("update with channels and templates read too succeeds", func(t *testing.T) {
+				n := newNotification(t)
+				c := memberClient(t, withTemplates)
+				resp := closeLater(t)(c.UpdateTransactionalNotification(n.ID, map[string]interface{}{
+					"name":     n.Name,
+					"channels": emailChannels,
+				}))
+				assert.Equal(t, http.StatusOK, resp.StatusCode)
+			})
+
+			t.Run("update of the description alone needs transactional write only", func(t *testing.T) {
+				n := newNotification(t)
+				c := memberClient(t, writeOnly)
+				resp := closeLater(t)(c.UpdateTransactionalNotification(n.ID, map[string]interface{}{
+					"description": "Edited without templates read",
+				}))
+				assert.Equal(t, http.StatusOK, resp.StatusCode)
+			})
+
+			t.Run("console edit of an integration-managed notification needs transactional write only", func(t *testing.T) {
+				integrationID := "perm-managed-integration"
+				n := newNotification(t, func(tn *domain.TransactionalNotification) {
+					tn.IntegrationID = &integrationID
+				})
+				c := memberClient(t, writeOnly)
+				// The body the console's drawer sends for a managed notification: no channels.
+				resp := closeLater(t)(c.UpdateTransactionalNotification(n.ID, map[string]interface{}{
+					"name":        n.Name,
+					"description": "Edited without templates read",
+					"tracking_settings": map[string]interface{}{
+						"enable_tracking": true,
+					},
+				}))
+				require.Equal(t, http.StatusOK, resp.StatusCode)
+				var body map[string]interface{}
+				require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+				saved, ok := body["notification"].(map[string]interface{})
+				require.True(t, ok, "response has no notification: %v", body)
+				assert.Equal(t, integrationID, saved["integration_id"], "the notification must be managed for this case to pin the managed branch")
+			})
+
+			// The API refuses to change a managed notification's name or channels, or to delete it,
+			// with a 400 naming the reason. The channels are refused before their template is read:
+			// this member has no Templates read, so a later refusal would answer 403.
+			t.Run("changes an integration does not allow are refused with 400 and leave it as it was", func(t *testing.T) {
+				integrationID := "perm-managed-refusals"
+				n := newNotification(t, func(tn *domain.TransactionalNotification) {
+					tn.IntegrationID = &integrationID
+				})
+				c := memberClient(t, writeOnly)
+				requireRefusal := func(t *testing.T, resp *http.Response, about string) {
+					t.Helper()
+					require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+					var body map[string]interface{}
+					require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+					assert.Contains(t, body["error"], about)
+				}
+
+				// Another template, so the check below would see a channels write that got through.
+				requireRefusal(t, closeLater(t)(c.UpdateTransactionalNotification(n.ID, map[string]interface{}{
+					"name": n.Name,
+					"channels": map[string]interface{}{
+						"email": map[string]interface{}{"template_id": "tpl-not-the-stored-one", "settings": map[string]interface{}{}},
+					},
+				})), "cannot update channels")
+				requireRefusal(t, closeLater(t)(c.UpdateTransactionalNotification(n.ID, map[string]interface{}{
+					"name": "Renamed by the API",
+				})), "cannot update name")
+				requireRefusal(t, closeLater(t)(c.DeleteTransactionalNotification(n.ID)), "cannot delete")
+
+				resp := closeLater(t)(c.GetTransactionalNotification(n.ID))
+				require.Equal(t, http.StatusOK, resp.StatusCode)
+				var body map[string]interface{}
+				require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+				stored, ok := body["notification"].(map[string]interface{})
+				require.True(t, ok, "response has no notification: %v", body)
+				assert.Equal(t, n.Name, stored["name"])
+				assert.Equal(t, integrationID, stored["integration_id"])
+				channels, _ := stored["channels"].(map[string]interface{})
+				email, _ := channels["email"].(map[string]interface{})
+				assert.Equal(t, template.ID, email["template_id"])
+			})
+		})
 	})
 
 	t.Run("Send with CC and BCC Recipients", func(t *testing.T) {
@@ -311,6 +537,46 @@ func testTransactionalCRUD(t *testing.T, client *testutil.APIClient, factory *te
 			assert.Equal(t, "Updated Description", notificationData["description"])
 		})
 
+		// Reads the stored description back, so the check covers what was saved and not only
+		// what the update answered.
+		storedDescription := func(t *testing.T) interface{} {
+			t.Helper()
+			resp, err := client.GetTransactionalNotification(notification.ID)
+			require.NoError(t, err)
+			defer func() { _ = resp.Body.Close() }()
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			var result map[string]interface{}
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+			return result["notification"].(map[string]interface{})["description"]
+		}
+
+		t.Run("an update without a description leaves it", func(t *testing.T) {
+			resp, err := client.UpdateTransactionalNotification(notification.ID, map[string]interface{}{
+				"name": "Renamed Again",
+			})
+			require.NoError(t, err)
+			defer func() { _ = resp.Body.Close() }()
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			assert.Equal(t, "Updated Description", storedDescription(t))
+		})
+
+		// The console clears the field by sending it empty.
+		t.Run("an empty description clears it", func(t *testing.T) {
+			resp, err := client.UpdateTransactionalNotification(notification.ID, map[string]interface{}{
+				"name":        "Renamed Again",
+				"description": "",
+			})
+			require.NoError(t, err)
+			defer func() { _ = resp.Body.Close() }()
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var result map[string]interface{}
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+			assert.Equal(t, "", result["notification"].(map[string]interface{})["description"])
+			assert.Equal(t, "", storedDescription(t))
+		})
+
 		t.Run("should return 404 for non-existent notification", func(t *testing.T) {
 			updates := map[string]interface{}{
 				"name": "Updated Name",
@@ -508,6 +774,48 @@ func testTransactionalSendCodeMode(t *testing.T, client *testutil.APIClient, fac
 			assert.Contains(t, result, "message_id")
 			assert.NotEmpty(t, result["message_id"], "Message ID should not be empty")
 		})
+	})
+
+	// A Liquid filter that fails, here a division by zero, fails the send like any other
+	// Liquid error: the caller gets the error and nothing is queued or recorded.
+	t.Run("A failing Liquid filter fails the send", func(t *testing.T) {
+		mjml := `<mjml><mj-body><mj-section><mj-column><mj-text>Hello {{contact.first_name}}, total {{ 10 | divided_by: 0 }}</mj-text></mj-column></mj-section></mj-body></mjml>`
+		template, err := factory.CreateTemplate(workspaceID, testutil.WithCodeModeTemplate(mjml))
+		require.NoError(t, err)
+		notification, err := factory.CreateTransactionalNotification(workspaceID,
+			testutil.WithTransactionalNotificationID("send-filter-error-test"),
+			testutil.WithTransactionalNotificationChannels(domain.ChannelTemplates{
+				domain.TransactionalChannelEmail: domain.ChannelTemplate{
+					TemplateID: template.ID,
+					Settings:   map[string]interface{}{},
+				},
+			}),
+		)
+		require.NoError(t, err)
+		contact, err := factory.CreateContact(workspaceID)
+		require.NoError(t, err)
+
+		resp, err := client.SendTransactionalNotification(map[string]interface{}{
+			"id":       notification.ID,
+			"contact":  map[string]interface{}{"email": contact.Email, "first_name": "Ann"},
+			"channels": []string{"email"},
+		})
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		// The caller gets 422 with the Liquid error, which names what to change.
+		assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode, "body: %s", body)
+		assert.Contains(t, string(body), "divided by 0")
+
+		workspaceDB, err := factory.GetWorkspaceDB(workspaceID)
+		require.NoError(t, err)
+		for _, table := range []string{"email_queue", "message_history"} {
+			var n int
+			require.NoError(t, workspaceDB.QueryRowContext(context.Background(),
+				`SELECT COUNT(*) FROM `+table+` WHERE contact_email = $1`, contact.Email).Scan(&n))
+			assert.Zero(t, n, "%s rows for %s", table, contact.Email)
+		}
 	})
 }
 
@@ -1064,11 +1372,8 @@ func testTransactionalSendWithCustomFromName(t *testing.T, client *testutil.APIC
 		foundEmail := false
 		for _, msgSummary := range mailpitData.Messages {
 			// Get full message to check headers
-			fullMsg, err := testutil.GetMailpitMessage(t, msgSummary.ID)
-			if err != nil {
-				t.Logf("Failed to get full message: %v", err)
-				continue
-			}
+			fullMsg, err := testutil.GetMailpitMessageEventually(t, msgSummary.ID, 5*time.Second)
+			require.NoError(t, err, "a message that cannot be read is not skipped")
 			// Check if this is our email by looking at the subject
 			subjects := fullMsg.Headers["Subject"]
 			if len(subjects) > 0 && strings.Contains(subjects[0], "Test Email Subject") {
@@ -1182,10 +1487,8 @@ func testTransactionalSendWithCustomFromName(t *testing.T, client *testutil.APIC
 		// Verify at least one email was sent
 		foundEmail := false
 		for _, msgSummary := range mailpitData.Messages {
-			fullMsg, err := testutil.GetMailpitMessage(t, msgSummary.ID)
-			if err != nil {
-				continue
-			}
+			fullMsg, err := testutil.GetMailpitMessageEventually(t, msgSummary.ID, 5*time.Second)
+			require.NoError(t, err, "a message that cannot be read is not skipped")
 			subjects := fullMsg.Headers["Subject"]
 			if len(subjects) > 0 && strings.Contains(subjects[0], "Test Email Subject") {
 				foundEmail = true
@@ -1660,11 +1963,8 @@ func testTransactionalSendWithCustomSubject(t *testing.T, client *testutil.APICl
 		foundEmail := false
 		for _, msgSummary := range mailpitData.Messages {
 			// Get full message to check headers
-			fullMsg, err := testutil.GetMailpitMessage(t, msgSummary.ID)
-			if err != nil {
-				t.Logf("Failed to get full message: %v", err)
-				continue
-			}
+			fullMsg, err := testutil.GetMailpitMessageEventually(t, msgSummary.ID, 5*time.Second)
+			require.NoError(t, err, "a message that cannot be read is not skipped")
 			// Check if this is our email by looking at the subject
 			subjects := fullMsg.Headers["Subject"]
 			if len(subjects) > 0 && subjects[0] == customSubject {
@@ -1782,11 +2082,8 @@ func testTransactionalSendWithCustomSubjectPreview(t *testing.T, client *testuti
 		// Find our email and verify the preheader is in the HTML body
 		foundEmail := false
 		for _, msgSummary := range mailpitData.Messages {
-			fullMsg, err := testutil.GetMailpitMessage(t, msgSummary.ID)
-			if err != nil {
-				t.Logf("Failed to get full message: %v", err)
-				continue
-			}
+			fullMsg, err := testutil.GetMailpitMessageEventually(t, msgSummary.ID, 5*time.Second)
+			require.NoError(t, err, "a message that cannot be read is not skipped")
 			if fullMsg.Subject == customSubject {
 				foundEmail = true
 				// The preheader text should appear in the HTML body inside the hidden div

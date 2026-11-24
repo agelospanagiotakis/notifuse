@@ -7,6 +7,7 @@ import { ApiUnreachableError } from '../services/api/errors'
 import { SignInRequest, VerifyCodeRequest } from '../services/api/types'
 import { MainLayout } from '../layouts/MainLayout'
 import { useLingui } from '@lingui/react/macro'
+import { takeSignInEmail } from '../components/setup/signInHandoff'
 
 export function SignInPage() {
   const { t } = useLingui()
@@ -15,6 +16,9 @@ export function SignInPage() {
   const search = useSearch({ from: '/console/signin' })
   const [email, setEmail] = useState('')
   const [showCodeInput, setShowCodeInput] = useState(false)
+  // e-Pragma fork: accounts may carry a password; when they do, the same endpoint returns a
+  // token instead of emailing a code.
+  const [usePassword, setUsePassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [resendLoading, setResendLoading] = useState(false)
   const { message } = App.useApp()
@@ -77,6 +81,37 @@ export function SignInPage() {
       }
     },
     [email, signin, message, navigate, t, showRequestError]
+  )
+
+
+  const handlePasswordSubmit = useCallback(
+    async (values: { email: string; password: string }) => {
+      try {
+        setLoading(true)
+        const response = await authService.signIn({
+          email: values.email,
+          password: values.password
+        })
+        if (!response.token) {
+          // No token means the account has no password: hand the user back to the code flow
+          // with the address already filled in, rather than failing silently.
+          setEmail(values.email)
+          setUsePassword(false)
+          message.info(t`This account has no password. Send yourself a sign-in code instead.`)
+          return
+        }
+        await signin(response.token)
+        message.success(t`Successfully signed in`)
+        setTimeout(() => {
+          navigate({ to: '/console' })
+        }, 100)
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : t`Invalid email or password`)
+      } finally {
+        setLoading(false)
+      }
+    },
+    [signin, message, navigate, t]
   )
 
   const handleEmailSubmit = useCallback(
@@ -195,12 +230,19 @@ export function SignInPage() {
 
     let emailToUse = ''
 
+    // Just after the setup: the root email it hands over, read (and dropped) whatever wins
+    const fromSetup = takeSignInEmail()
+
     if (search.email) {
       // URL parameter takes priority
       emailToUse = search.email
     } else if ((window as unknown as Record<string, unknown>).demo === true) {
       // Demo mode fallback
       emailToUse = 'demo@notifuse.com'
+    } else if (fromSetup) {
+      // Prefilled only: the person checks it, then asks for the code
+      form.setFieldsValue({ email: fromSetup })
+      return
     }
 
     if (emailToUse) {
@@ -268,7 +310,7 @@ export function SignInPage() {
             <Form
               form={form}
               name="email"
-              onFinish={handleEmailSubmit}
+              onFinish={usePassword ? handlePasswordSubmit : handleEmailSubmit}
               layout="vertical"
               initialValues={{ email }}
             >
@@ -280,12 +322,32 @@ export function SignInPage() {
                   { type: 'email', message: t`Please enter a valid email!` }
                 ]}
               >
-                <Input placeholder={t`Email`} type="email" />
+                <Input placeholder={t`Email`} type="email" autoComplete="username" />
               </Form.Item>
+
+              {usePassword && (
+                <Form.Item
+                  label={t`Password`}
+                  name="password"
+                  rules={[{ required: true, message: t`Please input your password!` }]}
+                >
+                  <Input.Password placeholder={t`Password`} autoComplete="current-password" />
+                </Form.Item>
+              )}
 
               <Form.Item>
                 <Button type="primary" htmlType="submit" block loading={loading}>
-                  {t`Send Magic Code`}
+                  {usePassword ? t`Sign in` : t`Send Magic Code`}
+                </Button>
+              </Form.Item>
+
+              <Form.Item style={{ marginBottom: 0 }}>
+                <Button
+                  type="link"
+                  style={{ padding: 0 }}
+                  onClick={() => setUsePassword(!usePassword)}
+                >
+                  {usePassword ? t`Use an email code instead` : t`Sign in with a password`}
                 </Button>
               </Form.Item>
 

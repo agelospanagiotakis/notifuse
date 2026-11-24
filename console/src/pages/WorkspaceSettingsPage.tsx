@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react'
-import { useParams, useNavigate } from '@tanstack/react-router'
-import { Layout } from 'antd'
+import { useState, useEffect, useRef } from 'react'
+import { useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { useLingui } from '@lingui/react/macro'
 import { workspaceService } from '../services/api/workspace'
 import { Workspace, WorkspaceMember } from '../services/api/types'
@@ -9,21 +8,53 @@ import { GeneralSettings } from '../components/settings/GeneralSettings'
 import { SMTPBridgeSettings } from '../components/settings/SMTPBridgeSettings'
 import { Integrations } from '../components/settings/Integrations'
 import { CustomFieldsConfiguration } from '../components/settings/CustomFieldsConfiguration'
+import { MailchimpImport } from '../components/settings/MailchimpImport'
+import { ArchiveSettings } from '../components/settings/ArchiveSettings'
 import { BlogSettings } from '../components/settings/BlogSettings'
 import { WebAnalyticsSettings } from '../components/settings/WebAnalyticsSettings'
 import { WebhooksSettings } from '../components/settings/WebhooksSettings'
 import { useAuth } from '../contexts/AuthContext'
 import { isRootUser } from '../services/api/auth'
 import { AuditLogsSettings } from '../components/settings/audit_logs/AuditLogsSettings'
+import { SecuritySettings } from '../components/settings/SecuritySettings'
 import { LicenseSettings } from '../components/settings/LicenseSettings'
 import { DeleteWorkspaceSection } from '../components/settings/DeleteWorkspace'
+import { Skeleton } from 'antd'
+import { Panel, RailLayout } from '../components/layout'
 import {
   SettingsSidebar,
   SETTINGS_SECTIONS,
+  DEFAULT_SETTINGS_SECTION,
   SettingsSection
 } from '../components/settings/SettingsSidebar'
 
-const { Sider, Content } = Layout
+/** A panel-shaped placeholder, while what decides the section's view is not known yet. */
+function SettingsSkeleton() {
+  return (
+    <div data-testid="settings-skeleton" className="flex flex-col gap-3">
+      <Panel>
+        <Skeleton active paragraph={{ rows: 4 }} />
+      </Panel>
+      <Panel>
+        <Skeleton active paragraph={{ rows: 3 }} />
+      </Panel>
+    </div>
+  )
+}
+
+// Sections whose view depends on who the member is: their read-only view must not show before
+// the members answer and then switch to the form.
+const DEPENDS_ON_ROLE: ReadonlySet<SettingsSection> = new Set<SettingsSection>([
+  'general',
+  'integrations',
+  'custom-fields',
+  'webhooks',
+  'blog',
+  'web-analytics',
+  'audit-logs',
+  'danger-zone'
+])
+
 
 export function WorkspaceSettingsPage() {
   const { t } = useLingui()
@@ -32,25 +63,42 @@ export function WorkspaceSettingsPage() {
   })
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
   const [members, setMembers] = useState<WorkspaceMember[]>([])
-  const [loadingMembers, setLoadingMembers] = useState(false)
+  // The workspace whose members have answered once. A refetch (a General save refreshes the
+  // workspaces, which refetches the members) keeps the sections mounted: only another workspace
+  // brings the skeletons back.
+  const [membersLoadedFor, setMembersLoadedFor] = useState<string | null>(null)
+  const membersLoaded = membersLoadedFor === workspaceId
+  const currentWorkspaceId = useRef(workspaceId)
+  currentWorkspaceId.current = workspaceId
+  const [membersError, setMembersError] = useState(false)
   const [isOwner, setIsOwner] = useState(false)
+  const [canManageWebhooks, setCanManageWebhooks] = useState(false)
   const [canManageCustomFields, setCanManageCustomFields] = useState(false)
   const [canManageBlog, setCanManageBlog] = useState(false)
   const [canManageWebAnalytics, setCanManageWebAnalytics] = useState(false)
   const { refreshWorkspaces, user, workspaces } = useAuth()
   const navigate = useNavigate()
+  const search = useSearch({ from: '/console/workspace/$workspaceId/settings/$section' })
 
-  // Get active section from URL or default to 'team'
+  // The panel of a webhook lives in the URL; opening and closing it replaces the entry.
+  const openWebhook = (id?: string) =>
+    navigate({
+      to: '/console/workspace/$workspaceId/settings/$section',
+      params: { workspaceId, section: 'webhooks' },
+      search: id ? { webhook: id } : {},
+      replace: true
+    })
+
+  // The section of the URL, General when it names none.
   const activeSection: SettingsSection = SETTINGS_SECTIONS.includes(section as SettingsSection)
     ? (section as SettingsSection)
-    : 'team'
+    : DEFAULT_SETTINGS_SECTION
 
   useEffect(() => {
-    // Redirect to team section if invalid section is provided
     if (!SETTINGS_SECTIONS.includes(section as SettingsSection)) {
       navigate({
         to: '/console/workspace/$workspaceId/settings/$section',
-        params: { workspaceId, section: 'team' },
+        params: { workspaceId, section: DEFAULT_SETTINGS_SECTION },
         replace: true
       })
     }
@@ -66,10 +114,13 @@ export function WorkspaceSettingsPage() {
   }, [workspaceId, workspaces])
 
   const fetchMembers = async () => {
-    setLoadingMembers(true)
+    const requested = workspaceId
     try {
-      const response = await workspaceService.getMembers(workspaceId)
+      const response = await workspaceService.getMembers(requested)
+      // An answer for a workspace the page has left would apply its rights here.
+      if (currentWorkspaceId.current !== requested) return
       setMembers(response.members)
+      setMembersError(false)
 
       // Check if current user is an owner
       if (user) {
@@ -94,11 +145,22 @@ export function WorkspaceSettingsPage() {
           currentUserMember?.role === 'owner' ||
             currentUserMember?.permissions?.web_analytics?.write === true
         )
+        // Webhook subscriptions can be managed by owners or members with
+        // webhook_subscriptions:write (the server's check on every write endpoint).
+        setCanManageWebhooks(
+          currentUserMember?.role === 'owner' ||
+            currentUserMember?.permissions?.webhook_subscriptions?.write === true
+        )
       }
     } catch (error) {
+      if (currentWorkspaceId.current !== requested) return
+      // The other sections still show, with the rights of a member who may not write.
+      setMembersError(true)
       console.error(t`Failed to fetch workspace members`, error)
     } finally {
-      setLoadingMembers(false)
+      if (currentWorkspaceId.current === requested) {
+        setMembersLoadedFor(requested)
+      }
     }
   }
 
@@ -121,15 +183,19 @@ export function WorkspaceSettingsPage() {
   }
 
   const renderSection = () => {
+    if (activeSection !== 'licence' && activeSection !== 'smtp-bridge' && !workspace) return <SettingsSkeleton />
+    if (!membersLoaded && DEPENDS_ON_ROLE.has(activeSection)) return <SettingsSkeleton />
     switch (activeSection) {
       case 'team':
         return (
           <WorkspaceMembers
             workspaceId={workspaceId}
             members={members}
-            loading={loadingMembers}
+            loading={!membersLoaded}
+            error={membersError}
             onMembersChange={fetchMembers}
             isOwner={isOwner}
+            currentUserId={user?.id}
           />
         )
       case 'integrations':
@@ -142,7 +208,14 @@ export function WorkspaceSettingsPage() {
           />
         )
       case 'webhooks':
-        return workspace ? <WebhooksSettings workspaceId={workspace.id} /> : null
+        return workspace ? (
+          <WebhooksSettings
+            workspaceId={workspace.id}
+            canManage={canManageWebhooks}
+            openWebhookId={search.webhook}
+            onOpenWebhook={openWebhook}
+          />
+        ) : null
       case 'custom-fields':
         return (
           <CustomFieldsConfiguration
@@ -153,6 +226,8 @@ export function WorkspaceSettingsPage() {
         )
       case 'smtp-bridge':
         return <SMTPBridgeSettings />
+      case 'security':
+        return <SecuritySettings />
       case 'general':
         return (
           <GeneralSettings
@@ -169,6 +244,10 @@ export function WorkspaceSettingsPage() {
             canManage={canManageBlog}
           />
         )
+      case 'import':
+        return workspace ? <MailchimpImport workspace={workspace} /> : null
+      case 'archive':
+        return workspace ? <ArchiveSettings workspace={workspace} /> : null
       case 'web-analytics':
         return (
           <WebAnalyticsSettings
@@ -195,26 +274,18 @@ export function WorkspaceSettingsPage() {
   }
 
   return (
-    <Layout style={{ minHeight: 'calc(100vh - 48px)' }}>
-      <Sider
-        width={250}
-        style={{
-          borderRight: '1px solid #f0f0f0',
-          overflow: 'auto'
-        }}
-      >
+    <RailLayout
+      title={t`Settings`}
+      rail={
         <SettingsSidebar
           activeSection={activeSection}
           onSectionChange={handleSectionChange}
           isOwner={isOwner}
           isRoot={isRootUser(user?.email)}
         />
-      </Sider>
-      <Layout>
-        <Content>
-          <div style={{ maxWidth: '700px', padding: '24px' }}>{renderSection()}</div>
-        </Content>
-      </Layout>
-    </Layout>
+      }
+    >
+      <div className="flex max-w-[900px] flex-col gap-3">{renderSection()}</div>
+    </RailLayout>
   )
 }

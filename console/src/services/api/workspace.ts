@@ -45,6 +45,7 @@ export interface WorkspaceSettings {
   transactional_email_provider_id?: string
   marketing_email_provider_id?: string
   email_tracking_enabled: boolean
+  email_tracking?: EmailTrackingSettings
   template_blocks?: TemplateBlock[]
   custom_endpoint_url?: string
   custom_field_labels?: Record<string, string>
@@ -54,6 +55,19 @@ export interface WorkspaceSettings {
   audit_logs?: import('./audit_log').AuditLogSettings
   default_language: string
   languages: string[]
+}
+
+export type UnknownTrackingConsent = 'track' | 'no_track'
+
+/**
+ * The workspace half of the tracking decision: what the workspace tracks, and
+ * what it does for a contact with no recorded consent. A workspace saved before
+ * these settings existed has none; email_tracking_enabled then stands for both.
+ */
+export interface EmailTrackingSettings {
+  opens_enabled: boolean
+  clicks_enabled: boolean
+  unknown_consent: UnknownTrackingConsent
 }
 
 export interface FileManagerSettings {
@@ -68,13 +82,37 @@ export interface FileManagerSettings {
   force_path_style?: boolean
 }
 
-export type EmailProviderKind = 'smtp' | 'ses' | 'sparkpost' | 'postmark' | 'mailgun' | 'mailjet' | 'sendgrid'
+export type EmailProviderKind =
+  | 'smtp'
+  | 'ses'
+  | 'sparkpost'
+  | 'postmark'
+  | 'mailgun'
+  | 'mailjet'
+  | 'sendgrid'
+  | 'resend'
 
 export interface Sender {
   id: string
   email: string
   name: string
   is_default: boolean
+}
+
+/**
+ * Resend. Sending runs over Resend's SMTP endpoint, so the transport fields mirror SMTP;
+ * the webhook secret is what makes Resend a provider kind of its own — Resend signs its
+ * webhooks (Svix) and those signatures are what let bounce and complaint events be trusted.
+ */
+export interface ResendSettings {
+  host: string
+  port: number
+  username: string
+  password?: string
+  encrypted_password?: string
+  /** Svix signing secret shown by Resend, of the form whsec_… */
+  webhook_secret?: string
+  encrypted_webhook_secret?: string
 }
 
 export interface EmailProvider {
@@ -86,6 +124,7 @@ export interface EmailProvider {
   mailgun?: MailgunSettings
   mailjet?: MailjetSettings
   sendgrid?: SendGridSettings
+  resend?: ResendSettings
   senders: Sender[]
   rate_limit_per_minute: number
 }
@@ -95,6 +134,13 @@ export interface AmazonSES {
   access_key: string
   secret_key?: string
   encrypted_secret_key?: string
+
+  /**
+   * The SNS topic the inbound (reply) receipt rule publishes to; replies from any other topic are
+   * rejected. Registering webhooks writes it; set it by hand only for a receipt rule you set up
+   * yourself. Sent blank, the server keeps the stored one.
+   */
+  inbound_topic_arn?: string
 
   /**
    * Managed tenant isolation: Notifuse provisions a tenant for this integration with its own
@@ -182,7 +228,7 @@ export type IntegrationType =
   | 'zapier'
 
 // LLM Provider types
-export type LLMProviderKind = 'anthropic' | 'openai' | 'gemini'
+export type LLMProviderKind = 'anthropic' | 'openai' | 'gemini' | 'deepseek'
 
 export interface AnthropicSettings {
   api_key?: string
@@ -209,6 +255,7 @@ export interface LLMProvider {
   anthropic?: AnthropicSettings
   openai?: OpenAISettings
   gemini?: GeminiSettings
+  deepseek?: OpenAISettings
 }
 
 // Firecrawl settings for web scraping and search
@@ -410,6 +457,8 @@ export interface WorkspaceMember {
   workspace_id: string
   role: string
   email: string
+  /** The member's name; empty or absent for an invitation and a member who gave none. */
+  name?: string
   type: 'user' | 'api_key'
   created_at: string
   updated_at: string
@@ -456,6 +505,20 @@ export interface SetUserPermissionsRequest {
 export interface SetUserPermissionsResponse {
   status: string
   message: string
+}
+
+// A password reset carries no password in the request: the server generates one and returns it
+// once. `must_change_password` is what the SERVER already enforced, echoed back so the UI never
+// has to describe the gate from its own assumption.
+export interface SetUserPasswordRequest {
+  workspace_id: string
+  user_id: string
+}
+
+export interface SetUserPasswordResponse {
+  status: string
+  password: string
+  must_change_password: boolean
 }
 
 export interface SetCustomFieldLabelsRequest {
@@ -619,6 +682,9 @@ export const workspaceService = {
 
   setUserPermissions: (data: SetUserPermissionsRequest) =>
     api.post<SetUserPermissionsResponse>('/api/workspaces.setUserPermissions', data),
+
+  setUserPassword: (data: SetUserPasswordRequest) =>
+    api.post<SetUserPasswordResponse>('/api/workspaces.setUserPassword', data),
 
   setCustomFieldLabels: (data: SetCustomFieldLabelsRequest) =>
     api.post<SetCustomFieldLabelsResponse>('/api/workspaces.setCustomFieldLabels', data),

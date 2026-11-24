@@ -513,7 +513,7 @@ func TestBlogHandler_HandleListPosts(t *testing.T) {
 		mockService.EXPECT().
 			ListPosts(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(ctx context.Context, params *domain.ListBlogPostsRequest) (*domain.BlogPostListResponse, error) {
-				assert.Equal(t, "cat-1", params.CategoryID)
+				assert.Equal(t, "6f1c1d1e-2a3b-4c5d-8e9f-0a1b2c3d4e5f", params.CategoryID, "the UUID in its canonical form")
 				assert.Equal(t, domain.BlogPostStatusPublished, params.Status)
 				assert.Equal(t, 10, params.Limit)
 				assert.Equal(t, 3, params.Page)
@@ -523,12 +523,23 @@ func TestBlogHandler_HandleListPosts(t *testing.T) {
 				}, nil
 			})
 
-		req := httptest.NewRequest(http.MethodGet, "/api/blogPosts.list?workspace_id="+workspaceID+"&category_id=cat-1&status=published&limit=10&page=3", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/blogPosts.list?workspace_id="+workspaceID+"&category_id={6F1C1D1E-2A3B-4C5D-8E9F-0A1B2C3D4E5F}&status=published&limit=10&page=3", nil)
 		w := httptest.NewRecorder()
 
 		handler.HandleListPosts(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("a category_id that is not a UUID answers 400", func(t *testing.T) {
+		// No ListPosts call: the strict mock refuses it.
+		req := httptest.NewRequest(http.MethodGet, "/api/blogPosts.list?workspace_id=ws-123&category_id=news", nil)
+		w := httptest.NewRecorder()
+
+		handler.HandleListPosts(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "category_id must be a UUID")
 	})
 
 	t.Run("Missing workspace_id", func(t *testing.T) {
@@ -1268,6 +1279,12 @@ func TestBlogHandler_PermissionErrors(t *testing.T) {
 			name: "blogPosts.list", method: http.MethodGet, target: "/api/blogPosts.list?workspace_id=ws-123",
 			expect:  func(m *mocks.MockBlogService) { m.EXPECT().ListPosts(gomock.Any(), gomock.Any()).Return(nil, readErr) },
 			handler: func(h *http_handler.BlogHandler) http.HandlerFunc { return h.HandleListPosts },
+			wantErr: readErr,
+		},
+		{
+			name: "blogPosts.counts", method: http.MethodGet, target: "/api/blogPosts.counts?workspace_id=ws-123",
+			expect:  func(m *mocks.MockBlogService) { m.EXPECT().CountPosts(gomock.Any(), "", "").Return(nil, readErr) },
+			handler: func(h *http_handler.BlogHandler) http.HandlerFunc { return h.HandleCountPosts },
 			wantErr: readErr,
 		},
 		{

@@ -301,6 +301,7 @@ func TestBroadcastGap_ResumeBranchesAndFailures(t *testing.T) {
 		} {
 			d := setupBroadcastSvc(t)
 			authOK(d.authService, ctx, "w1")
+			noTaskStateYet(d)
 			inTx(d, ctx)
 			b := testBroadcast("w1", "b1")
 			b.Status = status
@@ -315,6 +316,7 @@ func TestBroadcastGap_ResumeBranchesAndFailures(t *testing.T) {
 		d := setupBroadcastSvc(t)
 		defer d.ctrl.Finish()
 		authOK(d.authService, ctx, "w1")
+		noTaskStateYet(d)
 		inTx(d, ctx)
 		b := testBroadcast("w1", "b1")
 		b.Status = domain.BroadcastStatusPaused
@@ -347,6 +349,7 @@ func TestBroadcastGap_ResumeBranchesAndFailures(t *testing.T) {
 		d := setupBroadcastSvc(t)
 		defer d.ctrl.Finish()
 		authOK(d.authService, ctx, "w1")
+		noTaskStateYet(d)
 		inTx(d, ctx)
 		b := testBroadcast("w1", "b1")
 		b.Status = domain.BroadcastStatusPaused
@@ -374,6 +377,7 @@ func TestBroadcastGap_ResumeBranchesAndFailures(t *testing.T) {
 		d := setupBroadcastSvc(t)
 		defer d.ctrl.Finish()
 		authOK(d.authService, ctx, "w1")
+		noTaskStateYet(d)
 		inTx(d, ctx)
 		b := testBroadcast("w1", "b1")
 		b.Status = domain.BroadcastStatusPaused
@@ -401,6 +405,7 @@ func TestBroadcastGap_ResumeBranchesAndFailures(t *testing.T) {
 		d := setupBroadcastSvc(t)
 		defer d.ctrl.Finish()
 		authOK(d.authService, ctx, "w1")
+		noTaskStateYet(d)
 		inTx(d, ctx)
 		b := testBroadcast("w1", "b1")
 		b.Status = domain.BroadcastStatusPaused
@@ -413,22 +418,70 @@ func TestBroadcastGap_ResumeBranchesAndFailures(t *testing.T) {
 		assert.ErrorIs(t, err, sentinel)
 	})
 
-	t.Run("event ack failure surfaces exact wrapped error", func(t *testing.T) {
+	t.Run("the wake is published once the resume has committed", func(t *testing.T) {
 		d := setupBroadcastSvc(t)
 		defer d.ctrl.Finish()
 		authOK(d.authService, ctx, "w1")
+		noTaskStateYet(d)
+		var order []string
+		d.repo.EXPECT().WithTransaction(ctx, "w1", gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ string, fn func(*sql.Tx) error) error {
+				err := fn(nil)
+				order = append(order, "commit")
+				return err
+			})
+		b := testBroadcast("w1", "b1")
+		b.Status = domain.BroadcastStatusPaused
+		d.repo.EXPECT().GetBroadcastTx(gomock.Any(), gomock.Any(), "w1", "b1").Return(b, nil)
+		d.repo.EXPECT().UpdateBroadcastStatusTx(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+		d.emailQueueRepo.EXPECT().ResumeBySourceTx(gomock.Any(), gomock.Any(), domain.EmailQueueSourceBroadcast, "b1").Return(int64(1), nil)
+		d.eventBus.EXPECT().PublishWithAck(gomock.Any(), gomock.Any(), gomock.Any()).
+			Do(func(_ context.Context, p domain.EventPayload, ack domain.EventAckCallback) {
+				order = append(order, "wake")
+				assert.Equal(t, domain.EventBroadcastResumed, p.Type)
+				assert.Equal(t, true, p.Data["start_now"])
+				ack(nil)
+			})
+		require.NoError(t, d.svc.ResumeBroadcast(ctx, req))
+		assert.Equal(t, []string{"commit", "wake"}, order)
+	})
+
+	t.Run("a failed acknowledgment does not report a committed resume as failed", func(t *testing.T) {
+		d := setupBroadcastSvc(t)
+		defer d.ctrl.Finish()
+		authOK(d.authService, ctx, "w1")
+		noTaskStateYet(d)
 		inTx(d, ctx)
 		b := testBroadcast("w1", "b1")
 		b.Status = domain.BroadcastStatusPaused
 		d.repo.EXPECT().GetBroadcastTx(gomock.Any(), gomock.Any(), "w1", "b1").Return(b, nil)
 		d.repo.EXPECT().UpdateBroadcastStatusTx(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 		d.emailQueueRepo.EXPECT().ResumeBySourceTx(gomock.Any(), gomock.Any(), domain.EmailQueueSourceBroadcast, "b1").Return(int64(1), nil)
-		sentinel := errors.New("evt boom")
 		d.eventBus.EXPECT().PublishWithAck(gomock.Any(), gomock.Any(), gomock.Any()).
-			Do(func(_ context.Context, _ domain.EventPayload, ack domain.EventAckCallback) { ack(sentinel) })
-		err := d.svc.ResumeBroadcast(ctx, req)
-		assert.ErrorIs(t, err, sentinel)
-		assert.EqualError(t, err, "failed to process resume event: evt boom")
+			Do(func(_ context.Context, _ domain.EventPayload, ack domain.EventAckCallback) {
+				ack(errors.New("evt boom"))
+			})
+		assert.NoError(t, d.svc.ResumeBroadcast(ctx, req))
+	})
+
+	t.Run("a resume that does not commit publishes no wake", func(t *testing.T) {
+		d := setupBroadcastSvc(t)
+		defer d.ctrl.Finish()
+		authOK(d.authService, ctx, "w1")
+		noTaskStateYet(d)
+		commitErr := errors.New("commit failed")
+		d.repo.EXPECT().WithTransaction(ctx, "w1", gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ string, fn func(*sql.Tx) error) error {
+				require.NoError(t, fn(nil))
+				return commitErr
+			})
+		b := testBroadcast("w1", "b1")
+		b.Status = domain.BroadcastStatusPaused
+		d.repo.EXPECT().GetBroadcastTx(gomock.Any(), gomock.Any(), "w1", "b1").Return(b, nil)
+		d.repo.EXPECT().UpdateBroadcastStatusTx(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+		d.emailQueueRepo.EXPECT().ResumeBySourceTx(gomock.Any(), gomock.Any(), domain.EmailQueueSourceBroadcast, "b1").Return(int64(1), nil)
+		// The strict event bus mock fails on any PublishWithAck.
+		assert.ErrorIs(t, d.svc.ResumeBroadcast(ctx, req), commitErr)
 	})
 }
 
@@ -437,10 +490,11 @@ func TestBroadcastGap_CancelBranchesAndFailures(t *testing.T) {
 	req := &domain.CancelBroadcastRequest{WorkspaceID: "w1", ID: "b1"}
 
 	t.Run("status guards reject without mutation", func(t *testing.T) {
+		// An A/B test can be cancelled in every status it sends in
+		// (broadcast_service_ab_stop_test.go).
 		for _, status := range []domain.BroadcastStatus{
 			domain.BroadcastStatusDraft, domain.BroadcastStatusFailed,
-			domain.BroadcastStatusTesting, domain.BroadcastStatusTestCompleted,
-			domain.BroadcastStatusWinnerSelected,
+			domain.BroadcastStatusCancelled,
 		} {
 			d := setupBroadcastSvc(t)
 			authOK(d.authService, ctx, "w1")
@@ -450,7 +504,7 @@ func TestBroadcastGap_CancelBranchesAndFailures(t *testing.T) {
 			d.repo.EXPECT().GetBroadcastTx(gomock.Any(), gomock.Any(), "w1", "b1").Return(b, nil)
 			err := d.svc.CancelBroadcast(ctx, req)
 			assert.EqualError(t, err,
-				"only broadcasts with scheduled, paused, processing, or processed status can be cancelled, current status: "+string(status))
+				"only broadcasts that are scheduled, paused or sending can be cancelled, current status: "+string(status))
 			d.ctrl.Finish()
 		}
 	})

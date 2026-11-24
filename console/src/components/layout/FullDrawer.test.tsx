@@ -1,0 +1,188 @@
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { App, Drawer } from 'antd'
+import { FullDrawer, type FullDrawerProps } from './FullDrawer'
+import * as clipboard from '../../lib/copyToClipboard'
+
+function renderDrawer(props: Partial<FullDrawerProps> = {}) {
+  const onClose = vi.fn()
+  const utils = render(
+    <App>
+      <FullDrawer open onClose={onClose} backLabel="Broadcasts" {...props}>
+        <p>Drawer body</p>
+      </FullDrawer>
+    </App>
+  )
+  return { onClose, ...utils }
+}
+
+const drawerRoot = () => document.querySelector<HTMLElement>('.ant-drawer')!
+
+describe('FullDrawer', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('opens full width with no antd header, its root class and its content padding', () => {
+    renderDrawer()
+    expect(screen.getByText('Drawer body')).toBeInTheDocument()
+    expect(drawerRoot().className).toContain('app-full-drawer')
+    expect(document.querySelector<HTMLElement>('.ant-drawer-content-wrapper')!.style.width).toBe('100%')
+    expect(document.querySelector('.ant-drawer-header')).toBeNull()
+    expect(document.querySelector('.ant-drawer-close')).toBeNull()
+    const content = document.querySelector('[data-drawer-content]')!
+    expect(content.className).toContain('px-5')
+    expect(content.className).toContain('gap-3')
+  })
+
+  it('closes from the back button and from the close button', () => {
+    const { onClose } = renderDrawer()
+    fireEvent.click(screen.getByRole('button', { name: /Broadcasts/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onClose).toHaveBeenCalledTimes(2)
+  })
+
+  it('sets the close button apart with a separator right before it', () => {
+    renderDrawer()
+    const close = screen.getByRole('button', { name: 'Close' })
+    expect(close.previousElementSibling).toHaveAttribute('data-drawer-close-separator')
+  })
+
+  it('labels the back button "Back" without a backLabel', () => {
+    renderDrawer({ backLabel: undefined })
+    expect(screen.getByRole('button', { name: /Back/ })).toBeInTheDocument()
+  })
+
+  it('disables previous and next without their handler', () => {
+    const onNext = vi.fn()
+    renderDrawer({ nav: { onNext } })
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled()
+    const next = screen.getByRole('button', { name: 'Next' })
+    expect(next).toBeEnabled()
+    fireEvent.click(next)
+    expect(onNext).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the position only with both position and total, then the context', () => {
+    const { unmount } = renderDrawer({ nav: { position: 4, total: 12, context: 'Pro plan' } })
+    expect(screen.getByText('4 of 12')).toBeInTheDocument()
+    expect(screen.getByText('Pro plan')).toBeInTheDocument()
+    unmount()
+    renderDrawer({ nav: { position: 4, context: 'Pro plan' } })
+    expect(document.querySelector('[data-drawer-position]')).toBeNull()
+    expect(screen.getByText('Pro plan')).toBeInTheDocument()
+  })
+
+  it('puts a bar title in the bar, after the back button', () => {
+    renderDrawer({ barTitle: <span>November news</span> })
+    const bar = document.querySelector('[data-drawer-bar]')!
+    expect(bar).toContainElement(screen.getByText('November news'))
+  })
+
+  it('shows a total label in place of the total', () => {
+    renderDrawer({ nav: { position: 2, total: 50, totalLabel: '50+', context: 'All contacts' } })
+    expect(screen.getByText('2 of 50+')).toBeInTheDocument()
+  })
+
+  it('keeps only the context with buttons off', () => {
+    renderDrawer({ nav: { buttons: false, position: 2, total: 5, context: 'All contacts' } })
+    expect(screen.queryByRole('button', { name: 'Previous' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
+    expect(document.querySelector('[data-drawer-position]')).toBeNull()
+    expect(screen.getByText('All contacts')).toBeInTheDocument()
+  })
+
+  it('draws no previous or next without nav', () => {
+    renderDrawer()
+    expect(screen.queryByRole('button', { name: 'Previous' })).toBeNull()
+  })
+
+  it('goes to the next item on J and the previous on K', () => {
+    const onNext = vi.fn()
+    const onPrev = vi.fn()
+    renderDrawer({ nav: { onNext, onPrev } })
+    fireEvent.keyDown(document.body, { key: 'j' })
+    fireEvent.keyDown(document.body, { key: 'k' })
+    expect(onNext).toHaveBeenCalledTimes(1)
+    expect(onPrev).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores J while closed', () => {
+    const onNext = vi.fn()
+    renderDrawer({ open: false, nav: { onNext } })
+    fireEvent.keyDown(document.body, { key: 'j' })
+    expect(onNext).not.toHaveBeenCalled()
+  })
+
+  it('copies the page URL and says so', async () => {
+    const copy = vi.spyOn(clipboard, 'copyToClipboard').mockResolvedValue(true)
+    renderDrawer()
+    fireEvent.click(screen.getByRole('button', { name: 'Copy link' }))
+    expect(copy).toHaveBeenCalledWith(window.location.href)
+    expect(await screen.findByText('Link copied')).toBeInTheDocument()
+  })
+
+  it('says when the copy fails', async () => {
+    vi.spyOn(clipboard, 'copyToClipboard').mockResolvedValue(false)
+    renderDrawer()
+    fireEvent.click(screen.getByRole('button', { name: 'Copy link' }))
+    await waitFor(() => expect(screen.getByText('Failed to copy to clipboard')).toBeInTheDocument())
+  })
+
+  it('has no copy button with copyLink false, and renders the top actions', () => {
+    renderDrawer({ copyLink: false, topActions: <button type="button">Edit</button> })
+    expect(screen.queryByRole('button', { name: 'Copy link' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+  })
+  it('fills the viewport height without padding with fill', () => {
+    renderDrawer({ fill: true })
+    const content = document.querySelector('[data-drawer-content]')!
+    expect(content.className).toContain('flex-1')
+    expect(content.className).toContain('min-h-0')
+    expect(content.className).not.toContain('px-5')
+    expect(content.parentElement!.className).toContain('h-full')
+  })
+
+  it('is pushed aside by a child drawer by default, and not with push false', async () => {
+    const wrapper = () => document.querySelector<HTMLElement>('.app-full-drawer .ant-drawer-content-wrapper')!
+    const child = <Drawer open title="Child" getContainer={false} />
+    const { unmount } = render(
+      <App>
+        <FullDrawer open onClose={() => {}}>
+          {child}
+        </FullDrawer>
+      </App>
+    )
+    await waitFor(() => expect(wrapper().style.transform).toContain('translateX'))
+    unmount()
+    render(
+      <App>
+        <FullDrawer open onClose={() => {}} push={false}>
+          {child}
+        </FullDrawer>
+      </App>
+    )
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(wrapper().style.transform).toBe('')
+  })
+
+  it('centres the middle of the bar, and renders nothing there without it', () => {
+    const { unmount } = renderDrawer({ barCenter: <span>Steps</span> })
+    const center = document.querySelector<HTMLElement>('[data-drawer-bar-center]')!
+    expect(center).toHaveTextContent('Steps')
+    expect(center.className).toContain('left-1/2')
+    unmount()
+    renderDrawer()
+    expect(document.querySelector('[data-drawer-bar-center]')).toBeNull()
+  })
+
+  it('closes on Escape unless keyboard is off', () => {
+    const { onClose, unmount } = renderDrawer()
+    fireEvent.keyDown(document.querySelector('.ant-drawer-content-wrapper')!, { key: 'Escape', code: 'Escape', keyCode: 27 })
+    expect(onClose).toHaveBeenCalled()
+    unmount()
+    const off = renderDrawer({ keyboard: false })
+    fireEvent.keyDown(document.querySelector('.ant-drawer-content-wrapper')!, { key: 'Escape', code: 'Escape', keyCode: 27 })
+    expect(off.onClose).not.toHaveBeenCalled()
+  })
+})

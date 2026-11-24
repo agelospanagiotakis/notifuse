@@ -187,6 +187,8 @@ func sendingStartedTask(state *domain.SendBroadcastState) *domain.Task {
 func TestOrchestrator_Process_PublishesSendingStartedOnFirstSendingRun(t *testing.T) {
 	m := newSendingStartedMocks(t)
 	defer m.ctrl.Finish()
+	// The first sending run records the start date (orchestrator_started_at_test.go).
+	m.broadcastRepo.EXPECT().MarkBroadcastStarted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	m.expectConfiguredWorkspace()
 	m.broadcastRepo.EXPECT().GetBroadcast(gomock.Any(), "workspace-123", "broadcast-123").
@@ -217,6 +219,33 @@ func TestOrchestrator_Process_PublishesSendingStartedOnFirstSendingRun(t *testin
 	assert.Equal(t, "broadcast-123", published.EntityID)
 	assert.Equal(t, "Summer sale", published.Data["broadcast_name"])
 	assert.Equal(t, sendingStartedTime.Format(time.RFC3339), published.Data["started_at"])
+}
+
+// An A/B test's first sending run is in testing, not processing: it sends too, and is
+// announced the same way.
+func TestOrchestrator_Process_PublishesSendingStartedOnFirstTestingRun(t *testing.T) {
+	m := newSendingStartedMocks(t)
+	defer m.ctrl.Finish()
+	m.broadcastRepo.EXPECT().MarkBroadcastStarted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	m.expectConfiguredWorkspace()
+	inTest := sendingStartedBroadcast("Subject test")
+	inTest.Status = domain.BroadcastStatusTesting
+	m.broadcastRepo.EXPECT().GetBroadcast(gomock.Any(), "workspace-123", "broadcast-123").Return(inTest, nil).AnyTimes()
+	m.expectValidTemplate()
+	m.expectFailingRecipientFetch()
+
+	var published domain.EventPayload
+	m.eventBus.EXPECT().Publish(gomock.Any(), eventOfType(domain.EventBroadcastSendingStarted)).
+		Times(1).
+		Do(func(_ context.Context, event domain.EventPayload) { published = event })
+
+	task := sendingStartedTask(&domain.SendBroadcastState{BroadcastID: "broadcast-123", TotalRecipients: 25})
+	_, err := m.orchestrator(m.eventBus).Process(context.Background(), task, time.Now().Add(30*time.Second))
+	require.Error(t, err)
+
+	assert.Equal(t, "broadcast-123", published.EntityID)
+	assert.Equal(t, "Subject test", published.Data["broadcast_name"])
 }
 
 // TestOrchestrator_Process_TemplateFailure_PublishesNothing pins the reason the publish
@@ -252,6 +281,8 @@ func TestOrchestrator_Process_TemplateFailure_PublishesNothing(t *testing.T) {
 func TestOrchestrator_Process_DoesNotRepublishOnResume(t *testing.T) {
 	m := newSendingStartedMocks(t)
 	defer m.ctrl.Finish()
+	// A later run still dates a broadcast without a start date; this test is about the event.
+	m.broadcastRepo.EXPECT().MarkBroadcastStarted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	m.expectConfiguredWorkspace()
 	m.broadcastRepo.EXPECT().GetBroadcast(gomock.Any(), "workspace-123", "broadcast-123").
@@ -307,7 +338,8 @@ func TestOrchestrator_Process_NoRecipients_PublishesNothing(t *testing.T) {
 		Return(bcast, nil).AnyTimes()
 	m.contactRepo.EXPECT().CountContactsForBroadcast(gomock.Any(), "workspace-123", bcast.Audience).
 		Return(0, nil).Times(1)
-	m.broadcastRepo.EXPECT().UpdateBroadcast(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+	expectFinalWrite(m.broadcastRepo, "workspace-123", sendingStartedBroadcast("Summer sale"),
+		func(context.Context, *domain.Broadcast) error { return nil })
 
 	orchestrator := m.orchestrator(m.eventBus)
 	task := sendingStartedTask(&domain.SendBroadcastState{
@@ -326,6 +358,8 @@ func TestOrchestrator_Process_NoRecipients_PublishesNothing(t *testing.T) {
 func TestOrchestrator_Process_NilEventBus(t *testing.T) {
 	m := newSendingStartedMocks(t)
 	defer m.ctrl.Finish()
+	// The first sending run records the start date (orchestrator_started_at_test.go).
+	m.broadcastRepo.EXPECT().MarkBroadcastStarted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	m.expectConfiguredWorkspace()
 	m.broadcastRepo.EXPECT().GetBroadcast(gomock.Any(), "workspace-123", "broadcast-123").

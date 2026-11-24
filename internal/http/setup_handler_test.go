@@ -26,10 +26,19 @@ import (
 type mockAppShutdowner struct {
 	shutdownCalled atomic.Bool
 	shutdownError  error
+	// The deadline left on the context Shutdown received, when it had one
+	deadlineLeft chan time.Duration
 }
 
 func (m *mockAppShutdowner) Shutdown(ctx context.Context) error {
 	m.shutdownCalled.Store(true)
+	if m.deadlineLeft != nil {
+		if deadline, ok := ctx.Deadline(); ok {
+			m.deadlineLeft <- time.Until(deadline)
+		} else {
+			m.deadlineLeft <- 0
+		}
+	}
 	return m.shutdownError
 }
 
@@ -100,6 +109,41 @@ func (m *mockUserRepository) CreateUser(ctx context.Context, user *domain.User) 
 
 func (m *mockUserRepository) GetUserByID(ctx context.Context, id string) (*domain.User, error) {
 	return nil, nil
+}
+
+// UpdatePasswordHash satisfies domain.UserRepository. These tests never exercise the
+// password flow; the repository interface gained this method when password sign-in was
+// added, so the hand-written mock needs it to keep compiling.
+func (m *mockUserRepository) UpdatePasswordHash(ctx context.Context, userID string, hash string) error {
+	for _, u := range m.users {
+		if u.ID == userID {
+			u.PasswordHash = hash
+			return nil
+		}
+	}
+	return nil
+}
+
+// SetMustChangePassword and GetMustChangePassword back the forced-change gate the middleware
+// consults. The hand-written mock only needs them to satisfy the interface; storing the flag
+// on the same in-memory user keeps it consistent with UpdatePasswordHash above.
+func (m *mockUserRepository) SetMustChangePassword(ctx context.Context, userID string, required bool) error {
+	for _, u := range m.users {
+		if u.ID == userID {
+			u.MustChangePassword = required
+			return nil
+		}
+	}
+	return nil
+}
+
+func (m *mockUserRepository) GetMustChangePassword(ctx context.Context, userID string) (bool, error) {
+	for _, u := range m.users {
+		if u.ID == userID {
+			return u.MustChangePassword, nil
+		}
+	}
+	return false, nil
 }
 
 func (m *mockUserRepository) GetUserByEmail(ctx context.Context, email string) (*domain.User, error) {
@@ -211,6 +255,79 @@ func TestSetupHandler_Status(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The wizard reads env_overrides to lock the fields the environment sets: names only,
+// and only before install (setup.status stays public afterwards).
+func TestSetupHandler_Status_EnvOverrides(t *testing.T) {
+	statusBody := func(t *testing.T, installed bool, env *service.EnvironmentConfig) map[string]any {
+		t.Helper()
+		settingRepo := newMockSettingRepository()
+		if installed {
+			_ = settingRepo.Set(context.Background(), "is_installed", "true")
+		}
+		settingService := service.NewSettingService(settingRepo)
+		setupService := service.NewSetupService(settingService, &service.UserService{}, newMockUserRepository(), logger.NewLogger(), "secret-key", nil, env)
+		handler := NewSetupHandler(setupService, settingService, logger.NewLogger(), newMockAppShutdowner())
+
+		w := httptest.NewRecorder()
+		handler.Status(w, httptest.NewRequest(http.MethodGet, "/api/setup.status", nil))
+		require.Equal(t, http.StatusOK, w.Code)
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		return body
+	}
+	env := &service.EnvironmentConfig{SMTPHost: "smtp.secret-host.com", Telemetry: "false"}
+
+	t.Run("not installed lists the set keys, sorted, without values", func(t *testing.T) {
+		body := statusBody(t, false, env)
+		assert.Equal(t, []any{"smtp_host", "telemetry_enabled"}, body["env_overrides"])
+		raw, _ := json.Marshal(body)
+		assert.NotContains(t, string(raw), "secret-host")
+	})
+
+	t.Run("installed leaves the field out", func(t *testing.T) {
+		_, present := statusBody(t, true, env)["env_overrides"]
+		assert.False(t, present)
+	})
+
+	t.Run("no env leaves the field out", func(t *testing.T) {
+		_, present := statusBody(t, false, &service.EnvironmentConfig{})["env_overrides"]
+		assert.False(t, present)
+	})
+}
+
+// The setup page waits for a different boot_id to know the restarted process answers,
+// not the one shutting down.
+func TestSetupHandler_Status_BootID(t *testing.T) {
+	newHandler := func() *SetupHandler {
+		settingService := service.NewSettingService(newMockSettingRepository())
+		setupService := service.NewSetupService(settingService, &service.UserService{}, newMockUserRepository(), logger.NewLogger(), "secret-key", nil, nil)
+		return NewSetupHandler(setupService, settingService, logger.NewLogger(), newMockAppShutdowner())
+	}
+	bootID := func(h *SetupHandler) string {
+		w := httptest.NewRecorder()
+		h.Status(w, httptest.NewRequest(http.MethodGet, "/api/setup.status", nil))
+		var body StatusResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		return body.BootID
+	}
+
+	first := newHandler()
+	id := bootID(first)
+	assert.NotEmpty(t, id)
+	assert.Equal(t, id, bootID(first), "one process answers one boot_id")
+	assert.NotEqual(t, id, bootID(newHandler()), "a new process answers another")
+
+	// setup.initialize answers the boot_id of the process that handled it: the one the
+	// page compares against, whatever it read when it opened.
+	body := `{"root_email":"admin@example.com","api_endpoint":"https://api.example.com","smtp_host":"smtp.example.com","smtp_port":587,"smtp_from_email":"noreply@example.com"}`
+	w := httptest.NewRecorder()
+	first.Initialize(w, httptest.NewRequest(http.MethodPost, "/api/setup.initialize", bytes.NewBufferString(body)))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var initialized InitializeResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&initialized))
+	assert.Equal(t, id, initialized.BootID)
 }
 
 func TestSetupHandler_TestSMTP(t *testing.T) {
@@ -576,5 +693,74 @@ func TestSetupHandler_RegisterRoutes(t *testing.T) {
 			// Should not be 404 (route is registered)
 			assert.NotEqual(t, http.StatusNotFound, w.Code, "Route should be registered")
 		})
+	}
+}
+
+// An installation through the API that leaves check_for_updates out turns the update check on,
+// as the setup wizard and the documentation default it. The bodies are raw JSON on purpose: a
+// struct literal cannot leave a field out.
+func TestSetupHandler_InitializeCheckForUpdatesDefault(t *testing.T) {
+	base := `"root_email":"admin@example.com","api_endpoint":"https://api.example.com","smtp_host":"smtp.example.com","smtp_port":587,"smtp_from_email":"noreply@example.com","smtp_from_name":"Test"`
+	cases := map[string]struct {
+		body string
+		want string
+	}{
+		"field absent": {`{` + base + `}`, "true"},
+		"field false":  {`{` + base + `,"check_for_updates":false}`, "false"},
+		"field true":   {`{` + base + `,"check_for_updates":true}`, "true"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			settingRepo := newMockSettingRepository()
+			settingService := service.NewSettingService(settingRepo)
+			setupService := service.NewSetupService(
+				settingService,
+				&service.UserService{},
+				newMockUserRepository(),
+				logger.NewLogger(),
+				"secret-key",
+				func() error { return nil },
+				nil,
+			)
+			handler := NewSetupHandler(setupService, settingService, logger.NewLogger(), newMockAppShutdowner())
+
+			req := httptest.NewRequest(http.MethodPost, "/api/setup.initialize", bytes.NewBufferString(c.body))
+			w := httptest.NewRecorder()
+			handler.Initialize(w, req)
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+			stored, err := settingRepo.Get(context.Background(), "check_for_updates")
+			require.NoError(t, err, "the installation must store check_for_updates")
+			assert.Equal(t, c.want, stored.Value)
+		})
+	}
+}
+
+func TestSetupHandler_InitializeBoundsTheReloadShutdown(t *testing.T) {
+	settingService := service.NewSettingService(newMockSettingRepository())
+	setupService := service.NewSetupService(
+		settingService,
+		&service.UserService{},
+		newMockUserRepository(),
+		logger.NewLogger(),
+		"secret-key",
+		func() error { return nil },
+		nil,
+	)
+	shutdowner := &mockAppShutdowner{deadlineLeft: make(chan time.Duration, 1)}
+	handler := NewSetupHandler(setupService, settingService, logger.NewLogger(), shutdowner)
+
+	body := `{"root_email":"admin@example.com","api_endpoint":"https://api.example.com","smtp_host":"smtp.example.com","smtp_port":587,"smtp_from_email":"noreply@example.com","smtp_from_name":"Test"}`
+	w := httptest.NewRecorder()
+	handler.Initialize(w, httptest.NewRequest(http.MethodPost, "/api/setup.initialize", bytes.NewBufferString(body)))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	select {
+	case left := <-shutdowner.deadlineLeft:
+		// Under the 70 s cmd/api waits for it, so the databases close before the process exits
+		assert.Greater(t, left, 60*time.Second)
+		assert.LessOrEqual(t, left, reloadShutdownTimeout)
+	case <-time.After(5 * time.Second):
+		t.Fatal("setup.initialize started no shutdown")
 	}
 }

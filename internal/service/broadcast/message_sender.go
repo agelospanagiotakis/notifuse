@@ -25,11 +25,16 @@ import (
 // and webAnalytics decides whether there is one to mint at all.
 type MessageSender interface {
 	// SendToRecipient sends a message to a single recipient
-	SendToRecipient(ctx context.Context, workspaceID string, integrationID string, workspaceSecretKey string, endpoint string, trackingEnabled bool, webAnalytics *domain.WebAnalyticsSettings, broadcast *domain.Broadcast, messageID string, email string,
+	//
+	// decision is what this email to this recipient tracks, resolved by the
+	// caller from the workspace policy and the recipient's consent.
+	SendToRecipient(ctx context.Context, workspaceID string, integrationID string, workspaceSecretKey string, endpoint string, decision domain.EmailTrackingDecision, webAnalytics *domain.WebAnalyticsSettings, broadcast *domain.Broadcast, messageID string, email string,
 		template *domain.Template, data map[string]interface{}, emailProvider *domain.EmailProvider, timeoutAt time.Time, contactLanguage string, workspaceDefaultLanguage string) error
 
-	// SendBatch sends messages to a batch of recipients
-	SendBatch(ctx context.Context, workspaceID string, integrationID string, workspaceSecretKey string, endpoint string, websiteURL string, trackingEnabled bool, webAnalytics *domain.WebAnalyticsSettings, broadcastID string, recipients []*domain.ContactWithList,
+	// SendBatch sends messages to a batch of recipients. trackingPolicy is the
+	// workspace half of the tracking decision; each recipient's consent and the
+	// broadcast's tracking mode complete it.
+	SendBatch(ctx context.Context, workspaceID string, integrationID string, workspaceSecretKey string, endpoint string, websiteURL string, trackingPolicy domain.EmailTrackingPolicy, webAnalytics *domain.WebAnalyticsSettings, broadcastID string, recipients []*domain.ContactWithList,
 		templates map[string]*domain.Template, emailProvider *domain.EmailProvider, timeoutAt time.Time, workspaceDefaultLanguage string) (sent int, failed int, err error)
 }
 
@@ -242,7 +247,7 @@ func (s *messageSender) enforceRateLimit(ctx context.Context, integrationRateLim
 }
 
 // SendToRecipient sends a message to a single recipient
-func (s *messageSender) SendToRecipient(ctx context.Context, workspaceID string, integrationID string, workspaceSecretKey string, endpoint string, trackingEnabled bool, webAnalytics *domain.WebAnalyticsSettings, broadcast *domain.Broadcast, messageID string, email string,
+func (s *messageSender) SendToRecipient(ctx context.Context, workspaceID string, integrationID string, workspaceSecretKey string, endpoint string, decision domain.EmailTrackingDecision, webAnalytics *domain.WebAnalyticsSettings, broadcast *domain.Broadcast, messageID string, email string,
 	template *domain.Template, data map[string]interface{}, emailProvider *domain.EmailProvider, timeoutAt time.Time, contactLanguage string, workspaceDefaultLanguage string) error {
 
 	// Ensure UTM parameters object is present to avoid nil dereference
@@ -286,22 +291,27 @@ func (s *messageSender) SendToRecipient(ctx context.Context, workspaceID string,
 		utmParams.Content = template.ID
 	}
 
-	// Identity of this recipient, for the links this email carries. Analytics
-	// identification is a nicety: a mint failure is logged and the email goes
-	// out without it, never at the cost of the send.
-	identifyToken, identifyAllowedHosts, identifyErr := mintIdentifyToken(email, workspaceSecretKey, webAnalytics)
-	if identifyErr != nil {
-		s.logger.WithFields(map[string]interface{}{
-			"broadcast_id": broadcast.ID,
-			"workspace_id": workspaceID,
-			"recipient":    email,
-			"error":        identifyErr.Error(),
-		}).Warn("Failed to mint web analytics identity token, sending without it")
+	// Identity of this recipient, for the links this email carries, when their
+	// click consent allows it. Analytics identification is a nicety: a mint
+	// failure is logged and the email goes out without it, never at the cost of
+	// the send.
+	var identifyToken string
+	var identifyAllowedHosts []string
+	if decision.Identify {
+		var identifyErr error
+		identifyToken, identifyAllowedHosts, identifyErr = mintIdentifyToken(email, workspaceSecretKey, webAnalytics)
+		if identifyErr != nil {
+			s.logger.WithFields(map[string]interface{}{
+				"broadcast_id": broadcast.ID,
+				"workspace_id": workspaceID,
+				"recipient":    email,
+				"error":        identifyErr.Error(),
+			}).Warn("Failed to mint web analytics identity token, sending without it")
+		}
 	}
 
 	trackingSettings := notifuse_mjml.TrackingSettings{
 		Endpoint:             endpoint,
-		EnableTracking:       trackingEnabled,
 		UTMSource:            utmParams.Source,
 		UTMMedium:            utmParams.Medium,
 		UTMCampaign:          utmParams.Campaign,
@@ -311,7 +321,9 @@ func (s *messageSender) SendToRecipient(ctx context.Context, workspaceID string,
 		MessageID:            messageID,
 		IdentifyToken:        identifyToken,
 		IdentifyAllowedHosts: identifyAllowedHosts,
+		SigningKey:           domain.TrackingSigningKey(workspaceSecretKey),
 	}
+	decision.Apply(&trackingSettings)
 
 	// Resolve language variant
 	emailContent := template.ResolveEmailContent(contactLanguage, workspaceDefaultLanguage)
@@ -356,16 +368,38 @@ func (s *messageSender) SendToRecipient(ctx context.Context, workspaceID string,
 		return NewBroadcastError(ErrCodeTemplateCompile, errMsg, true, nil)
 	}
 
-	emailSender := emailProvider.GetSender(emailContent.SenderID)
-
-	if emailSender == nil {
+	if compiledTemplate.HTML != nil {
+		if viewURL, ok := data["view_in_browser_url"].(string); ok && viewURL != "" {
+			*compiledTemplate.HTML = notifuse_mjml.FillViewInBrowserLink(*compiledTemplate.HTML, viewURL)
+		}
+		unsubURL, _ := data["unsubscribe_url"].(string)
+		prefsURL, _ := data["notification_center_url"].(string)
+		*compiledTemplate.HTML = notifuse_mjml.RewriteMailchimpLinks(*compiledTemplate.HTML, unsubURL, prefsURL)
+		*compiledTemplate.HTML = notifuse_mjml.FillEmptyPreferenceLinks(*compiledTemplate.HTML, prefsURL)
+	}
+	if compiledTemplate.TextError != "" {
 		s.logger.WithFields(map[string]interface{}{
-			"broadcast_id": broadcast.ID,
-			"workspace_id": workspaceID,
-			"sender_id":    emailContent.SenderID,
-			"recipient":    email,
+			"broadcast_id":     broadcast.ID,
+			"workspace_id":     workspaceID,
+			"template_id":      template.ID,
+			"template_version": template.Version,
+			"error":            compiledTemplate.TextError,
+		}).Warn("Custom text version could not be used, sending the automatic one")
+	}
+
+	// The variation's sender wins over the template's; a chosen sender that has gone is an
+	// error rather than the default sender.
+	emailSender, senderErr := emailProvider.ResolveSender(broadcast.VariationSenderID(template.ID), emailContent.SenderID)
+	if senderErr != nil {
+		s.logger.WithFields(map[string]interface{}{
+			"broadcast_id":       broadcast.ID,
+			"workspace_id":       workspaceID,
+			"sender_id":          broadcast.VariationSenderID(template.ID),
+			"template_sender_id": emailContent.SenderID,
+			"recipient":          email,
+			"error":              senderErr.Error(),
 		}).Error("Sender not found")
-		return NewBroadcastError(ErrCodeSenderNotFound, "sender not found", true, nil)
+		return NewBroadcastError(ErrCodeSenderNotFound, "sender not found", true, senderErr)
 	}
 
 	// Process subject line through Liquid templating if it contains Liquid tags
@@ -395,16 +429,14 @@ func (s *messageSender) SendToRecipient(ctx context.Context, workspaceID string,
 		To:            email,
 		Subject:       processedSubject,
 		Content:       *compiledTemplate.HTML,
+		TextContent:   compiledTemplate.CustomText(),
 		Provider:      emailProvider,
 		EmailOptions: domain.EmailOptions{
 			ReplyTo: emailContent.ReplyTo,
 		},
 	}
 
-	// Extract List-Unsubscribe URL from template data for RFC-8058 compliance (broadcast emails only)
-	if unsubscribeURL, ok := data["oneclick_unsubscribe_url"].(string); ok && unsubscribeURL != "" {
-		emailRequest.EmailOptions.ListUnsubscribeURL = unsubscribeURL
-	}
+	emailRequest.EmailOptions.ListUnsubscribeURL = broadcast.ListUnsubscribeURL(data)
 
 	// Now send email directly using compiled HTML rather than passing template to broadcastRepo
 	// Note: Context is checked by SendEmail; in rare cancellation cases we may complete
@@ -442,7 +474,7 @@ func (s *messageSender) SendToRecipient(ctx context.Context, workspaceID string,
 }
 
 // SendBatch sends messages to a batch of recipients
-func (s *messageSender) SendBatch(ctx context.Context, workspaceID string, integrationID string, workspaceSecretKey string, endpoint string, websiteURL string, trackingEnabled bool, webAnalytics *domain.WebAnalyticsSettings, broadcastID string, recipients []*domain.ContactWithList,
+func (s *messageSender) SendBatch(ctx context.Context, workspaceID string, integrationID string, workspaceSecretKey string, endpoint string, websiteURL string, trackingPolicy domain.EmailTrackingPolicy, webAnalytics *domain.WebAnalyticsSettings, broadcastID string, recipients []*domain.ContactWithList,
 	templates map[string]*domain.Template, emailProvider *domain.EmailProvider, timeoutAt time.Time, workspaceDefaultLanguage string) (sent int, failed int, err error) {
 
 	// Track specific error types for better reporting
@@ -504,6 +536,12 @@ func (s *messageSender) SendBatch(ctx context.Context, workspaceID string, integ
 			"workspace_id": workspaceID,
 		}).Error("Nil broadcast returned from repository")
 		return 0, 0, NewBroadcastError(ErrCodeBroadcastNotFound, "broadcast not found", false, fmt.Errorf("nil broadcast"))
+	}
+
+	// A sender chosen on a variation that has left the integration stops the batch before
+	// any recipient: the broadcast pauses and the batch is sent once the sender is fixed.
+	if senderErr := findUnavailableVariationSender(broadcast, templates, emailProvider); senderErr != nil {
+		return 0, 0, senderErr
 	}
 
 	// Ensure UTM parameters is non-nil for downstream usage
@@ -601,17 +639,21 @@ func (s *messageSender) SendBatch(ctx context.Context, workspaceID string, integ
 		// recipient's own token there. Minting a second one here would encrypt a
 		// live per-recipient credential once more per contact in the send loop and
 		// park it in a struct nothing reads.
+		//
+		// The tracking decision is applied before BuildTemplateData, which leaves
+		// tracking_opens_url empty for a recipient whose opens are not tracked.
+		decision := domain.ResolveEmailTracking(trackingPolicy, contact, broadcast.TrackingMode)
 		trackingSettings := notifuse_mjml.TrackingSettings{
-			Endpoint:       endpoint,
-			EnableTracking: trackingEnabled,
-			UTMSource:      utmParams.Source,
-			UTMMedium:      utmParams.Medium,
-			UTMCampaign:    utmParams.Campaign,
-			UTMContent:     utmParams.Content,
-			UTMTerm:        utmParams.Term,
-			WorkspaceID:    workspaceID,
-			MessageID:      messageID,
+			Endpoint:    endpoint,
+			UTMSource:   utmParams.Source,
+			UTMMedium:   utmParams.Medium,
+			UTMCampaign: utmParams.Campaign,
+			UTMContent:  utmParams.Content,
+			UTMTerm:     utmParams.Term,
+			WorkspaceID: workspaceID,
+			MessageID:   messageID,
 		}
+		decision.Apply(&trackingSettings)
 
 		// Build the template data with all options
 		req := domain.TemplateDataRequest{
@@ -622,6 +664,7 @@ func (s *messageSender) SendBatch(ctx context.Context, workspaceID string, integ
 			MessageID:           messageID,
 			TrackingSettings:    trackingSettings,
 			Broadcast:           broadcast,
+			WebVersion:          true,
 		}
 		recipientData, err := domain.BuildTemplateData(req)
 		if err != nil {
@@ -685,7 +728,7 @@ func (s *messageSender) SendBatch(ctx context.Context, workspaceID string, integ
 		}
 
 		// Send to the recipient
-		err = s.SendToRecipient(ctx, workspaceID, integrationID, workspaceSecretKey, endpoint, trackingEnabled, webAnalytics, broadcast, messageID, contact.Email, templates[templateID], recipientData, emailProvider, timeoutAt, contactLanguage, workspaceDefaultLanguage)
+		err = s.SendToRecipient(ctx, workspaceID, integrationID, workspaceSecretKey, endpoint, decision, webAnalytics, broadcast, messageID, contact.Email, templates[templateID], recipientData, emailProvider, timeoutAt, contactLanguage, workspaceDefaultLanguage)
 		if err != nil {
 			// SendToRecipient already logs errors
 			failed++
@@ -714,6 +757,7 @@ func (s *messageSender) SendBatch(ctx context.Context, workspaceID string, integ
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
+		message.OpensTracked, message.ClicksTracked = decision.TrackedFlags()
 
 		if err != nil {
 			message.FailedAt = &now

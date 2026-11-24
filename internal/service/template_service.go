@@ -320,6 +320,56 @@ func (s *TemplateService) GetTemplates(ctx context.Context, workspaceID string, 
 	return templates, nil
 }
 
+// templateUsagePermissions is the read permission each usage type needs.
+var templateUsagePermissions = map[domain.TemplateUsageType]domain.PermissionResource{
+	domain.TemplateUsageTypeBroadcasts:                 domain.PermissionResourceBroadcasts,
+	domain.TemplateUsageTypeTransactionalNotifications: domain.PermissionResourceTransactional,
+	domain.TemplateUsageTypeAutomations:                domain.PermissionResourceAutomations,
+	domain.TemplateUsageTypeLists:                      domain.PermissionResourceLists,
+}
+
+// GetTemplateUsage counts what uses each template, or templateID only. A type the member may
+// not read is not queried: it is left out of the counts and references and listed in
+// HiddenTypes, so the member never sees a 0 for something they cannot see.
+func (s *TemplateService) GetTemplateUsage(ctx context.Context, workspaceID string, templateID string) (*domain.TemplateUsage, error) {
+	ctx, _, userWorkspace, err := s.authService.AuthenticateUserForWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to authenticate user: %w", err)
+	}
+
+	if !userWorkspace.HasPermission(domain.PermissionResourceTemplates, domain.PermissionTypeRead) {
+		return nil, domain.NewPermissionError(
+			domain.PermissionResourceTemplates,
+			domain.PermissionTypeRead,
+			"Insufficient permissions: read access to templates required",
+		)
+	}
+
+	readable := []domain.TemplateUsageType{}
+	hidden := []domain.TemplateUsageType{}
+	for _, typ := range domain.TemplateUsageTypes {
+		if userWorkspace.HasPermission(templateUsagePermissions[typ], domain.PermissionTypeRead) {
+			readable = append(readable, typ)
+		} else {
+			hidden = append(hidden, typ)
+		}
+	}
+
+	if len(readable) == 0 {
+		usage := domain.NewTemplateUsage(templateID != "")
+		usage.HiddenTypes = hidden
+		return &usage, nil
+	}
+
+	usage, err := s.repo.GetTemplateUsage(ctx, workspaceID, templateID, readable)
+	if err != nil {
+		s.logger.Error(fmt.Sprintf("Failed to get template usage: %v", err))
+		return nil, fmt.Errorf("failed to get template usage: %w", err)
+	}
+	usage.HiddenTypes = hidden
+	return usage, nil
+}
+
 func (s *TemplateService) UpdateTemplate(ctx context.Context, workspaceID string, template *domain.Template) error {
 	// Authenticate user for workspace
 	var err error
@@ -424,8 +474,17 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, workspaceID string
 	// Update mj-title and mj-preview blocks with template metadata
 	s.updateEmailMetadataBlocks(template)
 
-	// Validate template
-	if err := template.Validate(); err != nil {
+	// Validate the template with the translations this edit sends: the stored ones it carries
+	// over were valid when saved, and checking them again would refuse a save that never
+	// touched them (a later rule, other test data). A change of channel is the exception: the
+	// carried translations were valid for the old channel only, so the merged map is checked.
+	merged := template.Translations
+	if template.Channel == existingTemplate.Channel {
+		template.Translations = requestedTranslations
+	}
+	err = template.Validate()
+	template.Translations = merged
+	if err != nil {
 		return fmt.Errorf("invalid template: %w", err)
 	}
 
@@ -481,7 +540,7 @@ func (s *TemplateService) DeleteTemplate(ctx context.Context, workspaceID string
 
 	// Prevent deletion of integration-managed templates
 	if template.IntegrationID != nil && *template.IntegrationID != "" {
-		return fmt.Errorf("cannot delete integration-managed template: template is managed by integration %s", *template.IntegrationID)
+		return domain.NewValidationError(fmt.Sprintf("cannot delete integration-managed template: template is managed by integration %s", *template.IntegrationID))
 	}
 
 	// Delete template
@@ -521,6 +580,10 @@ func (s *TemplateService) CompileTemplate(ctx context.Context, payload domain.Co
 		}
 	}
 
+	// Tracked links record against the workspace the caller was authorised for,
+	// never one named in the tracking settings.
+	payload.TrackingSettings.WorkspaceID = payload.WorkspaceID
+
 	// Set endpoint as fallback if not already set
 	if payload.TrackingSettings.Endpoint == "" {
 		payload.TrackingSettings.Endpoint = s.apiEndpoint
@@ -554,11 +617,17 @@ func (s *TemplateService) CompileTemplate(ctx context.Context, payload domain.Co
 		needWebsiteURL = !hasWebsiteURL
 	}
 
-	if needBaseURL || needWebsiteURL {
-		// On a workspace-load failure, fall back to the request's endpoint (and an empty
-		// website URL) rather than failing the preview.
-		baseURL := payload.TrackingSettings.Endpoint
-		websiteURL := ""
+	// The workspace's endpoint and website, read once for whichever needs them. On a
+	// workspace-load failure, fall back to the request's endpoint (and an empty website URL)
+	// rather than failing the preview.
+	var baseURL, websiteURL string
+	workspaceRead := false
+	readWorkspace := func() {
+		if workspaceRead {
+			return
+		}
+		workspaceRead = true
+		baseURL = payload.TrackingSettings.Endpoint
 		if ws, err := s.workspaceRepo.GetByID(ctx, payload.WorkspaceID); err == nil && ws != nil {
 			baseURL = ws.Settings.ResolveEndpoint(s.apiEndpoint)
 			websiteURL = ws.Settings.WebsiteURL
@@ -568,6 +637,10 @@ func (s *TemplateService) CompileTemplate(ctx context.Context, payload domain.Co
 				WithField("error", err.Error()).
 				Warn("CompileTemplate: could not load workspace for template variables; using fallback URLs")
 		}
+	}
+
+	if needBaseURL || needWebsiteURL {
+		readWorkspace()
 		vars := domain.BuildWorkspaceTemplateVars(baseURL, websiteURL)
 
 		if existingWorkspace != nil {
@@ -583,6 +656,17 @@ func (s *TemplateService) CompileTemplate(ctx context.Context, payload domain.Co
 			}
 			payload.TemplateData["workspace"] = vars
 		}
+	}
+
+	// The editor's test data carries preview links (unsubscribe, notification center…) the
+	// console made for john.doe@example.com: they are rebuilt for the test contact, as a send
+	// builds them for its contact. Links of a message really sent are left as they went out.
+	// The workspace is read only when the data holds such a link.
+	if payload.TemplateData != nil {
+		domain.PreviewContactLinks(payload.TemplateData, func() string {
+			readWorkspace()
+			return baseURL
+		}, payload.WorkspaceID, payload.MessageID)
 	}
 
 	resp, err := notifuse_mjml.CompileTemplate(payload)

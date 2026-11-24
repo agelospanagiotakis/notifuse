@@ -4,35 +4,10 @@ import { CheckOutlined, DownOutlined } from '@ant-design/icons'
 import { useLingui } from '@lingui/react/macro'
 import dayjs from '../../lib/dayjs'
 import { TIMEZONE_OPTIONS } from '../../lib/timezones'
-import { useWebAnalytics } from './context'
+import { useWebAnalytics } from './useWebAnalytics'
 import { formatDateRangeLabel, validateDateRange } from './lib/dates'
 import { ComparisonMode, DatePreset, Granularity, PRESET_GROUPS } from './lib/types'
-
-/** Human labels for every preset, translated at render time. */
-export function usePeriodLabels(): Record<DatePreset, string> {
-  const { t } = useLingui()
-  return {
-    today: t`Today`,
-    yesterday: t`Yesterday`,
-    previous_7_days: t`Previous 7 days`,
-    previous_14_days: t`Previous 14 days`,
-    previous_28_days: t`Previous 28 days`,
-    previous_30_days: t`Previous 30 days`,
-    previous_90_days: t`Previous 90 days`,
-    previous_91_days: t`Previous 91 days`,
-    this_week: t`This week`,
-    previous_week: t`Previous week`,
-    this_month: t`Month to date`,
-    previous_month: t`Previous month`,
-    this_quarter: t`This quarter`,
-    previous_quarter: t`Previous quarter`,
-    this_year: t`Year to date`,
-    previous_year: t`Previous year`,
-    previous_12_months: t`Previous 12 months`,
-    all_time: t`All time`,
-    custom: t`Custom range`
-  }
-}
+import { usePeriodLabels } from './usePeriodLabels'
 
 export function DateRangePicker({ size = 'middle' }: { size?: 'small' | 'middle' }) {
   const { t } = useLingui()
@@ -79,17 +54,17 @@ export function DateRangePicker({ size = 'middle' }: { size?: 'small' | 'middle'
               key={preset}
               type="button"
               onClick={() => choose(preset)}
-              className="flex w-full items-center justify-between gap-6 px-3 py-1.5 text-left text-sm hover:bg-gray-50"
+              className="flex w-full items-center justify-between gap-6 px-3 py-1.5 text-left text-sm hover:bg-subtle"
             >
               <span>{labels[preset]}</span>
-              {period === preset ? <CheckOutlined className="text-[var(--primary)]" /> : null}
+              {period === preset ? <CheckOutlined className="text-primary" /> : null}
             </button>
           ))}
         </div>
       ))}
       <Divider className="!my-1" />
       <div className="px-3 py-2">
-        <div className="mb-1 text-xs text-gray-500">{t`Timezone`}</div>
+        <div className="mb-1 text-xs text-ink-3">{t`Timezone`}</div>
         <Select
           showSearch
           size="small"
@@ -119,7 +94,7 @@ export function DateRangePicker({ size = 'middle' }: { size?: 'small' | 'middle'
         cancelText={t`Cancel`}
       >
         <DatePicker.RangePicker
-          format="D MMM YYYY"
+          format="ll"
           variant="filled"
           className="w-full"
           value={draft}
@@ -143,7 +118,7 @@ export function ComparisonPicker({ size = 'middle' }: { size?: 'small' | 'middle
 
   return (
     <Space size={4}>
-      <span className="text-sm text-gray-500">{t`vs.`}</span>
+      <span className="text-sm text-ink-3">{t`vs.`}</span>
       <Select<ComparisonMode>
         size={size}
         variant="filled"
@@ -190,7 +165,7 @@ export function EvolutionToggle(props: { checked: boolean; onChange: (checked: b
   const { t } = useLingui()
   return (
     <Checkbox checked={props.checked} onChange={(event) => props.onChange(event.target.checked)}>
-      <span className="text-xs text-gray-500">{t`Show evolution`}</span>
+      <span className="text-xs text-ink-3">{t`Show evolution`}</span>
     </Checkbox>
   )
 }

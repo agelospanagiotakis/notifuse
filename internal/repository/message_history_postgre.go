@@ -123,6 +123,8 @@ func scanMessage(scanner interface {
 		&message.UnsubscribedAt,
 		&message.CreatedAt,
 		&message.UpdatedAt,
+		&message.OpensTracked,
+		&message.ClicksTracked,
 	)
 
 	if err != nil {
@@ -144,8 +146,25 @@ func messageHistorySelectFields() string {
 	return `id, external_id, contact_email, broadcast_id, automation_id, transactional_notification_id, list_id, template_id, template_version,
 			channel, status_info, message_data, channel_options, attachments, sent_at, delivered_at,
 			failed_at, opened_at, clicked_at, bounced_at, complained_at,
-			unsubscribed_at, created_at, updated_at`
+			unsubscribed_at, created_at, updated_at, opens_tracked, clicks_tracked`
 }
+
+// An open or a click is recorded only when the email carried the pixel or the
+// redirect (the flag is NULL on a message sent before it existed) and the
+// contact has not refused since. The redirect itself is never blocked.
+//
+// Nor is anything recorded on a message whose contact was erased: the redaction cleared
+// its clicked_links (see DeleteForEmail), and a later open or click would write
+// timeline entries under the placeholder address, which no purge reaches, put the clicked
+// URL back on the row, and start automations for the placeholder.
+const (
+	opensRecordableCondition = `opens_tracked IS NOT FALSE
+			AND message_history.contact_email <> '` + redactedContactEmail + `'
+			AND NOT EXISTS (SELECT 1 FROM contacts c WHERE c.email = message_history.contact_email AND c.tracking_opens_consent = 'denied')`
+	clicksRecordableCondition = `clicks_tracked IS NOT FALSE
+			AND message_history.contact_email <> '` + redactedContactEmail + `'
+			AND NOT EXISTS (SELECT 1 FROM contacts c WHERE c.email = message_history.contact_email AND c.tracking_clicks_consent = 'denied')`
+)
 
 // Create adds a new message history record
 func (r *MessageHistoryRepository) Create(ctx context.Context, workspaceID string, secretKey string, message *domain.MessageHistory) error {
@@ -172,12 +191,12 @@ func (r *MessageHistoryRepository) Create(ctx context.Context, workspaceID strin
 			id, external_id, contact_email, broadcast_id, automation_id, transactional_notification_id, list_id, template_id, template_version,
 			channel, status_info, message_data, channel_options, attachments, sent_at, delivered_at,
 			failed_at, opened_at, clicked_at, bounced_at, complained_at,
-			unsubscribed_at, created_at, updated_at, smtp_message_id
+			unsubscribed_at, created_at, updated_at, smtp_message_id, opens_tracked, clicks_tracked
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9,
 			$10, LEFT($11, 255), $12, $13, $14, $15, $16,
 			$17, $18, $19, $20, $21,
-			$22, $23, $24, $25
+			$22, $23, $24, $25, $26, $27
 		)
 	`
 
@@ -209,6 +228,8 @@ func (r *MessageHistoryRepository) Create(ctx context.Context, workspaceID strin
 		message.CreatedAt,
 		message.UpdatedAt,
 		message.SMTPMessageID,
+		message.OpensTracked,
+		message.ClicksTracked,
 	)
 
 	if err != nil {
@@ -244,18 +265,20 @@ func (r *MessageHistoryRepository) Upsert(ctx context.Context, workspaceID strin
 			id, external_id, contact_email, broadcast_id, automation_id, transactional_notification_id, list_id, template_id, template_version,
 			channel, status_info, message_data, channel_options, attachments, sent_at, delivered_at,
 			failed_at, opened_at, clicked_at, bounced_at, complained_at,
-			unsubscribed_at, created_at, updated_at, smtp_message_id
+			unsubscribed_at, created_at, updated_at, smtp_message_id, opens_tracked, clicks_tracked
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9,
 			$10, LEFT($11, 255), $12, $13, $14, $15, $16,
 			$17, $18, $19, $20, $21,
-			$22, $23, $24, $25
+			$22, $23, $24, $25, $26, $27
 		)
 		ON CONFLICT (id) DO UPDATE SET
 			failed_at = EXCLUDED.failed_at,
 			status_info = EXCLUDED.status_info,
 			updated_at = EXCLUDED.updated_at,
-			smtp_message_id = COALESCE(EXCLUDED.smtp_message_id, message_history.smtp_message_id)
+			smtp_message_id = COALESCE(EXCLUDED.smtp_message_id, message_history.smtp_message_id),
+			opens_tracked = COALESCE(EXCLUDED.opens_tracked, message_history.opens_tracked),
+			clicks_tracked = COALESCE(EXCLUDED.clicks_tracked, message_history.clicks_tracked)
 	`
 
 	_, err = workspaceDB.ExecContext(
@@ -286,6 +309,8 @@ func (r *MessageHistoryRepository) Upsert(ctx context.Context, workspaceID strin
 		message.CreatedAt,
 		message.UpdatedAt,
 		message.SMTPMessageID,
+		message.OpensTracked,
+		message.ClicksTracked,
 	)
 
 	if err != nil {
@@ -404,6 +429,35 @@ func (r *MessageHistoryRepository) GetRecipientAndList(ctx context.Context, work
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get the recipient and list of message %s: %w", id, err)
+	}
+	return message, nil
+}
+
+// GetForWebVersion reads what the web version of a message is rendered from. It reads
+// only those columns, and decrypts message_data with the workspace's secret key.
+func (r *MessageHistoryRepository) GetForWebVersion(ctx context.Context, workspaceID, secretKey, id string) (*domain.MessageHistory, error) {
+	workspaceDB, err := r.workspaceRepo.GetConnection(ctx, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workspace connection: %w", err)
+	}
+
+	query := `SELECT id, broadcast_id, automation_id, template_id, template_version, message_data FROM message_history WHERE id = $1`
+
+	message := &domain.MessageHistory{}
+	err = workspaceDB.QueryRowContext(ctx, query, id).Scan(
+		&message.ID, &message.BroadcastID, &message.AutomationID,
+		&message.TemplateID, &message.TemplateVersion, &message.MessageData,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get message %s for its web version: %w", id, err)
+	}
+
+	message.MessageData, err = decryptMessageData(message.MessageData, secretKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt the data of message %s: %w", id, err)
 	}
 	return message, nil
 }
@@ -546,7 +600,11 @@ func (r *MessageHistoryRepository) SetStatusesIfNotSet(ctx context.Context, work
 	return nil
 }
 
-func (r *MessageHistoryRepository) SetClicked(ctx context.Context, workspaceID, id string, timestamp time.Time, clickedURL string) error {
+// SetClicked records a click. verified says the link came from a token signed by the
+// workspace, so the email really carried it: a link's first verified click marks its
+// clicked_links entry verified, which makes the timeline trigger write email.link_clicked.
+// An unverified click still counts, under its URL, in the per-link statistics.
+func (r *MessageHistoryRepository) SetClicked(ctx context.Context, workspaceID, id string, timestamp time.Time, clickedURL string, verified bool) error {
 	// Get the workspace database connection
 	workspaceDB, err := r.workspaceRepo.GetConnection(ctx, workspaceID)
 	if err != nil {
@@ -561,6 +619,7 @@ func (r *MessageHistoryRepository) SetClicked(ctx context.Context, workspaceID, 
 				clicked_at = $1,
 				updated_at = NOW()
 			WHERE id = $2 AND clicked_at IS NULL
+			AND ` + clicksRecordableCondition + `
 		`
 
 		_, err = workspaceDB.ExecContext(ctx, clickQuery, timestamp, id)
@@ -585,23 +644,34 @@ func (r *MessageHistoryRepository) SetClicked(ctx context.Context, workspaceID, 
 			    clicked_links = CASE
 			        -- known URL: bump count, refresh last_at
 			        WHEN (CASE WHEN jsonb_typeof(clicked_links) = 'object' THEN clicked_links ELSE '{}'::jsonb END) ? $3 THEN
-			            jsonb_set(
-			                jsonb_set(clicked_links, ARRAY[$3, 'count'],
-			                    to_jsonb(COALESCE((clicked_links #>> ARRAY[$3, 'count'])::int, 0) + 1)),
-			                ARRAY[$3, 'last_at'], to_jsonb($1::timestamptz))
+			            (CASE WHEN $4::boolean THEN
+			                jsonb_set(
+			                    jsonb_set(
+			                        jsonb_set(clicked_links, ARRAY[$3, 'count'],
+			                            to_jsonb(COALESCE((clicked_links #>> ARRAY[$3, 'count'])::int, 0) + 1)),
+			                        ARRAY[$3, 'last_at'], to_jsonb($1::timestamptz)),
+			                    ARRAY[$3, 'verified'], 'true'::jsonb)
+			            ELSE
+			                jsonb_set(
+			                    jsonb_set(clicked_links, ARRAY[$3, 'count'],
+			                        to_jsonb(COALESCE((clicked_links #>> ARRAY[$3, 'count'])::int, 0) + 1)),
+			                    ARRAY[$3, 'last_at'], to_jsonb($1::timestamptz))
+			            END)
 			        -- new URL under the per-message cap (also self-heals malformed non-object values)
 			        WHEN (SELECT COUNT(*) FROM jsonb_object_keys(CASE WHEN jsonb_typeof(clicked_links) = 'object' THEN clicked_links ELSE '{}'::jsonb END)) < 50 THEN
 			            (CASE WHEN jsonb_typeof(clicked_links) = 'object' THEN clicked_links ELSE '{}'::jsonb END) || jsonb_build_object($3,
 			                jsonb_build_object('count', 1,
 			                    'first_at', to_jsonb($1::timestamptz),
-			                    'last_at',  to_jsonb($1::timestamptz)))
+			                    'last_at',  to_jsonb($1::timestamptz),
+			                    'verified', $4::boolean))
 			        -- at cap: leave map unchanged (bounds tuple width; repeat clicks rewrite ~1.4KB rows)
 			        ELSE clicked_links
 			    END
 			WHERE id = $2
+			AND ` + clicksRecordableCondition + `
 		`
 
-		_, err = workspaceDB.ExecContext(ctx, clickQuery, timestamp, id, clickedURL)
+		_, err = workspaceDB.ExecContext(ctx, clickQuery, timestamp, id, clickedURL, verified)
 		if err != nil {
 			return fmt.Errorf("failed to set clicked: %w", err)
 		}
@@ -614,6 +684,7 @@ func (r *MessageHistoryRepository) SetClicked(ctx context.Context, workspaceID, 
 			opened_at = $1,
 			updated_at = NOW()
 		WHERE id = $2 AND opened_at IS NULL
+			AND ` + opensRecordableCondition + `
 	`
 
 	_, err = workspaceDB.ExecContext(ctx, openQuery, timestamp, id)
@@ -633,11 +704,12 @@ func (r *MessageHistoryRepository) SetOpened(ctx context.Context, workspaceID, i
 
 	// First query: Update opened_at if it's null
 	query := `
-		UPDATE message_history 
-		SET 
+		UPDATE message_history
+		SET
 			opened_at = $1,
 			updated_at = NOW()
 		WHERE id = $2 AND opened_at IS NULL
+			AND ` + opensRecordableCondition + `
 	`
 
 	_, err = workspaceDB.ExecContext(ctx, query, timestamp, id)
@@ -648,38 +720,9 @@ func (r *MessageHistoryRepository) SetOpened(ctx context.Context, workspaceID, i
 	return nil
 }
 
-// ListMessages retrieves message history with cursor-based pagination and filtering
-func (r *MessageHistoryRepository) ListMessages(ctx context.Context, workspaceID string, secretKey string, params domain.MessageListParams) ([]*domain.MessageHistory, string, error) {
-	// codecov:ignore:start
-	ctx, span := tracing.StartServiceSpan(ctx, "MessageHistoryRepository", "ListMessages")
-	defer tracing.EndSpan(span, nil)
-	tracing.AddAttribute(ctx, "workspaceID", workspaceID)
-	// codecov:ignore:end
-
-	// Get the workspace database connection
-	workspaceDB, err := r.workspaceRepo.GetConnection(ctx, workspaceID)
-	if err != nil {
-		// codecov:ignore:start
-		tracing.MarkSpanError(ctx, err)
-		// codecov:ignore:end
-		return nil, "", fmt.Errorf("failed to get workspace connection: %w", err)
-	}
-
-	// Set a reasonable default limit if not provided
-	limit := params.Limit
-	if limit <= 0 {
-		limit = 20
-	}
-
-	// Use squirrel to build the query with placeholders
-	psql := sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
-	queryBuilder := psql.Select(
-		"id", "external_id", "contact_email", "broadcast_id", "automation_id", "transactional_notification_id", "list_id", "template_id", "template_version",
-		"channel", "status_info", "message_data", "channel_options", "attachments", "sent_at", "delivered_at",
-		"failed_at", "opened_at", "clicked_at", "bounced_at", "complained_at",
-		"unsubscribed_at", "created_at", "updated_at",
-	).From("message_history")
-
+// applyMessageFilters adds the conditions of the messages.list filters, shared by
+// ListMessages and CountMessages.
+func applyMessageFilters(queryBuilder sq.SelectBuilder, params domain.MessageFilter) sq.SelectBuilder {
 	// Apply filters using squirrel
 	if params.ID != "" {
 		queryBuilder = queryBuilder.Where(sq.Eq{"id": params.ID})
@@ -706,8 +749,27 @@ func (r *MessageHistoryRepository) ListMessages(ctx context.Context, workspaceID
 		queryBuilder = queryBuilder.Where(sq.Eq{"broadcast_id": params.BroadcastID})
 	}
 
+	if params.AutomationID != "" {
+		queryBuilder = queryBuilder.Where(sq.Eq{"automation_id": params.AutomationID})
+	}
+
+	if params.TransactionalNotificationID != "" {
+		queryBuilder = queryBuilder.Where(sq.Eq{"transactional_notification_id": params.TransactionalNotificationID})
+	}
+
 	if params.TemplateID != "" {
 		queryBuilder = queryBuilder.Where(sq.Eq{"template_id": params.TemplateID})
+	}
+
+	// The exact key per-link statistics group by. The jsonb ? operator (?? to the query
+	// builder, which reads a lone ? as a placeholder) rather than "-> key IS NOT NULL":
+	// PostgreSQL has a selectivity estimate for ?, and none for an expression, which it
+	// assumes almost every row matches. With that guess and the page LIMIT, it walked the
+	// created_at index over the whole table for a little-clicked link, where the other
+	// filters of this list read the broadcast's messages. ? is also true for an array or
+	// a string holding the key, hence the object guard.
+	if params.ClickedURL != "" {
+		queryBuilder = queryBuilder.Where("jsonb_typeof(clicked_links) = 'object' AND clicked_links ?? ?", params.ClickedURL)
 	}
 
 	if params.IsSent != nil {
@@ -790,6 +852,114 @@ func (r *MessageHistoryRepository) ListMessages(ctx context.Context, workspaceID
 	if params.UpdatedBefore != nil {
 		queryBuilder = queryBuilder.Where(sq.LtOrEq{"updated_at": params.UpdatedBefore})
 	}
+
+	// The order of the analytics origin dimension: a broadcast ID first, then an automation
+	// ID, then a notification ID. Some automation emails also carry a notification ID (the
+	// upgrade to 28.0 gave them one): they are the automation's.
+	switch params.Origin {
+	case domain.MessageOriginBroadcast:
+		queryBuilder = queryBuilder.Where(sq.NotEq{"broadcast_id": nil})
+	case domain.MessageOriginAutomation:
+		queryBuilder = queryBuilder.Where(sq.And{sq.NotEq{"automation_id": nil}, sq.Eq{"broadcast_id": nil}})
+	case domain.MessageOriginTransactional:
+		queryBuilder = queryBuilder.Where(sq.And{sq.NotEq{"transactional_notification_id": nil}, sq.Eq{"automation_id": nil}, sq.Eq{"broadcast_id": nil}})
+	case domain.MessageOriginOther:
+		queryBuilder = queryBuilder.Where(sq.Eq{"broadcast_id": nil, "automation_id": nil, "transactional_notification_id": nil})
+	}
+
+	if params.CreatedAfter != nil {
+		queryBuilder = queryBuilder.Where(sq.GtOrEq{"created_at": params.CreatedAfter})
+	}
+
+	if params.CreatedBefore != nil {
+		queryBuilder = queryBuilder.Where(sq.LtOrEq{"created_at": params.CreatedBefore})
+	}
+
+	return queryBuilder
+}
+
+// CountMessages counts the messages matching the filter, in total and by status. Each
+// status count follows the is_*=true filter of the same name.
+func (r *MessageHistoryRepository) CountMessages(ctx context.Context, workspaceID string, filter domain.MessageFilter) (*domain.MessageCounts, error) {
+	// codecov:ignore:start
+	ctx, span := tracing.StartServiceSpan(ctx, "MessageHistoryRepository", "CountMessages")
+	defer tracing.EndSpan(span, nil)
+	tracing.AddAttribute(ctx, "workspaceID", workspaceID)
+	// codecov:ignore:end
+
+	workspaceDB, err := r.workspaceRepo.GetConnection(ctx, workspaceID)
+	if err != nil {
+		// codecov:ignore:start
+		tracing.MarkSpanError(ctx, err)
+		// codecov:ignore:end
+		return nil, fmt.Errorf("failed to get workspace connection: %w", err)
+	}
+
+	psql := sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
+	queryBuilder := applyMessageFilters(psql.Select(
+		"COUNT(*)",
+		"COUNT(*) FILTER (WHERE delivered_at IS NOT NULL)",
+		"COUNT(*) FILTER (WHERE opened_at IS NOT NULL)",
+		"COUNT(*) FILTER (WHERE clicked_at IS NOT NULL)",
+		"COUNT(*) FILTER (WHERE bounced_at IS NOT NULL)",
+		"COUNT(*) FILTER (WHERE failed_at IS NOT NULL)",
+		"COUNT(*) FILTER (WHERE complained_at IS NOT NULL)",
+	).From("message_history"), filter)
+
+	query, args, err := queryBuilder.ToSql()
+	if err != nil {
+		// codecov:ignore:start
+		tracing.MarkSpanError(ctx, err)
+		// codecov:ignore:end
+		return nil, fmt.Errorf("failed to build count query: %w", err)
+	}
+
+	var counts domain.MessageCounts
+	if err := workspaceDB.QueryRowContext(ctx, query, args...).Scan(
+		&counts.Total, &counts.Delivered, &counts.Opened, &counts.Clicked,
+		&counts.Bounced, &counts.Failed, &counts.Complained,
+	); err != nil {
+		// codecov:ignore:start
+		tracing.MarkSpanError(ctx, err)
+		// codecov:ignore:end
+		return nil, fmt.Errorf("failed to count messages: %w", err)
+	}
+	return &counts, nil
+}
+
+// ListMessages retrieves message history with cursor-based pagination and filtering
+func (r *MessageHistoryRepository) ListMessages(ctx context.Context, workspaceID string, secretKey string, params domain.MessageListParams) ([]*domain.MessageHistory, string, error) {
+	// codecov:ignore:start
+	ctx, span := tracing.StartServiceSpan(ctx, "MessageHistoryRepository", "ListMessages")
+	defer tracing.EndSpan(span, nil)
+	tracing.AddAttribute(ctx, "workspaceID", workspaceID)
+	// codecov:ignore:end
+
+	// Get the workspace database connection
+	workspaceDB, err := r.workspaceRepo.GetConnection(ctx, workspaceID)
+	if err != nil {
+		// codecov:ignore:start
+		tracing.MarkSpanError(ctx, err)
+		// codecov:ignore:end
+		return nil, "", fmt.Errorf("failed to get workspace connection: %w", err)
+	}
+
+	// Set a reasonable default limit if not provided
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+
+	// Use squirrel to build the query with placeholders
+	psql := sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
+	queryBuilder := psql.Select(
+		"id", "external_id", "contact_email", "broadcast_id", "automation_id", "transactional_notification_id", "list_id", "template_id", "template_version",
+		"channel", "status_info", "message_data", "channel_options", "attachments", "sent_at", "delivered_at",
+		"failed_at", "opened_at", "clicked_at", "bounced_at", "complained_at",
+		"unsubscribed_at", "created_at", "updated_at", "opens_tracked", "clicks_tracked",
+	).From("message_history")
+
+	queryBuilder = applyMessageFilters(queryBuilder, params.Filter())
 
 	// Handle cursor-based pagination
 	if params.Cursor != "" {
@@ -878,6 +1048,7 @@ func (r *MessageHistoryRepository) ListMessages(ctx context.Context, workspaceID
 			&message.SentAt, &deliveredAt, &failedAt, &openedAt,
 			&clickedAt, &bouncedAt, &complainedAt, &unsubscribedAt,
 			&message.CreatedAt, &message.UpdatedAt,
+			&message.OpensTracked, &message.ClicksTracked,
 		)
 
 		if err != nil {
@@ -1023,7 +1194,9 @@ func (r *MessageHistoryRepository) GetBroadcastStats(ctx context.Context, worksp
 			SUM(CASE WHEN clicked_at IS NOT NULL THEN 1 ELSE 0 END) as total_clicked,
 			SUM(CASE WHEN bounced_at IS NOT NULL THEN 1 ELSE 0 END) as total_bounced,
 			SUM(CASE WHEN complained_at IS NOT NULL THEN 1 ELSE 0 END) as total_complained,
-			SUM(CASE WHEN unsubscribed_at IS NOT NULL THEN 1 ELSE 0 END) as total_unsubscribed
+			SUM(CASE WHEN unsubscribed_at IS NOT NULL THEN 1 ELSE 0 END) as total_unsubscribed,
+			SUM(CASE WHEN sent_at IS NOT NULL AND failed_at IS NULL AND opens_tracked IS NOT FALSE THEN 1 ELSE 0 END) as total_opens_tracked,
+			SUM(CASE WHEN sent_at IS NOT NULL AND failed_at IS NULL AND clicks_tracked IS NOT FALSE THEN 1 ELSE 0 END) as total_clicks_tracked
 		FROM message_history
 		WHERE broadcast_id = $1
 	`
@@ -1034,6 +1207,7 @@ func (r *MessageHistoryRepository) GetBroadcastStats(ctx context.Context, worksp
 	// Use NullInt64 to handle NULL values from database
 	var totalSent, totalDelivered, totalFailed, totalOpened sql.NullInt64
 	var totalClicked, totalBounced, totalComplained, totalUnsubscribed sql.NullInt64
+	var totalOpensTracked, totalClicksTracked sql.NullInt64
 
 	err = row.Scan(
 		&totalSent,
@@ -1044,6 +1218,8 @@ func (r *MessageHistoryRepository) GetBroadcastStats(ctx context.Context, worksp
 		&totalBounced,
 		&totalComplained,
 		&totalUnsubscribed,
+		&totalOpensTracked,
+		&totalClicksTracked,
 	)
 
 	if err != nil {
@@ -1081,6 +1257,8 @@ func (r *MessageHistoryRepository) GetBroadcastStats(ctx context.Context, worksp
 	if totalUnsubscribed.Valid {
 		stats.TotalUnsubscribed = int(totalUnsubscribed.Int64)
 	}
+	stats.TotalOpensTracked = int(totalOpensTracked.Int64)
+	stats.TotalClicksTracked = int(totalClicksTracked.Int64)
 
 	return stats, nil
 }
@@ -1113,7 +1291,9 @@ func (r *MessageHistoryRepository) GetBroadcastVariationStats(ctx context.Contex
 			SUM(CASE WHEN clicked_at IS NOT NULL THEN 1 ELSE 0 END) as total_clicked,
 			SUM(CASE WHEN bounced_at IS NOT NULL THEN 1 ELSE 0 END) as total_bounced,
 			SUM(CASE WHEN complained_at IS NOT NULL THEN 1 ELSE 0 END) as total_complained,
-			SUM(CASE WHEN unsubscribed_at IS NOT NULL THEN 1 ELSE 0 END) as total_unsubscribed
+			SUM(CASE WHEN unsubscribed_at IS NOT NULL THEN 1 ELSE 0 END) as total_unsubscribed,
+			SUM(CASE WHEN sent_at IS NOT NULL AND failed_at IS NULL AND opens_tracked IS NOT FALSE THEN 1 ELSE 0 END) as total_opens_tracked,
+			SUM(CASE WHEN sent_at IS NOT NULL AND failed_at IS NULL AND clicks_tracked IS NOT FALSE THEN 1 ELSE 0 END) as total_clicks_tracked
 		FROM message_history
 		WHERE broadcast_id = $1 AND template_id = $2
 	`
@@ -1124,6 +1304,7 @@ func (r *MessageHistoryRepository) GetBroadcastVariationStats(ctx context.Contex
 	// Use NullInt64 to handle NULL values from database
 	var totalSent, totalDelivered, totalFailed, totalOpened sql.NullInt64
 	var totalClicked, totalBounced, totalComplained, totalUnsubscribed sql.NullInt64
+	var totalOpensTracked, totalClicksTracked sql.NullInt64
 
 	err = row.Scan(
 		&totalSent,
@@ -1134,6 +1315,8 @@ func (r *MessageHistoryRepository) GetBroadcastVariationStats(ctx context.Contex
 		&totalBounced,
 		&totalComplained,
 		&totalUnsubscribed,
+		&totalOpensTracked,
+		&totalClicksTracked,
 	)
 
 	if err != nil {
@@ -1171,6 +1354,8 @@ func (r *MessageHistoryRepository) GetBroadcastVariationStats(ctx context.Contex
 	if totalUnsubscribed.Valid {
 		stats.TotalUnsubscribed = int(totalUnsubscribed.Int64)
 	}
+	stats.TotalOpensTracked = int(totalOpensTracked.Int64)
+	stats.TotalClicksTracked = int(totalClicksTracked.Int64)
 
 	return stats, nil
 }

@@ -78,19 +78,34 @@ func (mr *MockBroadcastServiceMockRecorder) DeleteBroadcast(arg0, arg1 interface
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteBroadcast", reflect.TypeOf((*MockBroadcastService)(nil).DeleteBroadcast), arg0, arg1)
 }
 
-// GetBroadcast mocks base method.
-func (m *MockBroadcastService) GetBroadcast(arg0 context.Context, arg1, arg2 string) (*domain.Broadcast, error) {
+// EstimateAudience mocks base method.
+func (m *MockBroadcastService) EstimateAudience(arg0 context.Context, arg1 string, arg2 domain.AudienceSettings) (int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetBroadcast", arg0, arg1, arg2)
+	ret := m.ctrl.Call(m, "EstimateAudience", arg0, arg1, arg2)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// EstimateAudience indicates an expected call of EstimateAudience.
+func (mr *MockBroadcastServiceMockRecorder) EstimateAudience(arg0, arg1, arg2 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EstimateAudience", reflect.TypeOf((*MockBroadcastService)(nil).EstimateAudience), arg0, arg1, arg2)
+}
+
+// GetBroadcast mocks base method.
+func (m *MockBroadcastService) GetBroadcast(arg0 context.Context, arg1, arg2 string, arg3 domain.GetBroadcastOptions) (*domain.Broadcast, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetBroadcast", arg0, arg1, arg2, arg3)
 	ret0, _ := ret[0].(*domain.Broadcast)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetBroadcast indicates an expected call of GetBroadcast.
-func (mr *MockBroadcastServiceMockRecorder) GetBroadcast(arg0, arg1, arg2 interface{}) *gomock.Call {
+func (mr *MockBroadcastServiceMockRecorder) GetBroadcast(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBroadcast", reflect.TypeOf((*MockBroadcastService)(nil).GetBroadcast), arg0, arg1, arg2)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBroadcast", reflect.TypeOf((*MockBroadcastService)(nil).GetBroadcast), arg0, arg1, arg2, arg3)
 }
 
 // GetTestResults mocks base method.
@@ -236,6 +251,20 @@ func (m *MockBroadcastService) TestRecipientFeed(arg0 context.Context, arg1 *dom
 func (mr *MockBroadcastServiceMockRecorder) TestRecipientFeed(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TestRecipientFeed", reflect.TypeOf((*MockBroadcastService)(nil).TestRecipientFeed), arg0, arg1)
+}
+
+// UnscheduleBroadcast mocks base method.
+func (m *MockBroadcastService) UnscheduleBroadcast(arg0 context.Context, arg1 *domain.UnscheduleBroadcastRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UnscheduleBroadcast", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UnscheduleBroadcast indicates an expected call of UnscheduleBroadcast.
+func (mr *MockBroadcastServiceMockRecorder) UnscheduleBroadcast(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnscheduleBroadcast", reflect.TypeOf((*MockBroadcastService)(nil).UnscheduleBroadcast), arg0, arg1)
 }
 
 // UpdateBroadcast mocks base method.

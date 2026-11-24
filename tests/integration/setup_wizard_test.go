@@ -8,6 +8,7 @@ import (
 
 	"github.com/Notifuse/notifuse/config"
 	"github.com/Notifuse/notifuse/internal/app"
+	"github.com/Notifuse/notifuse/internal/database"
 	"github.com/Notifuse/notifuse/tests/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -234,6 +235,16 @@ func TestSetupWizardValidation(t *testing.T) {
 			expectError: true,
 		},
 		{
+			name: "Invalid entry in the root email list",
+			request: map[string]interface{}{
+				"root_email":      "admin@example.com, nope",
+				"smtp_host":       "localhost",
+				"smtp_port":       1025,
+				"smtp_from_email": "test@example.com",
+			},
+			expectError: true,
+		},
+		{
 			name: "Missing SMTP From Email",
 			request: map[string]interface{}{
 				"root_email": "admin@example.com",
@@ -359,6 +370,72 @@ func TestSetupWizardEnvironmentOverrides(t *testing.T) {
 	t.Skip("Environment override testing requires complex test infrastructure")
 }
 
+// TestSetupWizardEnvLocksAndRootEmails drives the wizard's API the way the redesigned
+// page does: it reads which settings the environment sets, leaves those fields out of
+// its request, and may send several root emails.
+func TestSetupWizardEnvLocksAndRootEmails(t *testing.T) {
+	testutil.SkipIfShort(t)
+	testutil.SetupTestEnvironment()
+	defer testutil.CleanupTestEnvironment()
+
+	smtpHost := os.Getenv("TEST_SMTP_HOST")
+	if smtpHost == "" {
+		smtpHost = "localhost"
+	}
+	suite := createUninstalledTestSuite(t, func(cfg *config.Config) {
+		// SMTP_HOST and TELEMETRY=false set in the environment; SMTP_PORT is not, so
+		// the SMTP group stays editable with its host locked.
+		cfg.EnvValues.SMTPHost = smtpHost
+		cfg.EnvValues.Telemetry = "false"
+	})
+	defer func() { suite.Cleanup() }()
+	client := suite.APIClient
+	db := suite.DBManager.GetDB()
+
+	t.Run("status names the settings the environment sets", func(t *testing.T) {
+		resp, err := client.Get("/api/setup.status")
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		var status map[string]interface{}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&status))
+		assert.Equal(t, []interface{}{"smtp_host", "telemetry_enabled"}, status["env_overrides"])
+	})
+
+	t.Run("initialize without the env-set fields, with two root emails", func(t *testing.T) {
+		resp, err := client.Post("/api/setup.initialize", map[string]interface{}{
+			"root_email":        "admin@example.com, second@example.com",
+			"api_endpoint":      suite.ServerManager.GetURL(),
+			"smtp_port":         1025,
+			"smtp_from_email":   "noreply@example.com",
+			"smtp_use_tls":      false,
+			"telemetry_enabled": true,
+			"check_for_updates": true,
+		})
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		stored := func(key string) string {
+			var value string
+			require.NoError(t, db.QueryRow(`SELECT value FROM settings WHERE key = $1`, key).Scan(&value))
+			return value
+		}
+		assert.Equal(t, smtpHost, stored("smtp_host"), "the env host is stored")
+		assert.Equal(t, "false", stored("telemetry_enabled"), "the env value wins over the request")
+		assert.Equal(t, "true", stored("check_for_updates"))
+		rootEmails := stored("root_email")
+		assert.Equal(t, "admin@example.com, second@example.com", rootEmails)
+
+		// Stands for the restart: the harness never runs config.Load, which hands the
+		// stored list to InitializeDatabase at boot.
+		require.NoError(t, database.InitializeDatabase(db, config.ParseRootEmails(rootEmails)))
+		for _, email := range []string{"admin@example.com", "second@example.com"} {
+			var id string
+			assert.NoError(t, db.QueryRow(`SELECT id FROM users WHERE email = $1`, email).Scan(&id), email)
+		}
+	})
+}
+
 // TestSetupWizardWithServerRestart tests that setup completion triggers server shutdown
 // In production, Docker/systemd restarts the process with fresh configuration
 func TestSetupWizardWithServerRestart(t *testing.T) {
@@ -370,6 +447,18 @@ func TestSetupWizardWithServerRestart(t *testing.T) {
 	defer func() { suite.Cleanup() }()
 
 	client := suite.APIClient
+
+	bootID := func(t *testing.T, c *testutil.APIClient) string {
+		resp, err := c.Get("/api/setup.status")
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		var status map[string]interface{}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&status))
+		id, _ := status["boot_id"].(string)
+		return id
+	}
+	firstBootID := bootID(t, client)
+	require.NotEmpty(t, firstBootID, "setup.status carries a boot_id")
 
 	t.Run("Complete Setup Triggers Shutdown", func(t *testing.T) {
 		// Step 1: Complete setup wizard with full SMTP configuration
@@ -407,6 +496,8 @@ func TestSetupWizardWithServerRestart(t *testing.T) {
 		assert.True(t, setupResp["success"].(bool), "Setup should succeed")
 		assert.Contains(t, setupResp["message"].(string), "restarting",
 			"Response should indicate server is restarting")
+		assert.Equal(t, firstBootID, setupResp["boot_id"],
+			"the answer names the process that handled it, the one the page waits to see replaced")
 
 		// Note: In production, Docker/systemd would restart the process here.
 		// The test suite will be cleaned up, simulating process termination.
@@ -426,6 +517,10 @@ func TestSetupWizardWithServerRestart(t *testing.T) {
 			return app.NewApp(cfg)
 		})
 		defer freshSuite.Cleanup()
+
+		// A new app instance (the harness's stand-in for the restarted process) draws its
+		// own boot_id, which is what the setup page waits for.
+		assert.NotEqual(t, firstBootID, bootID(t, freshSuite.APIClient))
 
 		// Verify the fresh app loaded config correctly by testing signin
 		signinReq := map[string]interface{}{
@@ -452,7 +547,7 @@ func TestSetupWizardWithServerRestart(t *testing.T) {
 
 // createUninstalledTestSuite creates a test suite without seeding installation data
 // This allows testing the setup wizard from a clean state
-func createUninstalledTestSuite(t *testing.T) *testutil.IntegrationTestSuite {
+func createUninstalledTestSuite(t *testing.T, configure ...func(*config.Config)) *testutil.IntegrationTestSuite {
 	// Skip if not running integration tests
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -487,6 +582,10 @@ func createUninstalledTestSuite(t *testing.T) *testutil.IntegrationTestSuite {
 		cfg.SMTP.Port = 1025
 		cfg.SMTP.Username = ""
 		cfg.SMTP.Password = ""
+
+		for _, apply := range configure {
+			apply(cfg)
+		}
 
 		return app.NewApp(cfg)
 	}, suite.DBManager)

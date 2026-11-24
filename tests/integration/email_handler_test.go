@@ -5,16 +5,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/Notifuse/notifuse/internal/domain"
+	"github.com/Notifuse/notifuse/internal/service"
 	"github.com/Notifuse/notifuse/pkg/crypto"
 	"github.com/Notifuse/notifuse/pkg/notifuse_mjml"
+	"github.com/Notifuse/notifuse/pkg/trackingtoken"
 	"github.com/Notifuse/notifuse/tests/testutil"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
@@ -118,9 +122,9 @@ func testTrackingForUnknownWorkspace(t *testing.T, suite *testutil.IntegrationTe
 			req.Header.Set("User-Agent", browser)
 			resp, err = client.Do(req)
 			require.NoError(t, err)
+			// An external destination of an unsigned link: the confirmation page.
+			assertTrackingInterstitial(t, resp, "example.com")
 			_ = resp.Body.Close()
-			assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
-			assert.Equal(t, "https://example.com/", resp.Header.Get("Location"))
 
 			assert.Empty(t, databasesFor(t, token))
 		})
@@ -132,8 +136,9 @@ func testEmailHandlerClickRedirection(t *testing.T, suite *testutil.IntegrationT
 	client := &http.Client{}
 
 	t.Run("redirect with all parameters", func(t *testing.T) {
-		// Test with all required parameters
-		redirectURL := "https://example.com/test"
+		// /visit parameters are forgeable, so only the installation's own hosts
+		// still redirect: here the request host, as for a wrapped unsubscribe link.
+		redirectURL := baseURL + "/test"
 		messageID := "msg-123"
 		workspaceID := "ws-123"
 
@@ -164,7 +169,7 @@ func testEmailHandlerClickRedirection(t *testing.T, suite *testutil.IntegrationT
 		assert.Equal(t, redirectURL, location)
 	})
 
-	t.Run("redirect without tracking parameters", func(t *testing.T) {
+	t.Run("external destination without tracking parameters shows the interstitial", func(t *testing.T) {
 		redirectURL := "https://example.com/notrack"
 
 		visitURL := fmt.Sprintf("%s/visit?url=%s",
@@ -184,11 +189,22 @@ func testEmailHandlerClickRedirection(t *testing.T, suite *testutil.IntegrationT
 		require.NoError(t, err)
 		defer func() { _ = resp.Body.Close() }()
 
-		// Should still redirect even without tracking parameters
-		assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
+		// A forged /visit link must not redirect to another site.
+		assertTrackingInterstitial(t, resp, "example.com")
+	})
 
-		location := resp.Header.Get("Location")
-		assert.Equal(t, redirectURL, location)
+	t.Run("relative destination is refused", func(t *testing.T) {
+		visitURL := fmt.Sprintf("%s/visit?url=%s", baseURL, url.QueryEscape(`/\evil.com`))
+		req, err := http.NewRequest(http.MethodGet, visitURL, nil)
+		require.NoError(t, err)
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		assert.Empty(t, resp.Header.Get("Location"))
 	})
 
 	t.Run("missing redirect URL", func(t *testing.T) {
@@ -210,7 +226,7 @@ func testEmailHandlerClickRedirection(t *testing.T, suite *testutil.IntegrationT
 	})
 
 	t.Run("partial tracking parameters", func(t *testing.T) {
-		redirectURL := "https://example.com/partial"
+		redirectURL := baseURL + "/partial"
 
 		// Test with only message ID
 		visitURL := fmt.Sprintf("%s/visit?url=%s&mid=msg-123",
@@ -331,8 +347,8 @@ func testEmailHandlerTestProvider(t *testing.T, suite *testutil.IntegrationTestS
 	client := suite.APIClient
 
 	// Sign in as the root operator: only it may create a workspace, and the
-	// creator has to be the caller here — email.testProvider is gated on
-	// transactional:write, which a non-member of the workspace does not hold.
+	// creator has to be the caller here — email.testProvider is reserved to the
+	// workspace owner, which the creator is.
 	email := "test@example.com"
 	token := performCompleteSignInFlow(t, client, email)
 	client.SetToken(token)
@@ -471,6 +487,10 @@ func testEmailHandlerTestProvider(t *testing.T, suite *testutil.IntegrationTestS
 		assert.Contains(t, string(body), "Method not allowed")
 	})
 
+	t.Run("only the owner reaches the provider", func(t *testing.T) {
+		testEmailProviderOwnerOnly(t, suite, workspaceID)
+	})
+
 	t.Run("unauthorized access", func(t *testing.T) {
 		reqBody := domain.TestEmailProviderRequest{
 			WorkspaceID: workspaceID,
@@ -500,6 +520,148 @@ func testEmailHandlerTestProvider(t *testing.T, suite *testutil.IntegrationTestS
 	})
 }
 
+// testEmailProviderOwnerOnly pins that email.testProvider is reserved to the
+// workspace owner, like configuring an integration: an API key or a member gets 403
+// and the provider is never contacted. The provider is a local SMTP listener, so
+// each refused case can check that nothing reached it; the owner case proves the
+// listener does see the connection when the test runs.
+func testEmailProviderOwnerOnly(t *testing.T, suite *testutil.IntegrationTestSuite, workspaceID string) {
+	factory := suite.DataFactory
+	baseURL := suite.ServerManager.GetURL()
+
+	stored, err := factory.CreateSMTPIntegration(workspaceID, testutil.WithIntegrationEmailProvider(domain.EmailProvider{
+		Kind:    domain.EmailProviderKindSMTP,
+		Senders: []domain.EmailSender{domain.NewEmailSender("sender@example.com", "Test Sender")},
+		SMTP: &domain.SMTPSettings{
+			Host:     "localhost",
+			Port:     1025,
+			Username: "stored-user",
+			Password: "stored-password",
+			UseTLS:   false,
+		},
+	}))
+	require.NoError(t, err)
+
+	provider := newConnectionCounter(t)
+
+	// Raw JSON, as an API client would send it: the saved integration, its secrets
+	// left blank as the console sends them, on the local listener.
+	body := func(integrationID string) json.RawMessage {
+		integrationField := ""
+		if integrationID != "" {
+			integrationField = fmt.Sprintf(`"integration_id":%q,`, integrationID)
+		}
+		return json.RawMessage(fmt.Sprintf(`{"workspace_id":%q,%s"to":"recipient@example.com",`+
+			`"provider":{"kind":"smtp","senders":[{"email":"sender@example.com","name":"Test Sender"}],`+
+			`"smtp":{"host":"127.0.0.1","port":%d,"username":"","password":"","use_tls":false}}}`,
+			workspaceID, integrationField, provider.port))
+	}
+
+	post := func(t *testing.T, token string, payload json.RawMessage) *http.Response {
+		t.Helper()
+		client := testutil.NewAPIClient(baseURL)
+		client.SetToken(token)
+		resp, err := client.Post("/api/email.testProvider", payload)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = resp.Body.Close() })
+		return resp
+	}
+
+	authService := suite.ServerManager.GetApp().GetAuthService().(*service.AuthService)
+	apiKey, err := factory.CreateAPIKey(workspaceID, testutil.WithAPIKeyPermissions(domain.UserPermissions{
+		domain.PermissionResourceTransactional: {Read: true, Write: true},
+	}))
+	require.NoError(t, err)
+	apiKeyToken := authService.GenerateAPIAuthToken(apiKey)
+
+	member, err := factory.CreateUser()
+	require.NoError(t, err)
+	require.NoError(t, factory.AddUserToWorkspaceWithPermissions(member.ID, workspaceID, "member", domain.NewFullPermissions()))
+	memberClient := testutil.NewAPIClient(baseURL)
+	require.NoError(t, memberClient.Login(member.Email, "password"))
+	memberToken := memberClient.GetToken()
+	require.NotEmpty(t, memberToken)
+
+	refused := []struct {
+		name          string
+		token         string
+		integrationID string
+	}{
+		{"API key with transactional write, naming the saved integration", apiKeyToken, stored.ID},
+		{"member with every permission, naming the saved integration", memberToken, stored.ID},
+		{"API key with transactional write, without an integration", apiKeyToken, ""},
+	}
+	for _, tc := range refused {
+		t.Run(tc.name, func(t *testing.T) {
+			before := provider.count()
+			resp := post(t, tc.token, body(tc.integrationID))
+
+			assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+			assert.Equal(t, before, provider.count(), "a refused test must not contact the provider")
+		})
+	}
+
+	// An ordinary owner, not the root user that created the workspace: root is a
+	// platform admin synthesized as owner, so its token alone would not show that a
+	// plain owner still gets through.
+	owner, err := factory.CreateUser()
+	require.NoError(t, err)
+	require.NoError(t, factory.AddUserToWorkspace(owner.ID, workspaceID, "owner"))
+	ownerClient := testutil.NewAPIClient(baseURL)
+	require.NoError(t, ownerClient.Login(owner.Email, "password"))
+	ownerToken := ownerClient.GetToken()
+	require.NotEmpty(t, ownerToken)
+
+	t.Run("an owner's test does connect", func(t *testing.T) {
+		before := provider.count()
+		resp := post(t, ownerToken, body(stored.ID))
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Eventually(t, func() bool { return provider.count() > before }, 5*time.Second, 20*time.Millisecond,
+			"the owner's test reaches the provider, so the refused cases above are not vacuous")
+	})
+}
+
+// connectionCounter is a local TCP listener standing in for an SMTP provider. It
+// counts connections and answers each with an SMTP refusal, so a client that does
+// dial it fails at once instead of waiting for a greeting.
+type connectionCounter struct {
+	port int
+	mu   sync.Mutex
+	n    int
+}
+
+func newConnectionCounter(t *testing.T) *connectionCounter {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+
+	c := &connectionCounter{port: listener.Addr().(*net.TCPAddr).Port}
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			c.mu.Lock()
+			c.n++
+			c.mu.Unlock()
+			_, _ = conn.Write([]byte("554 refused\r\n"))
+			_ = conn.Close()
+		}
+	}()
+	return c
+}
+
+func (c *connectionCounter) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.n
+}
+
+// testBotDetectionClickTracking uses destinations on the request host: /visit links are
+// unsigned, and only the installation's own hosts still answer them with a redirect.
 func testBotDetectionClickTracking(t *testing.T, suite *testutil.IntegrationTestSuite) {
 	baseURL := suite.ServerManager.GetURL()
 	client := &http.Client{
@@ -509,7 +671,7 @@ func testBotDetectionClickTracking(t *testing.T, suite *testutil.IntegrationTest
 	}
 
 	t.Run("bot user-agent not tracked but redirects", func(t *testing.T) {
-		redirectURL := "https://example.com/bot-test"
+		redirectURL := baseURL + "/bot-test"
 		messageID := "msg-bot-test"
 		workspaceID := "ws-bot-test"
 		timestamp := time.Now().Add(-10 * time.Second).Unix() // Old enough to pass time check
@@ -543,7 +705,7 @@ func testBotDetectionClickTracking(t *testing.T, suite *testutil.IntegrationTest
 	})
 
 	t.Run("fast click not tracked but redirects (< 7 seconds)", func(t *testing.T) {
-		redirectURL := "https://example.com/fast-click"
+		redirectURL := baseURL + "/fast-click"
 		messageID := "msg-fast-click"
 		workspaceID := "ws-fast-click"
 		// Timestamp very recent (< 7 seconds ago)
@@ -574,7 +736,7 @@ func testBotDetectionClickTracking(t *testing.T, suite *testutil.IntegrationTest
 	})
 
 	t.Run("human user-agent with proper timing redirects", func(t *testing.T) {
-		redirectURL := "https://example.com/human-click"
+		redirectURL := baseURL + "/human-click"
 		messageID := "msg-human-click"
 		workspaceID := "ws-human-click"
 		// Timestamp old enough (> 7 seconds ago)
@@ -605,7 +767,7 @@ func testBotDetectionClickTracking(t *testing.T, suite *testutil.IntegrationTest
 	})
 
 	t.Run("empty user-agent treated as bot", func(t *testing.T) {
-		redirectURL := "https://example.com/empty-ua"
+		redirectURL := baseURL + "/empty-ua"
 		messageID := "msg-empty-ua"
 		workspaceID := "ws-empty-ua"
 		timestamp := time.Now().Add(-10 * time.Second).Unix()
@@ -642,7 +804,7 @@ func testBotDetectionClickTracking(t *testing.T, suite *testutil.IntegrationTest
 
 		for i, ua := range scannerUserAgents {
 			t.Run(fmt.Sprintf("scanner_%d", i), func(t *testing.T) {
-				redirectURL := fmt.Sprintf("https://example.com/scanner-%d", i)
+				redirectURL := baseURL + fmt.Sprintf("/scanner-%d", i)
 				messageID := fmt.Sprintf("msg-scanner-%d", i)
 				workspaceID := fmt.Sprintf("ws-scanner-%d", i)
 				timestamp := time.Now().Add(-10 * time.Second).Unix()
@@ -673,7 +835,7 @@ func testBotDetectionClickTracking(t *testing.T, suite *testutil.IntegrationTest
 
 	t.Run("missing timestamp parameter still works", func(t *testing.T) {
 		// Backward compatibility test - old URLs without ts parameter
-		redirectURL := "https://example.com/no-ts"
+		redirectURL := baseURL + "/no-ts"
 		messageID := "msg-no-ts"
 		workspaceID := "ws-no-ts"
 
@@ -934,7 +1096,9 @@ func TestEmailHandler_EncryptedTracking(t *testing.T) {
 		assert.Equal(t, []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}, body[:8])
 	})
 
-	t.Run("encrypted click tracking redirects", func(t *testing.T) {
+	t.Run("legacy click token to another site shows the interstitial", func(t *testing.T) {
+		// A token minted before signing, or by anyone with the public outer key, cannot
+		// be told apart: it never redirects to another site by itself.
 		redirectURL := "https://example.com/encrypted-click"
 		token, err := crypto.EncryptTrackingToken(fmt.Sprintf("msg-enc-2\nws-enc-2\n1000000000\n%s", redirectURL))
 		require.NoError(t, err)
@@ -954,8 +1118,42 @@ func TestEmailHandler_EncryptedTracking(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = resp.Body.Close() }()
 
-		assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
-		assert.Equal(t, redirectURL, resp.Header.Get("Location"))
+		assertTrackingInterstitial(t, resp, "example.com")
+	})
+
+	t.Run("legacy click token to the tracking host still redirects", func(t *testing.T) {
+		// Wrapped unsubscribe and notification center links of emails sent before
+		// signing point at the installation itself, and keep working directly.
+		redirectURL := baseURL + "/notification-center?wid=ws-enc-2"
+		token, err := crypto.EncryptTrackingToken(fmt.Sprintf("msg-enc-2\nws-enc-2\n1000000000\n%s", redirectURL))
+		require.NoError(t, err)
+
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/r/%s", baseURL, token), nil)
+		require.NoError(t, err)
+		req.Header.Set("User-Agent", "Mozilla/5.0 Chrome/120.0.0.0")
+		resp, err := noRedirectClient().Do(req)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+
+		assertTrackedRedirect(t, resp, redirectURL)
+	})
+
+	t.Run("click token signed with a key of no workspace shows the interstitial", func(t *testing.T) {
+		// A key the test makes up: every harness workspace shares the development
+		// secret, so no harness workspace's key would prove anything.
+		key, err := trackingtoken.DeriveKey("not-the-key-of-any-workspace")
+		require.NoError(t, err)
+		token, err := trackingtoken.MintClick(key, "msg-enc-3", "ws-enc-3", 1000000000, "https://evil.example/login")
+		require.NoError(t, err)
+
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/r/%s", baseURL, token), nil)
+		require.NoError(t, err)
+		req.Header.Set("User-Agent", "Mozilla/5.0 Chrome/120.0.0.0")
+		resp, err := noRedirectClient().Do(req)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+
+		assertTrackingInterstitial(t, resp, "evil.example")
 	})
 
 	t.Run("invalid encrypted token returns pixel gracefully for opens", func(t *testing.T) {
@@ -1001,8 +1199,8 @@ func TestEmailHandler_EncryptedTracking(t *testing.T) {
 		assert.Equal(t, "no-cache, no-store, must-revalidate", resp.Header.Get("Cache-Control"))
 	})
 
-	t.Run("legacy /visit still works (backward compat)", func(t *testing.T) {
-		redirectURL := "https://example.com/legacy-click"
+	t.Run("legacy /visit to another site shows the interstitial", func(t *testing.T) {
+		redirectURL := "https://evil.example/legacy-click"
 		visitURL := fmt.Sprintf("%s/visit?url=%s&mid=legacy-msg&wid=legacy-ws&ts=1000000000",
 			baseURL, url.QueryEscape(redirectURL))
 
@@ -1020,8 +1218,21 @@ func TestEmailHandler_EncryptedTracking(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = resp.Body.Close() }()
 
-		assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
-		assert.Equal(t, redirectURL, resp.Header.Get("Location"))
+		assertTrackingInterstitial(t, resp, "evil.example")
+	})
+
+	t.Run("legacy /visit to the tracking host still redirects", func(t *testing.T) {
+		redirectURL := baseURL + "/unsubscribe-oneclick?wid=legacy-ws"
+		visitURL := fmt.Sprintf("%s/visit?url=%s&mid=legacy-msg&wid=legacy-ws&ts=1000000000",
+			baseURL, url.QueryEscape(redirectURL))
+		req, err := http.NewRequest(http.MethodGet, visitURL, nil)
+		require.NoError(t, err)
+		req.Header.Set("User-Agent", "Mozilla/5.0 Chrome/120.0.0.0")
+		resp, err := noRedirectClient().Do(req)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+
+		assertTrackedRedirect(t, resp, redirectURL)
 	})
 }
 
@@ -1040,8 +1251,12 @@ func TestEmailHandler_TrackedLinkPreservesUTM(t *testing.T) {
 
 	baseURL := suite.ServerManager.GetURL()
 
+	// The template is compiled directly, without a workspace key, so its links are
+	// unsigned: only a destination on the tracking host itself is redirected without a
+	// confirmation page. That keeps the redirect, which is what carries the UTM
+	// parameters to the landing page, observable here.
 	mjmlSource := `<mjml><mj-body><mj-section><mj-column>` +
-		`<mj-button href="https://shop.example.com/product?ref=email">Buy Now</mj-button>` +
+		`<mj-button href="` + baseURL + `/product?ref=email">Buy Now</mj-button>` +
 		`</mj-column></mj-section></mj-body></mjml>`
 
 	compileResp, err := notifuse_mjml.CompileTemplate(notifuse_mjml.CompileTemplateRequest{
@@ -1113,7 +1328,8 @@ func TestEmailHandler_ConcurrentRequests(t *testing.T) {
 		numRequests := 10
 		results := make(chan error, numRequests)
 
-		redirectURL := "https://example.com/concurrent"
+		// On the tracking host, so unsigned /visit links still answer with a redirect.
+		redirectURL := baseURL + "/concurrent"
 
 		for i := 0; i < numRequests; i++ {
 			go func(i int) {

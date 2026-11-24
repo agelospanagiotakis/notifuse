@@ -36,6 +36,21 @@ func (m *MockMessageHistoryRepository) EXPECT() *MockMessageHistoryRepositoryMoc
 	return m.recorder
 }
 
+// CountMessages mocks base method.
+func (m *MockMessageHistoryRepository) CountMessages(arg0 context.Context, arg1 string, arg2 domain.MessageFilter) (*domain.MessageCounts, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountMessages", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*domain.MessageCounts)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountMessages indicates an expected call of CountMessages.
+func (mr *MockMessageHistoryRepositoryMockRecorder) CountMessages(arg0, arg1, arg2 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountMessages", reflect.TypeOf((*MockMessageHistoryRepository)(nil).CountMessages), arg0, arg1, arg2)
+}
+
 // Create mocks base method.
 func (m *MockMessageHistoryRepository) Create(arg0 context.Context, arg1, arg2 string, arg3 *domain.MessageHistory) error {
 	m.ctrl.T.Helper()
@@ -139,6 +154,21 @@ func (mr *MockMessageHistoryRepositoryMockRecorder) GetBySMTPMessageID(arg0, arg
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBySMTPMessageID", reflect.TypeOf((*MockMessageHistoryRepository)(nil).GetBySMTPMessageID), arg0, arg1, arg2)
 }
 
+// GetForWebVersion mocks base method.
+func (m *MockMessageHistoryRepository) GetForWebVersion(arg0 context.Context, arg1, arg2, arg3 string) (*domain.MessageHistory, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetForWebVersion", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(*domain.MessageHistory)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetForWebVersion indicates an expected call of GetForWebVersion.
+func (mr *MockMessageHistoryRepositoryMockRecorder) GetForWebVersion(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetForWebVersion", reflect.TypeOf((*MockMessageHistoryRepository)(nil).GetForWebVersion), arg0, arg1, arg2, arg3)
+}
+
 // GetRecipientAndList mocks base method.
 func (m *MockMessageHistoryRepository) GetRecipientAndList(arg0 context.Context, arg1, arg2 string) (*domain.MessageHistory, error) {
 	m.ctrl.T.Helper()
@@ -186,17 +216,17 @@ func (mr *MockMessageHistoryRepositoryMockRecorder) ListMessages(arg0, arg1, arg
 }
 
 // SetClicked mocks base method.
-func (m *MockMessageHistoryRepository) SetClicked(arg0 context.Context, arg1, arg2 string, arg3 time.Time, arg4 string) error {
+func (m *MockMessageHistoryRepository) SetClicked(arg0 context.Context, arg1, arg2 string, arg3 time.Time, arg4 string, arg5 bool) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetClicked", arg0, arg1, arg2, arg3, arg4)
+	ret := m.ctrl.Call(m, "SetClicked", arg0, arg1, arg2, arg3, arg4, arg5)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SetClicked indicates an expected call of SetClicked.
-func (mr *MockMessageHistoryRepositoryMockRecorder) SetClicked(arg0, arg1, arg2, arg3, arg4 interface{}) *gomock.Call {
+func (mr *MockMessageHistoryRepositoryMockRecorder) SetClicked(arg0, arg1, arg2, arg3, arg4, arg5 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetClicked", reflect.TypeOf((*MockMessageHistoryRepository)(nil).SetClicked), arg0, arg1, arg2, arg3, arg4)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetClicked", reflect.TypeOf((*MockMessageHistoryRepository)(nil).SetClicked), arg0, arg1, arg2, arg3, arg4, arg5)
 }
 
 // SetOpened mocks base method.

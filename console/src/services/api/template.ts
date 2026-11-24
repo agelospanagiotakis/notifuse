@@ -124,6 +124,46 @@ export interface DeleteTemplateResponse {
   status: string
 }
 
+/** A kind of object that can use a template, as `templates.usage` names its counters. */
+export type TemplateUsageType =
+  'broadcasts' | 'transactional_notifications' | 'automations' | 'lists'
+
+/** Every usage type, in the order of the response. */
+export const TEMPLATE_USAGE_TYPES: TemplateUsageType[] = [
+  'broadcasts',
+  'transactional_notifications',
+  'automations',
+  'lists'
+]
+
+/**
+ * How many objects of each type use one template. A type the member may not read is absent,
+ * never 0: it is listed in `hidden_types` instead.
+ */
+export type TemplateUsageCounts = Partial<Record<TemplateUsageType, number>>
+
+/** One object using the template asked for; `status` is set for broadcasts and automations. */
+export interface TemplateUsageReference {
+  type: 'broadcast' | 'transactional_notification' | 'automation' | 'list'
+  id: string
+  name: string
+  status?: string
+}
+
+export interface GetTemplateUsageRequest {
+  workspace_id: string
+  /** One template: its counts, with a capped list of references per type. */
+  template_id?: string
+}
+
+export interface GetTemplateUsageResponse {
+  /** Only the templates used at least once, by id. */
+  usage: Record<string, TemplateUsageCounts>
+  /** Set when `template_id` is. */
+  references?: TemplateUsageReference[]
+  hidden_types: TemplateUsageType[]
+}
+
 // Represents a detail within an MJML compilation error
 export interface MjmlErrorDetail {
   line: number
@@ -137,11 +177,14 @@ export interface MjmlCompileError {
   details: MjmlErrorDetail[]
 }
 
+export type TrackingMode = 'inherit' | 'no_tracking' | 'disabled'
+
 export interface TrackingSettings {
   enable_tracking: boolean
-  // Per-notification tri-state: 'inherit' (or absent) follows the workspace
-  // setting, 'disabled' suppresses all link rewriting (click/open tracking and UTM)
-  tracking_mode?: 'inherit' | 'disabled'
+  // Per-notification mode: 'inherit' (or absent) follows the workspace setting
+  // and each contact's consent, 'no_tracking' drops the open pixel and click
+  // redirect but keeps UTM parameters, 'disabled' suppresses all link rewriting
+  tracking_mode?: TrackingMode
   endpoint?: string
   utm_source?: string
   utm_medium?: string
@@ -163,6 +206,9 @@ export interface CompileTemplateRequest {
   tracking_settings?: TrackingSettings
   channel?: string // "email" or "web"
   preserve_liquid?: boolean // When true, skip Liquid template processing and preserve raw syntax
+  liquid_markers?: boolean // With preserve_liquid, mark mj-liquid blocks and display conditions for the MJML import
+  text?: string // Source of a custom plain-text version; returned rendered as `text`
+  subject_only?: boolean // Render only subject and subject_preview: no body needed, none compiled
 }
 
 export interface CompileTemplateResponse {
@@ -172,6 +218,9 @@ export interface CompileTemplateResponse {
   subject_preview?: string // Rendered subject preview; only present when request.subject_preview was set
   error?: MjmlCompileError // Use the structured error type, optional
   test_data?: Record<string, unknown> // Effective template data used to render (includes the injected workspace object)
+  text?: string // Plain-text version sent with the email; "" when the email has no text and is sent as HTML only
+  text_source?: 'auto' | 'custom' // Where `text` comes from
+  text_error?: string // Why the custom text of the request could not be used; `text` is then automatic
 }
 
 export interface TestEmailProviderRequest {
@@ -194,6 +243,10 @@ export interface TestTemplateRequest {
   recipient_email: string
   language?: string
   email_options?: EmailOptions
+  // Sends the test for this mailing list: its unsubscribe links and List-Unsubscribe header
+  list_id?: string
+  // With list_id, keeps the list's links but leaves out the List-Unsubscribe header
+  omit_list_unsubscribe_header?: boolean
 }
 
 export interface TestTemplateResponse {
@@ -209,6 +262,7 @@ export interface TemplatesApi {
   update: (params: UpdateTemplateRequest) => Promise<UpdateTemplateResponse>
   delete: (params: DeleteTemplateRequest) => Promise<DeleteTemplateResponse>
   compile: (params: CompileTemplateRequest) => Promise<CompileTemplateResponse>
+  usage: (params: GetTemplateUsageRequest) => Promise<GetTemplateUsageResponse>
 }
 
 export const templatesApi: TemplatesApi = {
@@ -243,5 +297,10 @@ export const templatesApi: TemplatesApi = {
   compile: async (params: CompileTemplateRequest): Promise<CompileTemplateResponse> => {
     const response = await api.post<CompileTemplateResponse>(`/api/templates.compile`, params)
     return response
+  },
+  usage: (params: GetTemplateUsageRequest): Promise<GetTemplateUsageResponse> => {
+    const query = new URLSearchParams({ workspace_id: params.workspace_id })
+    if (params.template_id) query.set('template_id', params.template_id)
+    return api.get<GetTemplateUsageResponse>(`/api/templates.usage?${query.toString()}`)
   }
 }

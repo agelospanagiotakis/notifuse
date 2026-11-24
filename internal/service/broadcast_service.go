@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
+	"slices"
 	"time"
 
 	"github.com/Notifuse/notifuse/internal/domain"
@@ -102,6 +104,10 @@ func (s *BroadcastService) CreateBroadcast(ctx context.Context, request *domain.
 		return nil, err
 	}
 
+	if err := s.requireKnownVariationSenders(ctx, request.WorkspaceID, broadcast.TestSettings.Variations); err != nil {
+		return nil, err
+	}
+
 	// Generate a unique ID for the broadcast if not provided
 	if broadcast.ID == "" {
 		// Create a random ID
@@ -137,8 +143,34 @@ func (s *BroadcastService) CreateBroadcast(ctx context.Context, request *domain.
 	return broadcast, nil
 }
 
-// GetBroadcast retrieves a broadcast by ID
-func (s *BroadcastService) GetBroadcast(ctx context.Context, workspaceID, broadcastID string) (*domain.Broadcast, error) {
+// requireKnownVariationSenders refuses variations whose chosen sender is not on the workspace's
+// marketing email integration. The workspace is only read when a variation chooses one.
+func (s *BroadcastService) requireKnownVariationSenders(ctx context.Context, workspaceID string, variations []domain.BroadcastVariation) error {
+	chosen := false
+	for _, variation := range variations {
+		if variation.SenderID != "" {
+			chosen = true
+			break
+		}
+	}
+	if !chosen {
+		return nil
+	}
+
+	workspace, err := s.workspaceRepo.GetByID(ctx, workspaceID)
+	if err != nil {
+		return fmt.Errorf("failed to get workspace: %w", err)
+	}
+	provider, err := workspace.GetEmailProvider(true)
+	if err != nil {
+		return fmt.Errorf("failed to get email provider: %w", err)
+	}
+	return domain.CheckVariationSenders(provider, variations)
+}
+
+// GetBroadcast retrieves a broadcast by ID, with its variations' templates when opts asks for
+// them and the member may read templates.
+func (s *BroadcastService) GetBroadcast(ctx context.Context, workspaceID, broadcastID string, opts domain.GetBroadcastOptions) (*domain.Broadcast, error) {
 	// Authenticate user for workspace
 	var err error
 	ctx, _, userWorkspace, err := s.authService.AuthenticateUserForWorkspace(ctx, workspaceID)
@@ -156,8 +188,36 @@ func (s *BroadcastService) GetBroadcast(ctx context.Context, workspaceID, broadc
 		)
 	}
 
-	// Fetch the broadcast from the repository
-	return s.repo.GetBroadcast(ctx, workspaceID, broadcastID)
+	broadcast, err := s.repo.GetBroadcast(ctx, workspaceID, broadcastID)
+	if err != nil {
+		return nil, err
+	}
+	if opts.WithTemplates && userWorkspace.HasPermission(domain.PermissionResourceTemplates, domain.PermissionTypeRead) {
+		s.setVariationTemplates(ctx, workspaceID, broadcast)
+	}
+	return broadcast, nil
+}
+
+// setVariationTemplates sets on each variation the latest version of its template, the one
+// that is sent. A template that cannot be read leaves its variation without it, and the
+// broadcast is still answered. The caller checks Templates read first: without it every
+// lookup would be refused and logged.
+func (s *BroadcastService) setVariationTemplates(ctx context.Context, workspaceID string, broadcast *domain.Broadcast) {
+	for i, variation := range broadcast.TestSettings.Variations {
+		if variation.TemplateID == "" {
+			continue
+		}
+		template, err := s.templateSvc.GetTemplateByID(ctx, workspaceID, variation.TemplateID, 0)
+		if err != nil {
+			s.logger.WithFields(map[string]interface{}{
+				"error":        err.Error(),
+				"broadcast_id": broadcast.ID,
+				"template_id":  variation.TemplateID,
+			}).Warn("Failed to fetch template for broadcast variation")
+			continue
+		}
+		broadcast.SetTemplateForVariation(i, template)
+	}
 }
 
 // UpdateBroadcast updates an existing broadcast
@@ -179,33 +239,73 @@ func (s *BroadcastService) UpdateBroadcast(ctx context.Context, request *domain.
 		)
 	}
 
-	// First, get the existing broadcast
-	existingBroadcast, err := s.repo.GetBroadcast(ctx, request.WorkspaceID, request.ID)
-	if err != nil {
-		s.logger.Error("Failed to get broadcast for update")
-		return nil, err
-	}
+	// The broadcast is read locked and written in one transaction: the write carries every
+	// column, status and schedule included, so an unlocked read let a save landing next to a
+	// status change (UnscheduleBroadcast sending it back to draft) write the old status back,
+	// and a scheduled broadcast whose task was deleted would never send.
+	var updatedBroadcast *domain.Broadcast
+	err = s.repo.WithTransaction(ctx, request.WorkspaceID, func(tx *sql.Tx) error {
+		existingBroadcast, err := s.repo.GetBroadcastForUpdateTx(ctx, tx, request.WorkspaceID, request.ID)
+		if err != nil {
+			s.logger.Error("Failed to get broadcast for update")
+			return err
+		}
 
-	// Validate and update broadcast fields
-	updatedBroadcast, err := request.Validate(existingBroadcast)
-	if err != nil {
-		s.logger.Error("Failed to validate broadcast update request")
-		return nil, err
-	}
+		// Validate and update broadcast fields
+		updatedBroadcast, err = request.Validate(existingBroadcast)
+		if err != nil {
+			s.logger.Error("Failed to validate broadcast update request")
+			return err
+		}
 
-	// Set the updated time
-	updatedBroadcast.UpdatedAt = time.Now().UTC()
+		// Only senders the request sets are checked: a patch that leaves test_settings out
+		// keeps the stored variations and must not be blocked by a sender removed since.
+		if request.TestSettingsProvided() {
+			if err := s.requireKnownVariationSenders(ctx, request.WorkspaceID, updatedBroadcast.TestSettings.Variations); err != nil {
+				return err
+			}
+		}
 
-	// Persist the changes
-	err = s.repo.UpdateBroadcast(ctx, updatedBroadcast)
+		updatedBroadcast.UpdatedAt = time.Now().UTC()
+		if err := s.repo.UpdateBroadcastTx(ctx, tx, updatedBroadcast); err != nil {
+			s.logger.Error("Failed to update broadcast in repository")
+			return err
+		}
+		return nil
+	})
 	if err != nil {
-		s.logger.Error("Failed to update broadcast in repository")
 		return nil, err
 	}
 
 	s.logger.Info("Broadcast updated successfully")
 
 	return updatedBroadcast, nil
+}
+
+// EstimateAudience counts the recipients of an audience with CountContactsForBroadcast, the
+// count the send uses. An unknown list or segment counts 0.
+func (s *BroadcastService) EstimateAudience(ctx context.Context, workspaceID string, audience domain.AudienceSettings) (int, error) {
+	ctx, _, userWorkspace, err := s.authService.AuthenticateUserForWorkspace(ctx, workspaceID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to authenticate user: %w", err)
+	}
+
+	required := []domain.PermissionResource{domain.PermissionResourceBroadcasts, domain.PermissionResourceLists}
+	if len(audience.Segments) > 0 {
+		required = append(required, domain.PermissionResourceSegments)
+	}
+	for _, resource := range required {
+		if !userWorkspace.HasPermission(resource, domain.PermissionTypeRead) {
+			return 0, domain.NewPermissionError(resource, domain.PermissionTypeRead,
+				fmt.Sprintf("Insufficient permissions: read access to %s required", resource))
+		}
+	}
+
+	count, err := s.contactRepo.CountContactsForBroadcast(ctx, workspaceID, audience)
+	if err != nil {
+		return 0, fmt.Errorf("failed to estimate audience: %w", err)
+	}
+	return count, nil
 }
 
 // ListBroadcasts retrieves a list of broadcasts with pagination
@@ -244,23 +344,10 @@ func (s *BroadcastService) ListBroadcasts(ctx context.Context, params domain.Lis
 		return nil, err
 	}
 
-	// If WithTemplates is true, fetch template details for each variation
-	if params.WithTemplates {
+	// Without Templates read the broadcasts come back without their templates.
+	if params.WithTemplates && userWorkspace.HasPermission(domain.PermissionResourceTemplates, domain.PermissionTypeRead) {
 		for _, broadcast := range response.Broadcasts {
-			for i, variation := range broadcast.TestSettings.Variations {
-				if variation.TemplateID != "" {
-					// Fetch the template for this variation
-					template, err := s.templateSvc.GetTemplateByID(ctx, params.WorkspaceID, variation.TemplateID, 0)
-					if err != nil {
-						s.logger.Error("Failed to fetch template for broadcast variation")
-						// Continue with the next variation rather than failing the whole request
-						continue
-					}
-
-					// Assign the template to the variation
-					broadcast.SetTemplateForVariation(i, template)
-				}
-			}
+			s.setVariationTemplates(ctx, params.WorkspaceID, broadcast)
 		}
 	}
 
@@ -313,22 +400,33 @@ func (s *BroadcastService) ScheduleBroadcast(ctx context.Context, request *domai
 		return fmt.Errorf("no marketing email provider configured for this workspace")
 	}
 
-	// Using a channel to wait for the event callback
-	done := make(chan error, 1)
-
-	// Use transaction to retrieve, update the broadcast, and publish the event
+	// The task is written in the request, before the broadcast commits: a task that cannot
+	// be written fails the request and rolls the broadcast back, instead of leaving a
+	// scheduled broadcast nothing sends. A task left by a broadcast write that then rolls
+	// back finds a draft, which the orchestrator never sends.
+	var taskID string
 	err = s.repo.WithTransaction(ctx, request.WorkspaceID, func(tx *sql.Tx) error {
-		// Retrieve the broadcast
-		bcast, err := s.repo.GetBroadcastTx(ctx, tx, request.WorkspaceID, request.ID)
+		// The broadcast is read with its lock: two schedules of the same draft would both
+		// read it as a draft, and the second would start its task over under the first.
+		bcast, err := s.repo.GetBroadcastForUpdateTx(ctx, tx, request.WorkspaceID, request.ID)
 		if err != nil {
 			s.logger.Error("Failed to get broadcast for scheduling")
 			return err
+		}
+		if bcast.IsImported() {
+			return domain.ErrImportedBroadcastNotSendable
 		}
 
 		// Only draft broadcasts can be scheduled
 		if bcast.Status != domain.BroadcastStatusDraft {
 			err := fmt.Errorf("only broadcasts with draft status can be scheduled, current status: %s", bcast.Status)
 			s.logger.Error("Cannot schedule broadcast with non-draft status")
+			return err
+		}
+
+		// A sender chosen on a variation may have left the integration since the broadcast
+		// was saved: refuse rather than send from another address.
+		if err := domain.CheckVariationSenders(emailProvider, bcast.TestSettings.Variations); err != nil {
 			return err
 		}
 
@@ -408,65 +506,44 @@ func (s *BroadcastService) ScheduleBroadcast(ctx context.Context, request *domai
 			return err
 		}
 
-		// Create event payload with schedule information
-		payloadData := map[string]interface{}{
-			"broadcast_id": request.ID,
-			"send_now":     request.SendNow,
-			"status":       string(bcast.Status),
-		}
-
-		// Include actual scheduled time if broadcast is scheduled
+		var scheduledAt *time.Time
 		if !request.SendNow && bcast.Schedule.IsScheduled {
-			scheduledTime, parseErr := bcast.Schedule.ParseScheduledDateTime()
-			if parseErr == nil && !scheduledTime.IsZero() {
-				payloadData["scheduled_time"] = scheduledTime.Format(time.RFC3339)
+			if scheduledTime, parseErr := bcast.Schedule.ParseScheduledDateTime(); parseErr == nil && !scheduledTime.IsZero() {
+				scheduledAt = &scheduledTime
 			}
 		}
-
-		eventPayload := domain.EventPayload{
-			Type:        domain.EventBroadcastScheduled,
-			WorkspaceID: request.WorkspaceID,
-			EntityID:    request.ID,
-			Data:        payloadData,
-		}
-
-		// Publish the event with callback within the transaction
-		s.eventBus.PublishWithAck(ctx, eventPayload, func(eventErr error) {
-			if eventErr != nil {
-				// Event processing failed, log the error
-				s.logger.WithFields(map[string]interface{}{
-					"broadcast_id": request.ID,
-					"workspace_id": request.WorkspaceID,
-					"error":        eventErr.Error(),
-				}).Error("Failed to process schedule broadcast event")
-
-				// Since we're still in the same transaction, we don't need to rollback explicitly
-				// The outer transaction will be rolled back when we return an error
-
-				done <- fmt.Errorf("failed to process schedule event: %w", eventErr)
-			} else {
-				s.logger.WithField("broadcast_id", request.ID).Info("Schedule broadcast event processed successfully")
-				done <- nil
-			}
-		})
-
-		// Wait for the event processing to complete
-		select {
-		case eventErr := <-done:
-			if eventErr != nil {
-				// If the event processing failed, roll back the transaction by returning an error
-				return eventErr
-			}
-			// If event processing succeeded, commit the transaction
-			return nil
-		case <-ctx.Done():
-			// If context is cancelled, roll back transaction by returning an error
-			return ctx.Err()
-		}
+		taskID, err = s.taskService.ScheduleBroadcastTask(ctx, request.WorkspaceID, request.ID, request.SendNow, scheduledAt)
+		return err
 	})
+	if err != nil {
+		return err
+	}
 
-	return err
+	// Sent now: this broadcast's task runs once the broadcast has committed.
+	if request.SendNow {
+		s.taskService.RunTaskNow(request.WorkspaceID, taskID)
+	}
+	return nil
 }
+
+// pausableBroadcastStatuses are the statuses of a broadcast that is sending: its task queues
+// recipients (processing, and an A/B test's testing and winner_selected), it waits for the
+// winner of its A/B test (test_completed), or the queue still sends what was queued
+// (processed). A pause stops all of it, and a resume goes back to where it was.
+var pausableBroadcastStatuses = []domain.BroadcastStatus{
+	domain.BroadcastStatusProcessing,
+	domain.BroadcastStatusProcessed,
+	domain.BroadcastStatusTesting,
+	domain.BroadcastStatusTestCompleted,
+	domain.BroadcastStatusWinnerSelected,
+}
+
+// cancellableBroadcastStatuses are the statuses a broadcast can be cancelled from: scheduled,
+// paused, or sending.
+var cancellableBroadcastStatuses = append([]domain.BroadcastStatus{
+	domain.BroadcastStatusScheduled,
+	domain.BroadcastStatusPaused,
+}, pausableBroadcastStatuses...)
 
 // PauseBroadcast pauses a sending broadcast
 func (s *BroadcastService) PauseBroadcast(ctx context.Context, request *domain.PauseBroadcastRequest) error {
@@ -505,11 +582,10 @@ func (s *BroadcastService) PauseBroadcast(ctx context.Context, request *domain.P
 			return err
 		}
 
-		// Only sending (Phase 1) or processed-with-remaining-drain (Phase 2) broadcasts can be paused.
-		// A/B intermediate states (testing/test_completed/winner_selected) are out of scope.
-		if broadcast.Status != domain.BroadcastStatusProcessing &&
-			broadcast.Status != domain.BroadcastStatusProcessed {
-			err := fmt.Errorf("only broadcasts with sending or processed status can be paused, current status: %s", broadcast.Status)
+		// Only a sending broadcast can be paused: its task queuing recipients (Phase 1), an
+		// A/B test at any step, or the queue draining what was queued (Phase 2, processed).
+		if !slices.Contains(pausableBroadcastStatuses, broadcast.Status) {
+			err := fmt.Errorf("only broadcasts that are sending can be paused, current status: %s", broadcast.Status)
 			s.logger.Error("Cannot pause broadcast with invalid status")
 			return err
 		}
@@ -612,10 +688,9 @@ func (s *BroadcastService) ResumeBroadcast(ctx context.Context, request *domain.
 		return err
 	}
 
-	// Using a channel to wait for the event callback
-	done := make(chan error, 1)
+	// Determined in the transaction, published once it commits.
+	startNow := false
 
-	// Use transaction to retrieve, update the broadcast, and publish the event
 	err = s.repo.WithTransaction(ctx, request.WorkspaceID, func(tx *sql.Tx) error {
 		// Retrieve the broadcast
 		broadcast, err := s.repo.GetBroadcastTx(ctx, tx, request.WorkspaceID, request.ID)
@@ -631,12 +706,39 @@ func (s *BroadcastService) ResumeBroadcast(ctx context.Context, request *domain.
 			return err
 		}
 
+		// A broadcast with recipients still to enqueue resolves their sender again, which
+		// may have left the integration during the pause. One whose recipients are all
+		// queued only releases emails that already carry their sender: its completion
+		// date, or its task's cursor at the end of the list when the pause came before
+		// the run wrote that date.
+		// The task is read only while the run may still have recipients to enqueue: a
+		// broadcast past its completion date has a completed task.
+		var task *domain.Task
+		if broadcast.CompletedAt == nil {
+			found, readErr := s.taskRepo.GetTaskByBroadcastID(ctx, request.WorkspaceID, broadcast.ID)
+			switch {
+			case readErr == nil:
+				task = found
+			case !errors.Is(readErr, domain.ErrTaskNotFound):
+				// The budget is then reset by the resume event alone, after the commit.
+				s.logger.WithFields(map[string]interface{}{
+					"broadcast_id": broadcast.ID,
+					"error":        readErr.Error(),
+				}).Warn("Failed to read the task of the broadcast to resume")
+			}
+			if !allRecipientsQueued(task) {
+				if err := s.requireKnownVariationSenders(ctx, request.WorkspaceID, broadcast.VariationsToSend()); err != nil {
+					return err
+				}
+			}
+		}
+
 		// Update broadcast status
 		now := time.Now().UTC()
 		broadcast.UpdatedAt = now
 
 		// Determine the new status based on pause phase and scheduling.
-		startNow := false
+		startNow = false
 
 		if broadcast.CompletedAt != nil {
 			// Phase-2 pause: orchestrator already finished enqueueing. Restore to processed
@@ -644,6 +746,15 @@ func (s *BroadcastService) ResumeBroadcast(ctx context.Context, request *domain.
 			// Do NOT set start_now — the task is completed and must not be re-run.
 			broadcast.Status = domain.BroadcastStatusProcessed
 			s.logger.Info("Broadcast resumed to processed status (Phase 2)")
+		} else if abStatus, ok := resumedABStatus(broadcast); ok {
+			// An A/B test goes back to the step it was paused at; its task, parked by the
+			// pause, is woken by the resume event.
+			broadcast.Status = abStatus
+			startNow = true
+			if err := s.countTestPause(ctx, tx, broadcast, now); err != nil {
+				return err
+			}
+			s.logger.WithField("status", string(abStatus)).Info("A/B test broadcast resumed")
 		} else if broadcast.Schedule.IsScheduled {
 			// Phase-1 pause: originally scheduled flow.
 			scheduledTime, err := broadcast.Schedule.ParseScheduledDateTime()
@@ -694,53 +805,118 @@ func (s *BroadcastService) ResumeBroadcast(ctx context.Context, request *domain.
 			"resumed_queue_count": resumedCount,
 		}).Info("Broadcast resumed successfully")
 
-		// Create an event with acknowledgment callback
-		eventPayload := domain.EventPayload{
-			Type:        domain.EventBroadcastResumed,
-			WorkspaceID: request.WorkspaceID,
-			EntityID:    request.ID,
-			Data: map[string]interface{}{
-				"broadcast_id": request.ID,
-				"start_now":    startNow,
-			},
-		}
-
-		// Publish the event with callback within the transaction
-		s.eventBus.PublishWithAck(ctx, eventPayload, func(eventErr error) {
-			if eventErr != nil {
-				// Event processing failed, log the error
+		// The task's fresh retry budget is written before the resume commits (the task
+		// lives in the system database, outside this transaction). A run that fails while
+		// the broadcast is paused reads the broadcast, then its task, before it fails the
+		// broadcast for good: a broadcast read as resumed means the task read sees the
+		// budget. Reset after the commit, by the resume event, the run could read the
+		// broadcast resumed and the task at its last attempt, and fail a resumed broadcast.
+		// A failed read of the task or a failed reset is logged: the resume event resets the
+		// budget again, after the commit.
+		if task != nil && task.Status != domain.TaskStatusCompleted {
+			if resetErr := s.taskRepo.ResetRetryBudget(ctx, request.WorkspaceID, task.ID); resetErr != nil {
 				s.logger.WithFields(map[string]interface{}{
-					"broadcast_id": request.ID,
-					"workspace_id": request.WorkspaceID,
-					"error":        eventErr.Error(),
-				}).Error("Failed to process resume broadcast event")
-
-				// Since we're still in the same transaction, we don't need to rollback explicitly
-				// The outer transaction will be rolled back when we return an error
-
-				done <- fmt.Errorf("failed to process resume event: %w", eventErr)
-			} else {
-				s.logger.WithField("broadcast_id", request.ID).Info("Resume broadcast event processed successfully")
-				done <- nil
+					"broadcast_id": broadcast.ID,
+					"task_id":      task.ID,
+					"error":        resetErr.Error(),
+				}).Error("Failed to reset the retry budget of the resumed broadcast's task")
 			}
-		})
-
-		// Wait for the event processing to complete
-		select {
-		case eventErr := <-done:
-			if eventErr != nil {
-				// If the event processing failed, roll back the transaction by returning an error
-				return eventErr
-			}
-			// If event processing succeeded, commit the transaction
-			return nil
-		case <-ctx.Done():
-			// If context is cancelled, roll back transaction by returning an error
-			return ctx.Err()
 		}
-	})
 
-	return err
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// The wake of the broadcast's task follows the commit: a run that found the broadcast
+	// paused parks its task, and either this wake finds the parked task or the run's own
+	// read after its park sees the resume. Published inside the transaction, the wake could
+	// find the task before the resume was visible to that read, and the task stayed parked.
+	// The resume is committed by now, so a failed acknowledgment is logged, not returned.
+	eventPayload := domain.EventPayload{
+		Type:        domain.EventBroadcastResumed,
+		WorkspaceID: request.WorkspaceID,
+		EntityID:    request.ID,
+		Data: map[string]interface{}{
+			"broadcast_id": request.ID,
+			"start_now":    startNow,
+		},
+	}
+	done := make(chan error, 1)
+	s.eventBus.PublishWithAck(ctx, eventPayload, func(eventErr error) { done <- eventErr })
+	var eventErr error
+	select {
+	case eventErr = <-done:
+	case <-ctx.Done():
+		eventErr = ctx.Err()
+	}
+	if eventErr != nil {
+		s.logger.WithFields(map[string]interface{}{
+			"broadcast_id": request.ID,
+			"workspace_id": request.WorkspaceID,
+			"error":        eventErr.Error(),
+		}).Error("Failed to process resume broadcast event after the resume committed")
+	}
+	return nil
+}
+
+// resumedABStatus is the status a paused A/B test resumes in, when its sending started: the
+// winner chosen, winner_selected; its test sent and no winner yet, test_completed; its test
+// under way, testing. A winner and a test sent are written only once the sending started,
+// so they are enough whatever the start date; a test under way is told by the start date.
+// ok is false for a broadcast without an A/B test, or one that never started sending, which
+// resume as before.
+func resumedABStatus(broadcast *domain.Broadcast) (status domain.BroadcastStatus, ok bool) {
+	if !broadcast.TestSettings.Enabled {
+		return "", false
+	}
+	switch {
+	case broadcast.WinningTemplate != nil:
+		return domain.BroadcastStatusWinnerSelected, true
+	case broadcast.TestSentAt != nil:
+		return domain.BroadcastStatusTestCompleted, true
+	case broadcast.StartedAt != nil:
+		return domain.BroadcastStatusTesting, true
+	}
+	return "", false
+}
+
+// countTestPause adds the time a test waiting for its winner spent paused to its
+// test_paused_seconds, so the automatic winner is not picked on a sample whose emails the
+// pause held. The test's clock starts at test_sent_at, the end of its sample: a pause before
+// it, or once a winner is chosen, counts nothing. The write holds only while the broadcast is
+// the paused one this resume read (its read takes no lock): a second resume is refused.
+func (s *BroadcastService) countTestPause(ctx context.Context, tx *sql.Tx, broadcast *domain.Broadcast, now time.Time) error {
+	if broadcast.Status != domain.BroadcastStatusTestCompleted || broadcast.TestSentAt == nil || broadcast.PausedAt == nil {
+		return nil
+	}
+	seconds := int(math.Ceil(now.Sub(*broadcast.PausedAt).Seconds()))
+	if seconds <= 0 {
+		return nil
+	}
+	counted, err := s.repo.AddTestPauseTx(ctx, tx, broadcast.WorkspaceID, broadcast.ID, *broadcast.PausedAt, seconds)
+	if err != nil {
+		s.logger.WithField("broadcast_id", broadcast.ID).Error("Failed to count the time the A/B test spent paused")
+		return err
+	}
+	if !counted {
+		return domain.NewValidationError("the broadcast is no longer paused")
+	}
+	broadcast.TestPausedSeconds += seconds
+	return nil
+}
+
+// allRecipientsQueued reports whether the broadcast's task has queued every recipient: its
+// state is past the test phase and its cursor at the end of the list. No task (one that
+// could not be read) answers false, so the caller keeps its check.
+func allRecipientsQueued(task *domain.Task) bool {
+	if task == nil || task.State == nil || task.State.SendBroadcast == nil {
+		return false
+	}
+	state := task.State.SendBroadcast
+	return (state.Phase == "single" || state.Phase == "winner") &&
+		state.TotalRecipients > 0 && state.RecipientOffset >= int64(state.TotalRecipients)
 }
 
 // CancelBroadcast cancels a scheduled broadcast
@@ -780,16 +956,10 @@ func (s *BroadcastService) CancelBroadcast(ctx context.Context, request *domain.
 			return err
 		}
 
-		// Cancel is allowed from Scheduled, Paused, Processing (mid-enqueue),
-		// or Processed (mid-drain). A/B intermediate states are out of scope.
-		switch broadcast.Status {
-		case domain.BroadcastStatusScheduled,
-			domain.BroadcastStatusPaused,
-			domain.BroadcastStatusProcessing,
-			domain.BroadcastStatusProcessed:
-			// Allowed.
-		default:
-			err := fmt.Errorf("only broadcasts with scheduled, paused, processing, or processed status can be cancelled, current status: %s", broadcast.Status)
+		// Cancel is allowed from scheduled, paused, or any sending status: processing
+		// (mid-enqueue), an A/B test at any step, or processed (mid-drain).
+		if !slices.Contains(cancellableBroadcastStatuses, broadcast.Status) {
+			err := fmt.Errorf("only broadcasts that are scheduled, paused or sending can be cancelled, current status: %s", broadcast.Status)
 			s.logger.Error("Cannot cancel broadcast with invalid status")
 			return err
 		}
@@ -866,6 +1036,151 @@ func (s *BroadcastService) CancelBroadcast(ctx context.Context, request *domain.
 	})
 
 	return err
+}
+
+// errUnscheduleSendStarted refuses to send a broadcast back to draft once its sending started:
+// the emails already queued or sent would stay out, and a new schedule would send to the whole
+// audience again. Pause refuses a scheduled broadcast, so Cancel is the way out.
+var errUnscheduleSendStarted = domain.NewValidationError("the broadcast has started sending: cancel it instead")
+
+// taskShowsSendStarted reports whether a broadcast's task shows its sending started: it is
+// running or completed, a run holds its lease, a run took place since it was (re)scheduled, or it
+// saved progress. A rescheduled task keeps the last_run_at of an earlier run but gets a new
+// created_at (ResetBroadcastTaskTx), so only a run after that date counts.
+func taskShowsSendStarted(task *domain.Task, now time.Time) bool {
+	if task.Status == domain.TaskStatusRunning || task.Status == domain.TaskStatusCompleted {
+		return true
+	}
+	if task.TimeoutAfter != nil && task.TimeoutAfter.After(now) {
+		return true
+	}
+	if task.LastRunAt != nil && task.LastRunAt.After(task.CreatedAt) {
+		return true
+	}
+	if task.State != nil && task.State.SendBroadcast != nil {
+		progress := task.State.SendBroadcast
+		if progress.RecipientOffset > 0 || progress.EnqueuedCount > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// UnscheduleBroadcast sends a scheduled broadcast whose sending has not started back to draft,
+// keeping its date and time, and deletes its send task.
+//
+// The broadcast lives in the workspace database and its task in the system one. The locks are
+// taken in the order ScheduleBroadcast and CancelBroadcast use, broadcast then task, so two of
+// these flows cannot wait on each other across the two databases, where PostgreSQL cannot see the
+// cycle. The tasks are deleted while the broadcast is locked, but that deletion commits after the
+// draft: a draft that fails to commit keeps its task, and a system commit that fails after the
+// draft leaves a task for a draft, which the orchestrator never sends (refuseDraft) and a second
+// call deletes. The other commit order could leave a scheduled broadcast with no task, which
+// would never send.
+//
+// A scheduled broadcast leaves scheduled when its task's first sending run starts, and its
+// start date can be missing (a failed write), while a send under way at the upgrade keeps
+// scheduled until its next run, so "not started" is read from the start date, the emails
+// queued or sent, and the task together. A broadcast in a sending status, or paused after its
+// start, started sending: it is refused with the error that sends to Cancel. One paused with no
+// start date (a run's last attempt before it started, or a start date that failed to be written)
+// is refused with its own error, which also points to Cancel.
+func (s *BroadcastService) UnscheduleBroadcast(ctx context.Context, request *domain.UnscheduleBroadcastRequest) error {
+	var err error
+	ctx, _, userWorkspace, err := s.authService.AuthenticateUserForWorkspace(ctx, request.WorkspaceID)
+	if err != nil {
+		s.logger.WithField("broadcast_id", request.ID).Error("Failed to authenticate user for workspace")
+		return fmt.Errorf("failed to authenticate user: %w", err)
+	}
+
+	if !userWorkspace.HasPermission(domain.PermissionResourceBroadcasts, domain.PermissionTypeWrite) {
+		return domain.NewPermissionError(
+			domain.PermissionResourceBroadcasts,
+			domain.PermissionTypeWrite,
+			"Insufficient permissions: write access to broadcasts required",
+		)
+	}
+
+	if err := request.Validate(); err != nil {
+		return err
+	}
+
+	// The system transaction opens first but locks nothing until the broadcast is locked, and
+	// commits last.
+	return s.taskRepo.WithTransaction(ctx, func(taskTx *sql.Tx) error {
+		return s.repo.WithTransaction(ctx, request.WorkspaceID, func(tx *sql.Tx) error {
+			bcast, err := s.repo.GetBroadcastForUpdateTx(ctx, tx, request.WorkspaceID, request.ID)
+			if err != nil {
+				return err
+			}
+
+			switch bcast.Status {
+			case domain.BroadcastStatusScheduled:
+				if bcast.StartedAt != nil {
+					return errUnscheduleSendStarted
+				}
+				active, err := s.repo.HasSendActivityTx(ctx, tx, bcast.ID)
+				if err != nil {
+					return err
+				}
+				if active {
+					return errUnscheduleSendStarted
+				}
+			case domain.BroadcastStatusDraft:
+				// Already a draft: an earlier call whose task deletion failed. Only its task is
+				// left to delete, below.
+			case domain.BroadcastStatusPaused:
+				// No start date: a run's last attempt can pause a broadcast that never started.
+				if bcast.StartedAt == nil {
+					return domain.NewValidationError("the broadcast is paused: cancel it instead")
+				}
+				return errUnscheduleSendStarted
+			case domain.BroadcastStatusProcessing, domain.BroadcastStatusProcessed,
+				domain.BroadcastStatusTesting, domain.BroadcastStatusTestCompleted, domain.BroadcastStatusWinnerSelected:
+				return errUnscheduleSendStarted
+			default:
+				return domain.NewValidationError(fmt.Sprintf(
+					"only scheduled broadcasts can be sent back to draft, current status: %s", bcast.Status))
+			}
+
+			task, err := s.taskRepo.GetTaskByBroadcastIDTx(ctx, taskTx, request.WorkspaceID, bcast.ID)
+			switch {
+			case errors.Is(err, domain.ErrTaskNotFound):
+				task = nil
+			case err != nil:
+				return err
+			}
+
+			if bcast.Status == domain.BroadcastStatusDraft && task == nil {
+				return domain.NewValidationError("the broadcast is not scheduled")
+			}
+			if bcast.Status == domain.BroadcastStatusScheduled && task != nil && taskShowsSendStarted(task, time.Now().UTC()) {
+				return errUnscheduleSendStarted
+			}
+
+			// The tasks are deleted while the broadcast is still locked: deleted after its lock
+			// was released, a schedule of the new draft could commit its task in between and lose
+			// it to this deletion. The deletion commits with the system transaction, after the
+			// draft: a draft that fails to commit keeps its task.
+			deleted, err := s.taskRepo.DeleteBroadcastTasksTx(ctx, taskTx, request.WorkspaceID, bcast.ID)
+			if err != nil {
+				return err
+			}
+			s.logger.WithFields(map[string]interface{}{
+				"broadcast_id":  bcast.ID,
+				"deleted_tasks": deleted,
+			}).Info("Broadcast sent back to draft")
+
+			if bcast.Status == domain.BroadcastStatusDraft {
+				return nil
+			}
+			// The date, time and timezone stay: the broadcast opens on the same schedule.
+			bcast.Status = domain.BroadcastStatusDraft
+			bcast.Schedule.IsScheduled = false
+			bcast.UpdatedAt = time.Now().UTC()
+			return s.repo.UpdateBroadcastTx(ctx, tx, bcast)
+		})
+	})
 }
 
 // DeleteBroadcast deletes a broadcast
@@ -949,9 +1264,9 @@ func (s *BroadcastService) PauseForCircuitBreaker(ctx context.Context, workspace
 			continue
 		}
 
-		// Only a broadcast that is actually going out can be stopped. Anything else
-		// either has not started or has already been dealt with.
-		if broadcast.Status != domain.BroadcastStatusProcessing && broadcast.Status != domain.BroadcastStatusProcessed {
+		// Only a broadcast that is actually going out can be stopped, an A/B test at any
+		// step included. Anything else either has not started or has already been dealt with.
+		if !slices.Contains(pausableBroadcastStatuses, broadcast.Status) {
 			continue
 		}
 
@@ -1155,6 +1470,9 @@ func (s *BroadcastService) SendToIndividual(ctx context.Context, request *domain
 		s.logger.Error("Failed to get broadcast for individual sending")
 		return err
 	}
+	if broadcast.IsImported() {
+		return domain.ErrImportedBroadcastNotSendable
+	}
 
 	// Determine which variation to use
 	templateID := request.TemplateID
@@ -1207,11 +1525,10 @@ func (s *BroadcastService) SendToIndividual(ctx context.Context, request *domain
 		return fmt.Errorf("email content not available after language resolution")
 	}
 
-	emailSender := emailProvider.GetSender(emailContent.SenderID)
-
-	if emailSender == nil {
+	emailSender, err := emailProvider.ResolveSender(variation.SenderID, emailContent.SenderID)
+	if err != nil {
 		s.logger.Error("Failed to get sender for broadcast")
-		return fmt.Errorf("failed to get sender for broadcast")
+		return fmt.Errorf("failed to get sender for broadcast: %w", err)
 	}
 
 	messageID := uuid.New().String()
@@ -1234,12 +1551,17 @@ func (s *BroadcastService) SendToIndividual(ctx context.Context, request *domain
 	// visit attribution, which is the cheaper failure.
 	//
 	// Pinned by TestBroadcastService_SendToIndividual_NeverMintsIdentityToken.
+	//
+	// Opens and clicks follow the recipient's consent when the address is a
+	// contact, and the workspace's choice for unknown consent when it is not.
 	trackingSettings := notifuse_mjml.TrackingSettings{
-		Endpoint:       endpoint,
-		EnableTracking: workspace.Settings.EmailTrackingEnabled,
-		WorkspaceID:    request.WorkspaceID,
-		MessageID:      messageID,
+		Endpoint:    endpoint,
+		WorkspaceID: request.WorkspaceID,
+		MessageID:   messageID,
+		SigningKey:  domain.TrackingSigningKey(workspace.Settings.SecretKey),
 	}
+	decision := domain.ResolveEmailTracking(workspace.Settings.TrackingPolicy(), contact, broadcast.TrackingMode)
+	decision.Apply(&trackingSettings)
 
 	// Add UTM parameters if available
 	if broadcast.UTMParameters != nil {
@@ -1262,6 +1584,9 @@ func (s *BroadcastService) SendToIndividual(ctx context.Context, request *domain
 		MessageID:        messageID,
 		TrackingSettings: trackingSettings,
 		Broadcast:        broadcast,
+		// A test send is recorded without the broadcast (see below), and the web version page
+		// serves only broadcast and automation messages, so a link would lead to a page not found.
+		WebVersion: false,
 	}
 	templateData, err := domain.BuildTemplateData(req)
 	if err != nil {
@@ -1298,7 +1623,32 @@ func (s *BroadcastService) SendToIndividual(ctx context.Context, request *domain
 			errMsg = compiledTemplate.Error.Message
 		}
 		s.logger.Error("Failed to generate HTML from template")
-		return fmt.Errorf("template compilation failed: %s", errMsg)
+		return &domain.TemplateRenderError{Message: fmt.Sprintf("template compilation failed: %s", errMsg)}
+	}
+	if compiledTemplate.HTML != nil {
+		if viewURL, ok := templateData["view_in_browser_url"].(string); ok && viewURL != "" {
+			*compiledTemplate.HTML = notifuse_mjml.FillViewInBrowserLink(*compiledTemplate.HTML, viewURL)
+		}
+		unsubURL, _ := templateData["unsubscribe_url"].(string)
+		prefsURL, _ := templateData["notification_center_url"].(string)
+		*compiledTemplate.HTML = notifuse_mjml.RewriteMailchimpLinks(*compiledTemplate.HTML, unsubURL, prefsURL)
+		*compiledTemplate.HTML = notifuse_mjml.FillEmptyPreferenceLinks(*compiledTemplate.HTML, prefsURL)
+	}
+	if compiledTemplate.TextError != "" {
+		s.logger.WithFields(map[string]interface{}{
+			"broadcast_id":     request.BroadcastID,
+			"workspace_id":     request.WorkspaceID,
+			"template_id":      template.ID,
+			"template_version": template.Version,
+			"error":            compiledTemplate.TextError,
+		}).Warn("Custom text version could not be used, sending the automatic one")
+	}
+
+	// The subject is rendered with the same data as the body, as a real send renders it.
+	subject, err := notifuse_mjml.ProcessLiquidTemplate(emailContent.Subject, templateData, "email_subject")
+	if err != nil {
+		s.logger.Error("Failed to process the subject for broadcast")
+		return &domain.TemplateRenderError{Message: fmt.Sprintf("failed to process subject: %v", err)}
 	}
 
 	// Create SendEmailProviderRequest
@@ -1309,18 +1659,17 @@ func (s *BroadcastService) SendToIndividual(ctx context.Context, request *domain
 		FromAddress:   emailSender.Email,
 		FromName:      emailSender.Name,
 		To:            request.RecipientEmail,
-		Subject:       emailContent.Subject,
+		Subject:       subject,
 		Content:       *compiledTemplate.HTML,
+		TextContent:   compiledTemplate.CustomText(),
 		Provider:      emailProvider,
 		EmailOptions: domain.EmailOptions{
 			ReplyTo: emailContent.ReplyTo,
 		},
 	}
 
-	// Extract List-Unsubscribe URL from template data for RFC-8058 compliance
-	if unsubscribeURL, ok := templateData["oneclick_unsubscribe_url"].(string); ok && unsubscribeURL != "" {
-		emailRequest.EmailOptions.ListUnsubscribeURL = unsubscribeURL
-	}
+	// The test send carries the List-Unsubscribe header the recipients will get.
+	emailRequest.EmailOptions.ListUnsubscribeURL = broadcast.ListUnsubscribeURL(templateData)
 
 	// Send the email
 	err = s.emailSvc.SendEmail(ctx, emailRequest, true)
@@ -1329,12 +1678,13 @@ func (s *BroadcastService) SendToIndividual(ctx context.Context, request *domain
 		return err
 	}
 
+	// No broadcast_id: a test send is not part of the broadcast and must not count in its
+	// opens, clicks and sends.
 	now := time.Now().UTC()
 	listID := broadcast.Audience.List
 	message := &domain.MessageHistory{
 		ID:              messageID,
 		ContactEmail:    request.RecipientEmail,
-		BroadcastID:     &request.BroadcastID,
 		ListID:          &listID,
 		TemplateID:      template.ID,
 		TemplateVersion: template.Version,
@@ -1346,6 +1696,7 @@ func (s *BroadcastService) SendToIndividual(ctx context.Context, request *domain
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
+	message.OpensTracked, message.ClicksTracked = decision.TrackedFlags()
 
 	// Record message in history
 	return s.messageHistoryRepo.Create(ctx, request.WorkspaceID, workspace.Settings.SecretKey, message)
@@ -1399,28 +1750,43 @@ func (s *BroadcastService) GetTestResults(ctx context.Context, workspaceID, broa
 			continue // Skip failed variations
 		}
 
-		// Calculate rates (avoid division by zero)
+		// Rates are measured over the emails that could record them: an email
+		// sent without the pixel (or the redirects) cannot open (or click). Each
+		// rate has its own guard, and a rate with no tracked email is left out of
+		// the recommendation score.
 		openRate := 0.0
 		clickRate := 0.0
-		if stats.TotalSent > 0 {
-			openRate = float64(stats.TotalOpened) / float64(stats.TotalSent)
-			clickRate = float64(stats.TotalClicked) / float64(stats.TotalSent)
+		if stats.TotalOpensTracked > 0 {
+			openRate = float64(stats.TotalOpened) / float64(stats.TotalOpensTracked)
+		}
+		if stats.TotalClicksTracked > 0 {
+			clickRate = float64(stats.TotalClicked) / float64(stats.TotalClicksTracked)
 		}
 
 		variationResults[variation.TemplateID] = &domain.VariationResult{
-			TemplateID:   variation.TemplateID,
-			TemplateName: "Template " + variation.TemplateID, // Could fetch actual template name
-			Recipients:   stats.TotalSent,                    // Use sent as recipients to match rate calculation denominator
-			Delivered:    stats.TotalDelivered,
-			Opens:        stats.TotalOpened,
-			Clicks:       stats.TotalClicked,
-			OpenRate:     openRate,
-			ClickRate:    clickRate,
+			TemplateID:    variation.TemplateID,
+			TemplateName:  "Template " + variation.TemplateID, // Could fetch actual template name
+			Recipients:    stats.TotalSent,
+			Delivered:     stats.TotalDelivered,
+			Opens:         stats.TotalOpened,
+			Clicks:        stats.TotalClicked,
+			OpenRate:      openRate,
+			ClickRate:     clickRate,
+			OpensTracked:  stats.TotalOpensTracked,
+			ClicksTracked: stats.TotalClicksTracked,
 		}
 
-		// Calculate score for recommendation (if not auto-send winner mode)
-		if !broadcast.TestSettings.AutoSendWinner && broadcast.WinningTemplate == nil {
-			score := (clickRate * 0.7) + (openRate * 0.3)
+		// Calculate score for recommendation (if not auto-send winner mode). A
+		// variation with no tracked email at all is not recommended.
+		if !broadcast.TestSettings.AutoSendWinner && broadcast.WinningTemplate == nil &&
+			(stats.TotalOpensTracked > 0 || stats.TotalClicksTracked > 0) {
+			score := 0.0
+			if stats.TotalClicksTracked > 0 {
+				score += clickRate * 0.7
+			}
+			if stats.TotalOpensTracked > 0 {
+				score += openRate * 0.3
+			}
 			if score > bestScore {
 				bestScore = score
 				recommendedWinner = variation.TemplateID
@@ -1463,11 +1829,20 @@ func (s *BroadcastService) SelectWinner(ctx context.Context, workspaceID, broadc
 		)
 	}
 
-	return s.repo.WithTransaction(ctx, workspaceID, func(tx *sql.Tx) error {
+	err = s.repo.WithTransaction(ctx, workspaceID, func(tx *sql.Tx) error {
 		// Get broadcast
-		broadcast, err := s.repo.GetBroadcastTx(ctx, tx, workspaceID, broadcastID)
+		// Locked: the automatic evaluation reads and writes the winner the same way,
+		// and the two take turns rather than one writing over the other.
+		broadcast, err := s.repo.GetBroadcastForUpdateTx(ctx, tx, workspaceID, broadcastID)
 		if err != nil {
 			return err
+		}
+
+		// The pick already recorded saves nothing again and only wakes the task
+		// below, so an owner whose wake failed after the save can repeat it.
+		if broadcast.Status == domain.BroadcastStatusWinnerSelected &&
+			broadcast.WinningTemplate != nil && *broadcast.WinningTemplate == templateID {
+			return nil
 		}
 
 		// Validate status - allow winner selection during testing phase if auto_send_winner is false
@@ -1504,56 +1879,45 @@ func (s *BroadcastService) SelectWinner(ctx context.Context, workspaceID, broadc
 		broadcast.Status = domain.BroadcastStatusWinnerSelected
 		broadcast.UpdatedAt = time.Now().UTC()
 
-		if err := s.repo.UpdateBroadcastTx(ctx, tx, broadcast); err != nil {
-			return err
-		}
-
-		// Resume the associated task by finding it and waking it
-		task, err := s.taskRepo.GetTaskByBroadcastID(ctx, workspaceID, broadcastID)
-		if err != nil {
-			s.logger.WithField("broadcast_id", broadcastID).Debug("No task found for broadcast")
-			return nil // Not an error if no task exists
-		}
-
-		// A task its run still holds is left to that run, which switches to the
-		// winner on its next refresh. Writing the task back as pending handed it
-		// to a second execution that enqueued everyone past the cursor it read
-		// a second time.
-		woken, wakeErr := s.taskRepo.WakeTask(ctx, workspaceID, task.ID, time.Now().UTC())
-		if errors.Is(wakeErr, domain.ErrTaskNotFound) {
-			s.logger.WithField("broadcast_id", broadcastID).Debug("No task found for broadcast")
-			return nil
-		}
-		if wakeErr != nil {
-			return wakeErr
-		}
-		if !woken {
-			s.logger.WithFields(map[string]interface{}{
-				"broadcast_id": broadcastID,
-				"task_id":      task.ID,
-			}).Info("Winner selected while the broadcast's run holds its task - the run switches to the winner")
-			return nil
-		}
-
-		// Immediately trigger task execution after winner selection (if auto-execution is enabled)
-		// Note: We always trigger here since winner selection should immediately resume sending
-		// In tests, this is disabled to prevent race conditions
-		if s.taskService.IsAutoExecuteEnabled() {
-			go func() {
-				// Small delay to ensure transaction is committed
-				time.Sleep(100 * time.Millisecond)
-				if execErr := s.taskService.ExecutePendingTasks(context.Background(), 1); execErr != nil {
-					s.logger.WithFields(map[string]interface{}{
-						"broadcast_id": broadcastID,
-						"task_id":      task.ID,
-						"error":        execErr.Error(),
-					}).Error("Failed to trigger immediate task execution after winner selection")
-				}
-			}()
-		}
-
-		return nil
+		return s.repo.UpdateBroadcastTx(ctx, tx, broadcast)
 	})
+	if err != nil {
+		return err
+	}
+
+	// Resume the associated task by finding it and waking it, once the winner is
+	// committed: the broadcast row stays locked until then, and the task lives in
+	// the system database.
+	task, err := s.taskRepo.GetTaskByBroadcastID(ctx, workspaceID, broadcastID)
+	if err != nil {
+		s.logger.WithField("broadcast_id", broadcastID).Debug("No task found for broadcast")
+		return nil // Not an error if no task exists
+	}
+
+	// A task its run still holds is left to that run, which switches to the
+	// winner on its next refresh. Writing the task back as pending handed it
+	// to a second execution that enqueued everyone past the cursor it read
+	// a second time.
+	woken, wakeErr := s.taskRepo.WakeTask(ctx, workspaceID, task.ID, time.Now().UTC())
+	if errors.Is(wakeErr, domain.ErrTaskNotFound) {
+		s.logger.WithField("broadcast_id", broadcastID).Debug("No task found for broadcast")
+		return nil
+	}
+	if wakeErr != nil {
+		return wakeErr
+	}
+	if !woken {
+		s.logger.WithFields(map[string]interface{}{
+			"broadcast_id": broadcastID,
+			"task_id":      task.ID,
+		}).Info("Winner selected while the broadcast's run holds its task - the run switches to the winner")
+		return nil
+	}
+
+	// The winner phase starts now, on this broadcast's task and no other due one.
+	s.taskService.RunTaskNow(workspaceID, task.ID)
+
+	return nil
 }
 
 // RefreshGlobalFeed refreshes the global feed data for a broadcast

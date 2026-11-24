@@ -2,6 +2,10 @@ import { TableSchema } from '../../services/api/segment'
 import { CountriesFormOptions } from '../../lib/countries_timezones'
 import { TIMEZONE_OPTIONS } from '../../lib/timezones'
 import { Languages } from '../../lib/languages'
+import {
+  TRACKING_CONSENT_FIELD_OPTIONS,
+  TRACKING_CONSENT_SOURCE_FIELD_OPTIONS
+} from '../../lib/emailTracking'
 import { faUser, faFolderOpen } from '@fortawesome/free-regular-svg-icons'
 import { faMousePointer, faBullseye } from '@fortawesome/free-solid-svg-icons'
 
@@ -108,6 +112,38 @@ export const ContactsTableSchema: TableSchema = {
       title: 'Job Title',
       description: 'Contact job title',
       type: 'string',
+      shown: true
+    },
+    // Email tracking consent. Unknown consent is NULL: filter it with "is not set".
+    tracking_opens_consent: {
+      name: 'tracking_opens_consent',
+      title: 'Opens Tracking Consent',
+      description: 'Whether the contact agreed to open tracking',
+      type: 'string',
+      shown: true,
+      options: TRACKING_CONSENT_FIELD_OPTIONS
+    },
+    tracking_clicks_consent: {
+      name: 'tracking_clicks_consent',
+      title: 'Clicks Tracking Consent',
+      description: 'Whether the contact agreed to click tracking',
+      type: 'string',
+      shown: true,
+      options: TRACKING_CONSENT_FIELD_OPTIONS
+    },
+    tracking_consent_source: {
+      name: 'tracking_consent_source',
+      title: 'Tracking Consent Source',
+      description: 'Where the last tracking consent change came from',
+      type: 'string',
+      shown: true,
+      options: TRACKING_CONSENT_SOURCE_FIELD_OPTIONS
+    },
+    tracking_consent_updated_at: {
+      name: 'tracking_consent_updated_at',
+      title: 'Tracking Consent Updated At',
+      description: 'When the tracking consent last changed',
+      type: 'time',
       shown: true
     },
     // Custom string fields
@@ -379,7 +415,7 @@ export const ContactTimelineTableSchema: TableSchema = {
 
 export const CustomEventsGoalsTableSchema: TableSchema = {
   name: 'custom_events_goals',
-  title: 'Custom Events Goal',
+  title: 'Custom events goal',
   description: 'Aggregated custom events data (LTV, transaction counts, etc.)',
   icon: faBullseye,
   fields: {
@@ -463,10 +499,10 @@ export const CustomEventsGoalsTableSchema: TableSchema = {
  * internal/repository/web_analytics_timeline_projection.go.
  *
  * Boolean keys (is_landing, is_exit, is_direct) are deliberately absent. The
- * filter UI has no boolean renderer and never reads a field's `options`, so they
- * would render as free text matching only the literals 'true'/'false' — and
- * each is already expressible as a string: entry and exit pages through the
- * visit's landing_path / exit_path, a direct visit through channel.
+ * filter UI has no boolean input, so they would render as free text matching only
+ * the literals 'true'/'false' — and each is already expressible as a string:
+ * entry and exit pages through the visit's landing_path / exit_path, a direct
+ * visit through channel. A field's `options` turn its value into a list.
  */
 
 export const WebPageviewChangesSchema: TableSchema = {
@@ -657,7 +693,9 @@ export const WebSessionChangesSchema: TableSchema = {
       title: 'Country',
       description: 'Country the visit came from',
       type: 'string',
-      shown: true
+      shown: true,
+      // The projection writes the two-letter code, as the contact's country holds it
+      options: CountriesFormOptions
     }
   }
 }

@@ -5,7 +5,7 @@ import type { TiptapRichEditorProps } from './shared/types'
 import { createRichExtensions } from './shared/extensions'
 import { injectTiptapStyles } from './shared/styles'
 import { TiptapToolbar } from './components/TiptapToolbar'
-import { sanitizeRichContent } from './shared/utils'
+import { sanitizeRichContent, getEditorHTML } from './shared/utils'
 import { containedContentStyle, textOnlyHtml } from '../../../../utils/safeHtml'
 
 export const TiptapRichEditor: React.FC<TiptapRichEditorProps> = ({
@@ -15,7 +15,8 @@ export const TiptapRichEditor: React.FC<TiptapRichEditorProps> = ({
   placeholder,
   autoFocus = false,
   buttons,
-  containerStyle
+  containerStyle,
+  headingLevelBeforeBlock = null
 }) => {
   const { t } = useLingui()
   const isUpdatingFromProps = useRef(false)
@@ -50,7 +51,7 @@ export const TiptapRichEditor: React.FC<TiptapRichEditorProps> = ({
         }
       },
       onUpdate: ({ editor }) => {
-        const htmlContent = editor.getHTML()
+        const htmlContent = getEditorHTML(editor)
         handleContentChange(htmlContent)
       }
     },
@@ -59,7 +60,7 @@ export const TiptapRichEditor: React.FC<TiptapRichEditorProps> = ({
 
   // Update content when prop changes (but avoid loops)
   useEffect(() => {
-    if (editor && content !== editor.getHTML()) {
+    if (editor && content !== getEditorHTML(editor)) {
       isUpdatingFromProps.current = true
       const sanitizedContent = sanitizeRichContent(content)
 
@@ -112,7 +113,12 @@ export const TiptapRichEditor: React.FC<TiptapRichEditorProps> = ({
 
   return (
     <div style={containerStyle}>
-      {!readOnly && <TiptapToolbar editor={editor} buttons={buttons} mode="rich" />}
+      {!readOnly && <TiptapToolbar
+          editor={editor}
+          buttons={buttons}
+          mode="rich"
+          headingLevelBeforeBlock={headingLevelBeforeBlock}
+        />}
       <EditorContent
         editor={editor}
         style={{

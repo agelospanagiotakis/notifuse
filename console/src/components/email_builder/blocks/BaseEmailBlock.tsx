@@ -1,8 +1,12 @@
 import React from 'react'
-import type { EmailBlock, MJMLComponentType, SaveOperation, SavedBlock, MergedBlockAttributes } from '../types'
+import type { EmailBlock, MJMLComponentType, SaveBlockHandler, SavedBlock, MergedBlockAttributes } from '../types'
 
 // Define the onUpdate function type - accepts object of attributes to update
-export type OnUpdateAttributesFunction = (updates: Record<string, unknown>) => void
+export type OnUpdateAttributesFunction = (
+  updates: Record<string, unknown>,
+  // coalesceKey: consecutive writes with the same key make one undo step
+  options?: { coalesceKey?: string }
+) => void
 
 export interface PreviewProps {
   selectedBlockId: string | null
@@ -12,7 +16,7 @@ export interface PreviewProps {
   onDeleteBlock: (blockId: string) => void
   attributeDefaults: Partial<Record<MJMLComponentType, Record<string, unknown>>>
   emailTree: EmailBlock
-  onSaveBlock: (block: EmailBlock, operation: SaveOperation, nameOrId: string) => void
+  onSaveBlock: SaveBlockHandler
   savedBlocks?: SavedBlock[]
 }
 
@@ -102,7 +106,9 @@ export abstract class BaseEmailBlock {
   abstract renderSettingsPanel(
     onUpdateAttributes: OnUpdateAttributesFunction,
     blockDefaults: MergedBlockAttributes,
-    emailTree?: EmailBlock
+    emailTree?: EmailBlock,
+    // Updates another block of the email, for panels that edit beyond their own
+    onUpdateBlock?: (blockId: string, block: EmailBlock, options?: { coalesceKey?: string }) => void
   ): React.ReactNode
 
   /**

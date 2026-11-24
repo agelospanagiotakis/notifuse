@@ -66,7 +66,8 @@ func TestDemoService_GenerateAndAddSampleContacts_FailuresDoNotAbort(t *testing.
 
 func TestDemoService_GenerateSampleContactsBatch_Shape(t *testing.T) {
 	svc, _ := demoSeedService(t)
-	batch := svc.generateSampleContactsBatch(5, 100)
+	used := map[string]bool{}
+	batch := svc.generateSampleContactsBatch(5, 100, used)
 	require.Len(t, batch, 5)
 
 	seen := map[string]bool{}
@@ -80,9 +81,9 @@ func TestDemoService_GenerateSampleContactsBatch_Shape(t *testing.T) {
 		assert.NotEmpty(t, c.FirstName.String)
 	}
 
-	// The index offset keeps batches disjoint: batch 2 must not re-mint
+	// The addresses already given keep batches disjoint: batch 2 must not re-mint
 	// batch 1's addresses (the upsert would merge two demo people into one).
-	more := svc.generateSampleContactsBatch(5, 105)
+	more := svc.generateSampleContactsBatch(5, 105, used)
 	for _, c := range more {
 		assert.False(t, seen[c.Email], "second batch re-used %q", c.Email)
 	}
@@ -95,7 +96,7 @@ func TestDemoService_AddSampleData_TemplateFailureAborts(t *testing.T) {
 		Return(context.Background(), nil, nil, sentinel).Times(1)
 
 	err := svc.addSampleData(context.Background(), "ws-1")
-	require.ErrorContains(t, err, "demo: newsletter template:")
+	require.ErrorContains(t, err, "demo: newsletter-weekly template:")
 	require.ErrorContains(t, err, "failed to authenticate user:")
 	assert.ErrorIs(t, err, sentinel)
 }
