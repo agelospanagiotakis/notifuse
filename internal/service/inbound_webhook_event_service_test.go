@@ -336,6 +336,38 @@ func TestProcessWebhook_WorkspaceNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to get workspace")
 }
 
+func TestProcessWebhook_ResolvesDisplayNameWorkspace(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	repo := mocks.NewMockInboundWebhookEventRepository(ctrl)
+	authService := mocks.NewMockAuthService(ctrl)
+	log := pkgmocks.NewMockLogger(ctrl)
+	workspaceRepo := mocks.NewMockWorkspaceRepository(ctrl)
+
+	log.EXPECT().WithField(gomock.Any(), gomock.Any()).Return(log).AnyTimes()
+	log.EXPECT().WithFields(gomock.Any()).Return(log).AnyTimes()
+	log.EXPECT().Warn(gomock.Any()).AnyTimes()
+
+	// The callback carries the workspace name; the id has no dash.
+	workspaceRepo.EXPECT().GetByID(gomock.Any(), "kois-optics").Return(nil, errors.New("workspace not found"))
+	workspaceRepo.EXPECT().GetByID(gomock.Any(), "koisoptics").Return(&domain.Workspace{ID: "koisoptics"}, nil)
+
+	service := &InboundWebhookEventService{
+		repo:               repo,
+		authService:        authService,
+		logger:             log,
+		workspaceRepo:      workspaceRepo,
+		messageHistoryRepo: mocks.NewMockMessageHistoryRepository(ctrl),
+		contactRepo:        mocks.NewMockContactRepository(ctrl),
+	}
+
+	// Resolution succeeds; the request then fails on the absent integration, which proves
+	// the second lookup happened and it is not still a workspace-not-found error.
+	err := service.ProcessWebhook(context.Background(), "kois-optics", "integration1", http.Header{}, []byte(`{}`))
+	assert.ErrorIs(t, err, domain.ErrInboundIntegrationNotFound)
+}
+
 func TestNewInboundWebhookEventService(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

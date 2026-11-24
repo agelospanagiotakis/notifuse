@@ -290,6 +290,22 @@ func (s *InboundWebhookEventService) ProcessWebhook(ctx context.Context, workspa
 	// get workspace and integration
 	workspace, err := s.workspaceRepo.GetByID(ctx, workspaceID)
 	if err != nil {
+		// A provider callback URL cannot always be re-pointed from here when the key that
+		// registered it can only send. The Resend callback on this deployment carries
+		// "kois-optics" — the workspace's name — where the id is "koisoptics", so the exact
+		// lookup fails and every event is dropped. Retry once against the id-shaped replica:
+		// it costs one extra lookup, and only on a request that was about to fail anyway.
+		replica := domain.NormalizeWorkspaceIDReplica(workspaceID)
+		if replica != "" && replica != workspaceID {
+			if aliased, aliasErr := s.workspaceRepo.GetByID(ctx, replica); aliasErr == nil {
+				s.logger.WithField("webhook_workspace_id", workspaceID).
+					WithField("resolved_workspace_id", aliased.ID).
+					Warn("Webhook addressed a workspace by its display name; resolved to the id")
+				workspace, workspaceID, err = aliased, aliased.ID, nil
+			}
+		}
+	}
+	if err != nil {
 		// codecov:ignore:start
 		tracing.MarkSpanError(ctx, err)
 		// codecov:ignore:end
