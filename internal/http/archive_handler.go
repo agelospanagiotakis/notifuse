@@ -377,6 +377,8 @@ func (h *ArchiveHandler) renderCampaign(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
+	htmlOut = notifuse_mjml.FillViewInBrowserLink(htmlOut, "/archive/"+slugify(workspace.Name)+"/"+entry.Slug+"/")
+
 	page := withToolbar(htmlOut, toolbarHTML(archiveBarOptions{
 		workspaceSlug: slugify(workspace.Name),
 		workspaceName: barName(workspace, settings),

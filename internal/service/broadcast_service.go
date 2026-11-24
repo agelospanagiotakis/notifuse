@@ -1625,6 +1625,11 @@ func (s *BroadcastService) SendToIndividual(ctx context.Context, request *domain
 		s.logger.Error("Failed to generate HTML from template")
 		return &domain.TemplateRenderError{Message: fmt.Sprintf("template compilation failed: %s", errMsg)}
 	}
+	if compiledTemplate.HTML != nil {
+		if viewURL, ok := templateData["view_in_browser_url"].(string); ok && viewURL != "" {
+			*compiledTemplate.HTML = notifuse_mjml.FillViewInBrowserLink(*compiledTemplate.HTML, viewURL)
+		}
+	}
 	if compiledTemplate.TextError != "" {
 		s.logger.WithFields(map[string]interface{}{
 			"broadcast_id":     request.BroadcastID,
