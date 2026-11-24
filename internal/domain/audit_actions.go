@@ -128,6 +128,7 @@ var AuditedActions = map[string]AuditActionSpec{
 	"workspaces.joinInvitation":     {Category: AuditCategoryMembers, TargetType: AuditTargetInvitation, TargetKey: "invitation_id"},
 	"workspaces.removeMember":       {Category: AuditCategoryMembers, TargetType: AuditTargetUser, TargetKey: "user_id"},
 	"workspaces.setUserPermissions": {Category: AuditCategoryMembers, TargetType: AuditTargetUser, TargetKey: "user_id"},
+	"workspaces.setUserPassword":    {Category: AuditCategoryMembers, TargetType: AuditTargetUser, TargetKey: "user_id"},
 
 	// api keys
 	"workspaces.createAPIKey":  {Category: AuditCategoryAPIKeys, TargetType: AuditTargetAPIKey},

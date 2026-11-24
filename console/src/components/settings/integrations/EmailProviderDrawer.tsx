@@ -808,6 +808,42 @@ export function EmailProviderDrawer({
     </Panel>
   )
 
+  const renderResend = () => (
+    <Panel title={t`Resend`}>
+      <SettingsRows>
+        {textField(['resend', 'host'], t`Host`, {
+          help: t`Resend's SMTP host`,
+          placeholder: 'smtp.resend.com',
+          rules: required
+        })}
+        <SettingsRow label={requiredLabel(t`Port`)} help={t`2587 for STARTTLS`} htmlFor="resend_port">
+          <Form.Item name={['resend', 'port']} rules={required} messageVariables={{ label: t`Port` }}>
+            <InputNumber min={1} max={65535} placeholder="2587" disabled={!isOwner} />
+          </Form.Item>
+        </SettingsRow>
+        {textField(['resend', 'username'], t`Username`, {
+          help: t`Resend uses "resend"`,
+          placeholder: 'resend',
+          rules: required
+        })}
+        {secretField(['resend', 'password'], t`API key`, {
+          help: t`Your Resend API key, used as the SMTP password`,
+          hintKey: 'resend.password',
+          stored: Boolean(stored?.resend?.encrypted_password),
+          fallback: t`API key`,
+          rules: requiredOnCreate
+        })}
+        {secretField(['resend', 'webhook_secret'], t`Webhook secret`, {
+          help: t`The Svix signing secret Resend shows for the webhook (starts with whsec_)`,
+          hintKey: 'resend.webhook_secret',
+          stored: Boolean(stored?.resend?.encrypted_webhook_secret),
+          fallback: t`whsec_…`,
+          rules: requiredOnCreate
+        })}
+      </SettingsRows>
+    </Panel>
+  )
+
   const kindPanels: Record<EmailProviderKind, () => ReactNode> = {
     ses: renderSES,
     smtp: renderSMTP,
@@ -815,7 +851,8 @@ export function EmailProviderDrawer({
     postmark: renderPostmark,
     mailgun: renderMailgun,
     mailjet: renderMailjet,
-    sendgrid: renderSendGrid
+    sendgrid: renderSendGrid,
+    resend: renderResend
   }
 
   // X, Escape and the back link ask first when something was changed: they dropped an added

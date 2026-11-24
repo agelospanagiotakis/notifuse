@@ -244,16 +244,12 @@ export function WorkspaceMembers({
           { key: 'resend', label: t`Resend invitation`, onClick: () => handleResendInvitation(member) },
           { key: 'delete', label: t`Delete invitation`, danger: true, onClick: () => confirmDeleteInvitation(member) }
         ]
-      : member.type === 'api_key'
-        ? [
-            { key: 'edit', label: t`Edit permissions`, onClick: () => handleEditPermissions(member) },
-            { key: 'remove', label: t`Delete key`, danger: true, onClick: () => confirmRemove(member) }
-          ]
-        : [
-            { key: 'edit', label: t`Edit permissions`, onClick: () => handleEditPermissions(member) },
-            { key: 'password', label: t`Reset password`, onClick: () => openPasswordReset(member) },
-            { key: 'remove', label: t`Remove from workspace`, danger: true, onClick: () => confirmRemove(member) }
-          ]
+      : [
+          { key: 'edit', label: t`Edit permissions`, onClick: () => handleEditPermissions(member) },
+          member.type === 'api_key'
+            ? { key: 'remove', label: t`Delete key`, danger: true, onClick: () => confirmRemove(member) }
+            : { key: 'remove', label: t`Remove from workspace`, danger: true, onClick: () => confirmRemove(member) }
+        ]
     return (
       <Dropdown trigger={['click']} menu={{ items }} placement="bottomRight">
         <Button
@@ -264,6 +260,26 @@ export function WorkspaceMembers({
       </Dropdown>
     )
   }
+
+  const memberActions = (member: WorkspaceMember) => (
+    <Space>
+      {isOwner && !isInvitation(member) && member.type !== 'api_key' && member.role !== 'owner' && (
+        <Tooltip title={t`Reset password`}>
+          <Button
+            type="text"
+            aria-label={t`Reset password`}
+            icon={
+              <span data-icon="key">
+                <KeyRound size={14} aria-hidden="true" />
+              </span>
+            }
+            onClick={() => openPasswordReset(member)}
+          />
+        </Tooltip>
+      )}
+      {actionsFor(member)}
+    </Space>
+  )
 
   const invitationLine = (member: WorkspaceMember) => {
     const expiresAt = new Date(member.invitation_expires_at as string).getTime()
@@ -319,7 +335,7 @@ export function WorkspaceMembers({
           <span className="text-ink-3">{shortDate(member.created_at)}</span>
         )
     },
-    { title: '', key: 'actions', width: 48, align: 'right', render: (_, member) => actionsFor(member) }
+    { title: '', key: 'actions', width: 72, align: 'right', render: (_, member) => memberActions(member) }
   ]
 
   const apiKeyColumns: ColumnsType<WorkspaceMember> = [
@@ -340,7 +356,7 @@ export function WorkspaceMembers({
       width: 130,
       render: (_, member) => <span className="text-ink-3">{shortDate(member.created_at)}</span>
     },
-    { title: '', key: 'actions', width: 48, align: 'right', render: (_, member) => actionsFor(member) }
+    { title: '', key: 'actions', width: 72, align: 'right', render: (_, member) => memberActions(member) }
   ]
 
   const handleInvite = async () => {
