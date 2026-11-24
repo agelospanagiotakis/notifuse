@@ -287,7 +287,7 @@ export function PostDrawer({ open, onClose, post, workspace, initialCategoryId }
           category_id: post.category_id,
           excerpt: post.settings.excerpt,
           featured_image_url: post.settings.featured_image_url,
-          authors: post.settings.authors,
+          authors: post.settings.authors ?? [],
           reading_time_minutes: post.settings.reading_time_minutes,
           seo: post.settings.seo
         })

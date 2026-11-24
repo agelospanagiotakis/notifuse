@@ -40,7 +40,7 @@ function AuthorAvatar({ author }: { author: BlogAuthor }) {
 }
 
 interface AuthorsFieldProps {
-  value?: BlogAuthor[]
+  value?: BlogAuthor[] | null
   onChange?: (value: BlogAuthor[]) => void
   /** Authors of the blog's other posts, offered by name when adding one, photo included. */
   knownAuthors?: BlogAuthor[]
@@ -49,7 +49,10 @@ interface AuthorsFieldProps {
 const authorKey = (name: string) => name.trim().toLowerCase()
 
 /** The post's authors as fixed-width cards in a row, the last one adding an author. */
-export function AuthorsField({ value = [], onChange, knownAuthors = [] }: AuthorsFieldProps) {
+export function AuthorsField({ value: valueProp = [], onChange, knownAuthors = [] }: AuthorsFieldProps) {
+  // A post saved before authors existed carries authors: null, which a default parameter does
+  // not cover (it only covers undefined). Normalise here so every use below is safe.
+  const value = valueProp ?? []
   const { t } = useLingui()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)

@@ -46,6 +46,18 @@ function renderField(initial: BlogAuthor[], knownAuthors?: BlogAuthor[]) {
 const cards = () => [...document.querySelectorAll('[data-author-card]')] as HTMLElement[]
 
 describe('AuthorsField', () => {
+  it('renders a post saved before authors existed (authors: null)', () => {
+    render(
+      <I18nProvider i18n={i18n}>
+        <App>
+          <AuthorsField value={null} onChange={() => {}} />
+        </App>
+      </I18nProvider>
+    )
+    // Before the null guard this threw on value.map; the add card is the proof it rendered.
+    expect(screen.getByText('Add author')).toBeInTheDocument()
+  })
+
   it('shows each author as a card, initials without a photo, then the card that adds one', () => {
     renderField([{ name: 'Aiko Tanaka', avatar_url: 'https://cdn.example.com/aiko.png' }, { name: 'Tom Becker' }])
     expect(cards()).toHaveLength(2)
