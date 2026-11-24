@@ -579,7 +579,7 @@ describe('WorkspaceLayout Logs entry', () => {
 describe('WorkspaceLayout logo', () => {
   beforeEach(signInAsRoot)
 
-  const logo = () => screen.getByRole('img', { name: 'Notifuse' }).closest('a')!
+  const logo = () => screen.getByRole('img', { name: 'e-Pragma' }).closest('a')!
 
   it('leads a member who cannot read the messages where the dashboard would send them', async () => {
     vi.mocked(isRootUser).mockReturnValue(false)

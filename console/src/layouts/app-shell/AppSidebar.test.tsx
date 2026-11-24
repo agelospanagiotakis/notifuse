@@ -106,7 +106,7 @@ describe('AppSidebar', () => {
 
   it('links the Notifuse logo to the workspace dashboard', () => {
     render(<Harness />)
-    const logo = screen.getByRole('img', { name: 'Notifuse' })
+    const logo = screen.getByRole('img', { name: 'e-Pragma' })
     const link = logo.closest('a')!
     expect(link).toHaveAttribute('href', '/console/workspace/$workspaceId')
     expect(link.dataset.params).toBe(JSON.stringify({ workspaceId: 'ws1' }))
@@ -121,7 +121,7 @@ describe('AppSidebar', () => {
         }}
       />
     )
-    const link = screen.getByRole('img', { name: 'Notifuse' }).closest('a')!
+    const link = screen.getByRole('img', { name: 'e-Pragma' }).closest('a')!
     expect(link).toHaveAttribute('href', '/console/workspace/$workspaceId/contacts')
     expect(link).toHaveAttribute('aria-label', 'Contacts')
   })
@@ -174,7 +174,7 @@ describe('AppSidebar', () => {
       render(<Harness startPinned={false} />)
       expect(isExpanded()).toBe(false)
       expect(aside().className).toContain('w-sidebar-collapsed')
-      expect(screen.getByRole('img', { name: 'Notifuse' }).getAttribute('viewBox')).toBe('0 0 480 480')
+      expect(screen.getByRole('img', { name: 'e-Pragma' }).getAttribute('src')).toBe('/console/icon.png')
       for (const name of ['Pin sidebar', 'Unpin sidebar', 'Expand sidebar', 'Collapse sidebar']) {
         expect(screen.queryByRole('button', { name })).toBeNull()
       }

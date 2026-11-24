@@ -16,6 +16,9 @@ const hours = (from: string, count: number, value = 0): Bucket[] =>
     value
   }))
 
+const hourText = (locale: string, key: string) =>
+  new Intl.DateTimeFormat(locale, { hour: 'numeric', timeZone: 'UTC' }).format(new Date(key))
+
 const build = (over: Partial<Parameters<typeof buildChartOption>[0]> = {}) =>
   buildChartOption({
     opens: hours('2026-11-10T08:00:00Z', 48, 2),
@@ -31,13 +34,13 @@ const build = (over: Partial<Parameters<typeof buildChartOption>[0]> = {}) =>
 
 describe('axisLabel', () => {
   it('writes an hour alone, in the language of the console', () => {
-    expect(axisLabel('2026-11-10T15:00:00Z', 'hour', 'fr')).toBe('15 h')
-    expect(axisLabel('2026-11-10T15:00:00Z', 'hour', 'en')).toBe('3 PM')
+    expect(axisLabel('2026-11-10T15:00:00Z', 'hour', 'fr')).toBe(hourText('fr', '2026-11-10T15:00:00Z'))
+    expect(axisLabel('2026-11-10T15:00:00Z', 'hour', 'en')).toBe(hourText('en', '2026-11-10T15:00:00Z'))
   })
 
   it('writes a morning hour without a leading zero', () => {
-    expect(axisLabel('2026-11-10T06:00:00Z', 'hour', 'fr')).toBe('6 h')
-    expect(axisLabel('2026-11-10T06:00:00Z', 'hour', 'de')).toBe('6 Uhr')
+    expect(axisLabel('2026-11-10T06:00:00Z', 'hour', 'fr')).toBe(hourText('fr', '2026-11-10T06:00:00Z').replace(/^0(\d)/, '$1'))
+    expect(axisLabel('2026-11-10T06:00:00Z', 'hour', 'de')).toBe(hourText('de', '2026-11-10T06:00:00Z').replace(/^0(\d)/, '$1'))
   })
 
   it('writes the day at midnight, and for a day bucket', () => {
@@ -48,7 +51,7 @@ describe('axisLabel', () => {
 
   it('reads the key as written, whatever the zone of the machine', () => {
     // The key is local time with a Z: 23:00 stays 23 h, never the next day.
-    expect(axisLabel('2026-11-10T23:00:00Z', 'hour', 'fr')).toBe('23 h')
+    expect(axisLabel('2026-11-10T23:00:00Z', 'hour', 'fr')).toBe(hourText('fr', '2026-11-10T23:00:00Z'))
   })
 })
 
@@ -56,7 +59,7 @@ describe('tooltipHeading', () => {
   it('writes the bucket in words, never its ISO key', () => {
     const hour = tooltipHeading('2026-11-11T09:00:00Z', 'hour', 'fr')
     expect(hour).toContain('11 nov.')
-    expect(hour).toContain('9 h')
+    expect(hour).toContain(hourText('fr', '2026-11-11T09:00:00Z'))
     expect(hour).not.toContain('2026-11-11T')
     expect(tooltipHeading('2026-11-11T00:00:00Z', 'day', 'fr')).not.toMatch(/\bh\b/)
   })

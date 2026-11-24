@@ -98,7 +98,11 @@ vi.mock('../services/api/client', async () => ({
 }))
 vi.mock('../services/api/broadcast', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../services/api/broadcast')>()),
-  broadcastApi: { list: vi.fn(), estimateAudience: vi.fn(() => Promise.resolve({ count: 0 })) }
+  broadcastApi: {
+    list: vi.fn(),
+    get: vi.fn(() => Promise.resolve({ broadcast: undefined })),
+    estimateAudience: vi.fn(() => Promise.resolve({ count: 0 }))
+  }
 }))
 vi.mock('../services/api/list', () => ({
   listsApi: { list: vi.fn(() => Promise.resolve({ lists: [{ id: 'list1', name: 'Newsletter' }] })) }

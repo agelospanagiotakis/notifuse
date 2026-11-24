@@ -4,6 +4,7 @@ import { handOffSignInEmail, takeSignInEmail } from './signInHandoff'
 describe('signInHandoff', () => {
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
     sessionStorage.clear()
   })
 
@@ -19,11 +20,16 @@ describe('signInHandoff', () => {
   })
 
   it('does without storage when the browser refuses it', () => {
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new Error('blocked')
-    })
-    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
-      throw new Error('blocked')
+    vi.stubGlobal('sessionStorage', {
+      setItem: () => {
+        throw new Error('blocked')
+      },
+      getItem: () => {
+        throw new Error('blocked')
+      },
+      removeItem: () => {
+        throw new Error('blocked')
+      }
     })
     expect(() => handOffSignInEmail('admin@acme.com')).not.toThrow()
     expect(takeSignInEmail()).toBeUndefined()

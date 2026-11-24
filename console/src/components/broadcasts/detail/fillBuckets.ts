@@ -12,6 +12,37 @@ export interface Bucket {
   value: number | null
 }
 
+// `dayjs().tz()` misreads the hour around some daylight-saving changes when the machine's own
+// zone differs from the target. `Intl` reads the same zone correctly, so the chart keys are built
+// from it instead.
+const zoneFormatters = new Map<string, Intl.DateTimeFormat>()
+function zoneParts(instant: number, timezone: string) {
+  let formatter = zoneFormatters.get(timezone)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-GB', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23'
+    })
+    zoneFormatters.set(timezone, formatter)
+  }
+  const parts = formatter.formatToParts(new Date(instant))
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? ''
+  return {
+    year: value('year'),
+    month: value('month'),
+    day: value('day'),
+    hour: value('hour') === '24' ? '00' : value('hour'),
+    minute: value('minute'),
+    second: value('second')
+  }
+}
+
 /**
  * The key of the bucket an instant falls in. The server truncates `opened_at AT TIME ZONE tz`,
  * a timestamp without zone, and serialises it with a "Z": the local time, labelled UTC. Keys are
@@ -19,8 +50,10 @@ export interface Bucket {
  * the timezone's offset.
  */
 export function bucketKey(instant: Dayjs | string, granularity: EngagementGranularity, timezone: string): string {
-  const local = dayjs(instant).tz(timezone)
-  return granularity === 'hour' ? local.format('YYYY-MM-DDTHH:00:00[Z]') : local.format('YYYY-MM-DDT00:00:00[Z]')
+  const local = zoneParts(dayjs(instant).valueOf(), timezone)
+  return granularity === 'hour'
+    ? `${local.year}-${local.month}-${local.day}T${local.hour}:00:00Z`
+    : `${local.year}-${local.month}-${local.day}T00:00:00Z`
 }
 
 /** The key of a bucket the server returned, read as text. */
@@ -77,11 +110,13 @@ export function fillBuckets({
   }
   if (granularity === 'hour') {
     // Absolute steps of one hour: dayjs steps in a timezone skip or repeat around a change.
-    for (let t = dayjs(start).tz(timezone).startOf('hour').valueOf(); t <= last; t += HOUR_MS) push(dayjs(t))
+    const startParts = zoneParts(start.valueOf(), timezone)
+    const first = start.valueOf() - Number(startParts.minute) * 60_000 - Number(startParts.second) * 1000 - (start.valueOf() % 1000)
+    for (let t = first; t <= last; t += HOUR_MS) push(dayjs.utc(t))
   } else {
     let day = dayjs(start).tz(timezone).format('YYYY-MM-DD')
     for (let t = dayjs.tz(day, timezone).valueOf(); t <= last; t = dayjs.tz(day, timezone).valueOf()) {
-      push(dayjs(t))
+      push(dayjs.utc(t))
       day = dayjs.utc(day).add(1, 'day').format('YYYY-MM-DD')
     }
   }

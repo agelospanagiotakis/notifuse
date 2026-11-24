@@ -52,7 +52,7 @@ const authorKey = (name: string) => name.trim().toLowerCase()
 export function AuthorsField({ value: valueProp = [], onChange, knownAuthors = [] }: AuthorsFieldProps) {
   // A post saved before authors existed carries authors: null, which a default parameter does
   // not cover (it only covers undefined). Normalise here so every use below is safe.
-  const value = valueProp ?? []
+  const value = useMemo(() => valueProp ?? [], [valueProp])
   const { t } = useLingui()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
