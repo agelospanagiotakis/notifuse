@@ -68,8 +68,8 @@ func TestSecureLiquidEngine_TemplateSizeLimit(t *testing.T) {
 	t.Run("rejects templates exceeding size limit", func(t *testing.T) {
 		engine := NewSecureLiquidEngine()
 
-		// Create a template larger than 100KB
-		largeTemplate := strings.Repeat("<div>{{ item }}</div>\n", 10000) // ~200KB
+		// Larger than the engine's configured maximum (the fork raises it to 2MB).
+		largeTemplate := strings.Repeat("x", DefaultMaxTemplateSize+1)
 		data := map[string]interface{}{
 			"item": "test",
 		}
