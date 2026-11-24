@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/xml"
 	"fmt"
@@ -118,7 +119,18 @@ func (h *ArchiveHandler) handle(w http.ResponseWriter, r *http.Request) {
 		// workspace. The campaign is tried first and is unambiguous in practice — every slug
 		// it produces begins with the send date — so an audience slug can never shadow one.
 		entry, err := h.archiveRepo.Get(r.Context(), workspace.ID, parts[1])
-		if err == nil {
+		if err == nil && entry != nil {
+			if entry.ListID != "" {
+				unlisted, uerr := h.unlistedAudiences(r.Context(), workspace.ID)
+				if uerr != nil {
+					http.Error(w, "archive unavailable", http.StatusInternalServerError)
+					return
+				}
+				if unlisted[entry.ListID] {
+					http.NotFound(w, r)
+					return
+				}
+			}
 			h.renderCampaign(w, r, workspace, settings, entry)
 			return
 		}
@@ -273,6 +285,39 @@ const audienceCSS = `<style>
 .audience-count{font-size:11px;opacity:.65}
 </style>`
 
+// unlistedAudiences returns the list ids the operator has unticked. An audience with
+// no campaign_audience row is listed: the settings table treats a missing row as public,
+// and the repository applies the same default.
+func (h *ArchiveHandler) unlistedAudiences(ctx context.Context, workspaceID string) (map[string]bool, error) {
+	audiences, err := h.archiveRepo.ListAudiences(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	unlisted := make(map[string]bool, len(audiences))
+	for _, a := range audiences {
+		if !a.Listed {
+			unlisted[a.ListID] = true
+		}
+	}
+	return unlisted, nil
+}
+
+// filterListedEntries drops campaigns sent to an audience the operator has unticked.
+// Entries with no audience (list_id empty) stay.
+func filterListedEntries(entries []*domain.ArchiveEntry, unlisted map[string]bool) []*domain.ArchiveEntry {
+	if len(unlisted) == 0 {
+		return entries
+	}
+	out := entries[:0]
+	for _, e := range entries {
+		if e.ListID != "" && unlisted[e.ListID] {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
 // renderList serves the archive's home, or one audience's home when audience is set.
 func (h *ArchiveHandler) renderList(w http.ResponseWriter, r *http.Request, workspace *domain.Workspace, settings *domain.ArchiveSettings, audience *domain.ArchiveAudience) {
 	var entries []*domain.ArchiveEntry
@@ -281,6 +326,13 @@ func (h *ArchiveHandler) renderList(w http.ResponseWriter, r *http.Request, work
 		entries, err = h.archiveRepo.ListByListID(r.Context(), workspace.ID, audience.ListID)
 	} else {
 		entries, err = h.archiveRepo.List(r.Context(), workspace.ID)
+		if err == nil {
+			var unlisted map[string]bool
+			unlisted, err = h.unlistedAudiences(r.Context(), workspace.ID)
+			if err == nil {
+				entries = filterListedEntries(entries, unlisted)
+			}
+		}
 	}
 	if err != nil {
 		h.logger.WithField("workspace_id", workspace.ID).WithField("error", err.Error()).Error("Failed to list campaign archive")
@@ -605,6 +657,13 @@ func (h *ArchiveHandler) renderFeed(w http.ResponseWriter, r *http.Request, work
 		entries, err = h.archiveRepo.ListByListID(r.Context(), workspace.ID, audience.ListID)
 	} else {
 		entries, err = h.archiveRepo.List(r.Context(), workspace.ID)
+		if err == nil {
+			var unlisted map[string]bool
+			unlisted, err = h.unlistedAudiences(r.Context(), workspace.ID)
+			if err == nil {
+				entries = filterListedEntries(entries, unlisted)
+			}
+		}
 	}
 	if err != nil {
 		http.Error(w, "archive unavailable", http.StatusInternalServerError)

@@ -257,7 +257,7 @@ export function ArchiveSettings({ workspace }: { workspace: { id: string; name: 
         title={`Audiences${state ? ` (${audiences.length})` : ''}`}
         extra={
           <Text type="secondary" style={{ fontSize: 12 }}>
-            Tick to publish a list&apos;s archive. Unticked it answers 404, not just a hidden link.
+            Tick to publish a list&apos;s archive. Unticked, its campaigns are hidden from the public archive and its audience page answers 404.
           </Text>
         }
       >

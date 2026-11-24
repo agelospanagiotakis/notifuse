@@ -426,3 +426,18 @@ func TestArchive_AudiencePages(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
 }
+
+func TestFilterListedEntries(t *testing.T) {
+	entries := []*domain.ArchiveEntry{
+		{Slug: "listed", ListID: "listed-list"},
+		{Slug: "hidden", ListID: "hidden-list"},
+		{Slug: "no-audience"},
+	}
+	out := filterListedEntries(entries, map[string]bool{"hidden-list": true})
+	if len(out) != 2 {
+		t.Fatalf("got %d entries, want 2: %#v", len(out), out)
+	}
+	if out[0].Slug != "listed" || out[1].Slug != "no-audience" {
+		t.Fatalf("unexpected entries: %#v", out)
+	}
+}
