@@ -357,15 +357,17 @@ export function BroadcastsTable(props: BroadcastsTableProps) {
               {previewTarget ? (
                 <Tooltip title={t`Preview`}>
                   <Button
-                    type="text"
+                    type="link"
                     size="small"
-                    aria-label={t`Preview`}
                     icon={<Eye size={14} aria-hidden="true" />}
+                    style={{ paddingInline: 4, height: 'auto' }}
                     onClick={(e) => {
                       e.stopPropagation()
                       onPreview?.(previewTarget)
                     }}
-                  />
+                  >
+                    {t`Preview`}
+                  </Button>
                 </Tooltip>
               ) : null}
               <span className="truncate font-medium text-ink" title={b.name}>
