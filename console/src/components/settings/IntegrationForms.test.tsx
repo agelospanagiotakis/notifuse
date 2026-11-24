@@ -54,6 +54,32 @@ const mailjetIntegration = email('int_mailjet', 'Mailjet', {
   mailjet: { sandbox_mode: false, encrypted_api_key: 'a', encrypted_secret_key: 'b' }
 })
 
+const resendIntegration = email(
+  'int_resend',
+  'Resend',
+  {
+    kind: 'resend',
+    resend: {
+      host: 'smtp.resend.com',
+      port: 2587,
+      username: 'resend',
+      encrypted_password: 'enc-pw',
+      encrypted_webhook_secret: 'enc-whsec'
+    }
+  },
+  { credential_hints: { 'resend.password': 'abcd', 'resend.webhook_secret': 'whsec_1234' } }
+)
+
+const deepseekIntegration = {
+  id: 'int_deepseek',
+  name: 'DeepSeek e-pragma notifuse',
+  type: 'llm',
+  llm_provider: { kind: 'deepseek', deepseek: { model: 'deepseek-chat', encrypted_api_key: 'enc' } },
+  credential_hints: { 'deepseek.api_key': '1234' },
+  created_at: '2026-08-01T10:00:00Z',
+  updated_at: '2026-08-01T10:00:00Z'
+} as unknown as Integration
+
 const workspaceWith = (integrations: Integration[], settings: Record<string, unknown> = {}) =>
   ({
     id: 'ws1',
@@ -877,9 +903,68 @@ describe('SparkPost, Postmark, Mailgun, Mailjet and SendGrid', () => {
       })
     }
   )
+
+  it(
+    'Resend: edits the restored connector with its transport prefilled and its secrets left blank',
+    async () => {
+      renderPage([resendIntegration])
+      fireEvent.click(screen.getByRole('button', { name: 'More actions' }))
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Edit' }))
+
+      expect(await screen.findByLabelText('Name')).toHaveValue('Resend')
+      expect(screen.getByLabelText('Host')).toHaveValue('smtp.resend.com')
+      expect((screen.getByLabelText('Port') as HTMLInputElement).value).toBe('2587')
+      expect(screen.getByLabelText('Username')).toHaveValue('resend')
+      expect(document.querySelector('[data-senders]')).toHaveTextContent('news@acme.com')
+      expect(screen.getByLabelText('API key')).toHaveAttribute('placeholder', '••••••••abcd')
+      expect(screen.getByLabelText('Webhook secret')).toHaveAttribute('placeholder', '••••••••whsec_1234')
+
+      save()
+      await waitFor(() => expect(posted('/api/workspaces.updateIntegration')).toHaveLength(1))
+      const body = posted('/api/workspaces.updateIntegration')[0] as {
+        provider: { kind: string; resend: Record<string, unknown> }
+      }
+      expect(body).toMatchObject({
+        workspace_id: 'ws1',
+        integration_id: 'int_resend',
+        name: 'Resend',
+        provider: { kind: 'resend', senders: [sender], rate_limit_per_minute: 50 }
+      })
+      expect(body.provider.resend).toMatchObject({ host: 'smtp.resend.com', port: 2587, username: 'resend' })
+      expect(body.provider.resend.encrypted_password).toBeUndefined()
+      expect(body.provider.resend.encrypted_webhook_secret).toBeUndefined()
+    }
+  )
 })
 
 describe('AI assistant', () => {
+  it(
+    'DeepSeek: edits the restored connector with its model and stored key intact',
+    async () => {
+      renderPage([deepseekIntegration])
+      fireEvent.click(screen.getByRole('button', { name: 'More actions' }))
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Edit' }))
+
+      expect(await screen.findByLabelText('Name')).toHaveValue('DeepSeek e-pragma notifuse')
+      expect(screen.getByLabelText('Model')).toHaveValue('deepseek-chat')
+      expect(screen.getByLabelText('API key')).toHaveAttribute('placeholder', '••••••••1234')
+      expect(screen.getByText('Leave blank to keep the existing API key')).toBeInTheDocument()
+
+      save()
+      await waitFor(() => expect(posted('/api/workspaces.updateIntegration')).toHaveLength(1))
+      const body = posted('/api/workspaces.updateIntegration')[0] as {
+        llm_provider: { kind: string; deepseek: Record<string, unknown> }
+      }
+      expect(body).toMatchObject({
+        workspace_id: 'ws1',
+        integration_id: 'int_deepseek',
+        name: 'DeepSeek e-pragma notifuse',
+        llm_provider: { kind: 'deepseek', deepseek: { model: 'deepseek-chat' } }
+      })
+      expect(body.llm_provider.deepseek.api_key).toBeUndefined()
+    }
+  )
+
   it(
     'Anthropic: takes any model ID besides the suggestions, and requires the key on creation',
     async () => {
