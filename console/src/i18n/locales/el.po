@@ -3419,6 +3419,10 @@ msgstr "Εφαρμόστε φίλτρο"
 msgid "Applying your configuration"
 msgstr ""
 
+#: src/components/settings/SettingsSidebar.tsx:74
+msgid "Archive"
+msgstr ""
+
 #: src/components/contacts/BulkUpdateDrawer.tsx:434
 #~ msgid "Are you sure you want to cancel the operation? Progress will be saved and you can resume later."
 #~ msgstr ""
@@ -3716,7 +3720,7 @@ msgstr ""
 
 #: src/components/logs/labels.ts:23
 #: src/components/settings/audit_logs/AuditLogsSettings.tsx:31
-#: src/components/settings/SettingsSidebar.tsx:72
+#: src/components/settings/SettingsSidebar.tsx:78
 #: src/components/settings/SystemSettingsDrawer.tsx:719
 #: src/pages/LogsPage.tsx:94
 msgid "Audit log"
@@ -4345,7 +4349,7 @@ msgstr "Μπλοκ"
 #: src/components/settings/BlogSettings.tsx:298
 #: src/components/settings/BlogSettings.tsx:312
 #: src/components/settings/permissionLabels.ts:14
-#: src/components/settings/SettingsSidebar.tsx:69
+#: src/components/settings/SettingsSidebar.tsx:73
 #: src/components/templates/templateCategories.ts:28
 #: src/layouts/app-shell/menuItems.ts:230
 #: src/pages/BlogPage.tsx:89
@@ -6644,7 +6648,7 @@ msgstr "περιέχει"
 #: src/components/broadcasts/compose/ContentCard.tsx:123
 #: src/components/email_builder/blocks/MjColumnBlock.tsx:207
 #: src/components/email_builder/panels/LibraryPanel.tsx:268
-#: src/components/settings/SettingsSidebar.tsx:29
+#: src/components/settings/SettingsSidebar.tsx:31
 #: src/components/templates/TemplateDrawerBar.tsx:83
 #: src/components/templates/TemplateSettingsAside.tsx:140
 #: src/components/templates/TemplateTranslationsTab.tsx:424
@@ -7632,7 +7636,7 @@ msgstr "Η προσαρμοσμένη ετικέτα πεδίου αποθηκε
 #: src/components/contacts/sheet/ContactProfileFields.tsx:155
 #: src/components/segment/segmentLabels.ts:204
 #: src/components/settings/CustomFieldsConfiguration.tsx:275
-#: src/components/settings/SettingsSidebar.tsx:68
+#: src/components/settings/SettingsSidebar.tsx:72
 msgid "Custom fields"
 msgstr ""
 
@@ -7800,7 +7804,7 @@ msgid "Daily"
 msgstr "Καθημερινά"
 
 #: src/components/settings/DeleteWorkspace.tsx:44
-#: src/components/settings/SettingsSidebar.tsx:74
+#: src/components/settings/SettingsSidebar.tsx:80
 msgid "Danger zone"
 msgstr ""
 
@@ -11004,7 +11008,7 @@ msgstr "Αποτυχία λήψης δεδομένων: {0}"
 msgid "Failed to fetch setup status"
 msgstr "Η ανάκτηση της κατάστασης ρύθμισης απέτυχε"
 
-#: src/pages/WorkspaceSettingsPage.tsx:157
+#: src/pages/WorkspaceSettingsPage.tsx:159
 msgid "Failed to fetch workspace members"
 msgstr "Αποτυχία λήψης μελών χώρου εργασίας"
 
@@ -12041,7 +12045,7 @@ msgid "gemini-4-argon or a custom model ID"
 msgstr ""
 
 #: src/components/settings/GeneralSettings.tsx:156
-#: src/components/settings/SettingsSidebar.tsx:63
+#: src/components/settings/SettingsSidebar.tsx:67
 #: src/components/settings/SystemSettingsDrawer.tsx:260
 msgid "General"
 msgstr "Στρατηγός"
@@ -13012,9 +13016,9 @@ msgstr ""
 msgid "Import from CSV"
 msgstr "Εισαγωγή από CSV"
 
-#: src/components/settings/SettingsSidebar.tsx:140
-#~ msgid "Import from Mailchimp"
-#~ msgstr "Εισαγωγή από Mailchimp"
+#: src/components/settings/SettingsSidebar.tsx:75
+msgid "Import from Mailchimp"
+msgstr "Εισαγωγή από Mailchimp"
 
 #: src/components/email_builder/MjmlCodeEditor.tsx:636
 msgid "Import MJML"
@@ -13369,7 +13373,7 @@ msgstr "Η ενσωμάτωση ενημερώθηκε με επιτυχία"
 #: src/components/logs/labels.ts:12
 #: src/components/settings/Integrations.tsx:712
 #: src/components/settings/integrations/IntegrationDrawer.tsx:25
-#: src/components/settings/SettingsSidebar.tsx:65
+#: src/components/settings/SettingsSidebar.tsx:69
 msgid "Integrations"
 msgstr "Ενσωματώσεις"
 
@@ -14201,7 +14205,7 @@ msgstr ""
 #: src/components/logs/labels.ts:7
 #: src/components/settings/LicenseSettings.tsx:60
 #: src/components/settings/LicenseSettings.tsx:143
-#: src/components/settings/SettingsSidebar.tsx:73
+#: src/components/settings/SettingsSidebar.tsx:79
 msgid "Licence"
 msgstr "Άδεια"
 
@@ -17928,7 +17932,7 @@ msgid "Password saved. You can now sign in with it."
 msgstr ""
 
 #: src/components/settings/SecuritySettings.tsx:42
-#: src/components/settings/SettingsSidebar.tsx:71
+#: src/components/settings/SettingsSidebar.tsx:77
 msgid "Password sign-in"
 msgstr ""
 
@@ -21175,7 +21179,7 @@ msgstr "Ενότητα — {0}"
 msgid "Sections"
 msgstr ""
 
-#: src/components/settings/SettingsSidebar.tsx:33
+#: src/components/settings/SettingsSidebar.tsx:35
 #: src/components/transactional/ApiCommandDrawer.tsx:145
 #: src/components/updates/UpdateDrawer.tsx:63
 msgid "Security"
@@ -21896,7 +21900,7 @@ msgstr ""
 #: src/components/broadcasts/BroadcastsTable.tsx:346
 #: src/components/broadcasts/compose/SendingCard.tsx:47
 #: src/components/broadcasts/compose/SendingCard.tsx:85
-#: src/components/settings/SettingsSidebar.tsx:28
+#: src/components/settings/SettingsSidebar.tsx:30
 #: src/components/transactional/NotificationChecks.tsx:238
 msgctxt "section"
 msgid "Sending"
@@ -22419,7 +22423,7 @@ msgstr ""
 #: src/components/transactional/NotificationChecks.tsx:74
 #: src/components/transactional/TransactionalDetail.tsx:482
 #: src/layouts/app-shell/menuItems.ts:233
-#: src/pages/WorkspaceSettingsPage.tsx:272
+#: src/pages/WorkspaceSettingsPage.tsx:278
 msgid "Settings"
 msgstr "Ρυθμίσεις"
 
@@ -22815,7 +22819,7 @@ msgstr "SMS"
 msgid "SMTP"
 msgstr ""
 
-#: src/components/settings/SettingsSidebar.tsx:67
+#: src/components/settings/SettingsSidebar.tsx:71
 #: src/components/settings/SMTPBridgeSettings.tsx:19
 #: src/components/setup/BridgePanel.tsx:30
 #: src/components/setup/setupHooks.ts:47
@@ -23740,7 +23744,7 @@ msgstr ""
 #~ msgid "Team"
 #~ msgstr "Ομάδα"
 
-#: src/components/settings/SettingsSidebar.tsx:64
+#: src/components/settings/SettingsSidebar.tsx:68
 #: src/components/settings/WorkspaceMembers.tsx:474
 msgid "Team & API keys"
 msgstr ""
@@ -27559,7 +27563,7 @@ msgstr ""
 #: src/components/contacts/sheet/describeActivity.tsx:383
 #: src/components/contacts/sheet/describeActivity.tsx:408
 #: src/components/logs/labels.ts:21
-#: src/components/settings/SettingsSidebar.tsx:70
+#: src/components/settings/SettingsSidebar.tsx:76
 #: src/components/settings/WebAnalyticsSettings.tsx:201
 #: src/components/settings/WebAnalyticsSettings.tsx:264
 msgid "Web analytics"
@@ -27693,7 +27697,7 @@ msgid "Webhook URL"
 msgstr "URL webhook"
 
 #: src/components/logs/labels.ts:13
-#: src/components/settings/SettingsSidebar.tsx:66
+#: src/components/settings/SettingsSidebar.tsx:70
 #: src/components/settings/WebhooksSettings.tsx:456
 msgid "Webhooks"
 msgstr "Webhooks"
@@ -28135,7 +28139,7 @@ msgstr ""
 #: src/components/settings/GeneralSettings.tsx:225
 #: src/components/settings/GeneralSettings.tsx:323
 #: src/components/settings/permissionLabels.ts:12
-#: src/components/settings/SettingsSidebar.tsx:27
+#: src/components/settings/SettingsSidebar.tsx:29
 #: src/layouts/app-shell/WorkspaceSwitcher.tsx:77
 #: src/services/api/errors.ts:87
 msgid "Workspace"
