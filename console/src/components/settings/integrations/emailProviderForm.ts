@@ -12,6 +12,7 @@ export interface EmailProviderFormValues {
   mailgun?: EmailProvider['mailgun']
   mailjet?: EmailProvider['mailjet']
   sendgrid?: EmailProvider['sendgrid']
+  resend?: EmailProvider['resend']
   senders: Sender[]
   rate_limit_per_minute: number
 }
@@ -56,7 +57,16 @@ export function emailProviderFormValues(kind: EmailProviderKind, integration?: E
       kind === 'mailjet'
         ? ({ ...stored?.mailjet, sandbox_mode: stored?.mailjet?.sandbox_mode ?? false } as EmailProvider['mailjet'])
         : stored?.mailjet,
-    sendgrid: stored?.sendgrid
+    sendgrid: stored?.sendgrid,
+    resend:
+      kind === 'resend'
+        ? ({
+            ...stored?.resend,
+            host: stored?.resend?.host || 'smtp.resend.com',
+            port: stored?.resend?.port || 2587,
+            username: stored?.resend?.username || 'resend'
+          } as EmailProvider['resend'])
+        : stored?.resend
   }
 }
 
@@ -74,6 +84,7 @@ export function providerFromFormValues(values: EmailProviderFormValues): EmailPr
   else if (values.kind === 'mailgun' && values.mailgun) provider.mailgun = values.mailgun
   else if (values.kind === 'mailjet' && values.mailjet) provider.mailjet = values.mailjet
   else if (values.kind === 'sendgrid' && values.sendgrid) provider.sendgrid = values.sendgrid
+  else if (values.kind === 'resend' && values.resend) provider.resend = values.resend
   return provider
 }
 

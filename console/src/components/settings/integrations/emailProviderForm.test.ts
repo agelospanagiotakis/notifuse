@@ -37,6 +37,19 @@ describe('emailProviderFormValues', () => {
     expect(emailProviderFormValues('ses').ses).toBeUndefined()
   })
 
+  it('starts Resend on its SMTP endpoint, and keeps a stored one', () => {
+    expect(emailProviderFormValues('resend').resend).toEqual({
+      host: 'smtp.resend.com',
+      port: 2587,
+      username: 'resend'
+    })
+    const values = emailProviderFormValues(
+      'resend',
+      stored({ kind: 'resend', resend: { host: 'h', port: 25, username: 'u', encrypted_password: 'enc' } })
+    )
+    expect(values.resend).toMatchObject({ host: 'h', port: 25, username: 'u', encrypted_password: 'enc' })
+  })
+
   it('keeps what is stored, the defaults filling only what is missing', () => {
     const values = emailProviderFormValues(
       'smtp',
@@ -65,6 +78,24 @@ describe('providerFromFormValues', () => {
       // A rate the form left empty falls back to the default, as before.
       rate_limit_per_minute: 25,
       mailgun: { domain: 'mg.acme.com', region: 'EU' }
+    })
+  })
+})
+
+describe('providerFromFormValues — Resend', () => {
+  it('sends the Resend transport and signing secret, and nothing stale from another kind', () => {
+    const provider = providerFromFormValues({
+      kind: 'resend',
+      senders: [],
+      rate_limit_per_minute: 25,
+      resend: { host: 'smtp.resend.com', port: 2587, username: 'resend', password: 're_x', webhook_secret: 'whsec_x' },
+      smtp: { host: 'stale', port: 25, username: 'u', use_tls: false }
+    })
+    expect(provider).toEqual({
+      kind: 'resend',
+      senders: [],
+      rate_limit_per_minute: 25,
+      resend: { host: 'smtp.resend.com', port: 2587, username: 'resend', password: 're_x', webhook_secret: 'whsec_x' }
     })
   })
 })

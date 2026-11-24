@@ -171,6 +171,38 @@ describe('email providers — common parts', () => {
   )
 
   it(
+    'saves Resend with its SMTP transport and webhook secret',
+    async () => {
+      renderPage()
+      await openFromCatalogue('Resend')
+
+      expect(screen.getByLabelText('Name')).toHaveValue('Resend')
+      type('Host', 'smtp.resend.com')
+      type('Port', '2587')
+      type('Username', 'resend')
+      type('API key', 're_test')
+      type('Webhook secret', 'whsec_test')
+      await addSender('news@kois-optics.gr', 'Kois Optics')
+      save()
+
+      await waitFor(() => expect(posted('/api/workspaces.createIntegration')).toHaveLength(1))
+      const body = posted('/api/workspaces.createIntegration')[0] as { provider: Record<string, unknown> }
+      expect(body.provider).toMatchObject({
+        kind: 'resend',
+        resend: {
+          host: 'smtp.resend.com',
+          port: 2587,
+          username: 'resend',
+          password: 're_test',
+          webhook_secret: 'whsec_test'
+        },
+        rate_limit_per_minute: 25
+      })
+      expect(body.provider.senders).toHaveLength(1)
+    }
+  )
+
+  it(
     "stacks the sender dialog above the drawer when the card's + Add opens both at once",
     async () => {
       // Opened with the drawer, the dialog mounted first at the same z-index and stayed hidden
