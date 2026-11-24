@@ -24,6 +24,7 @@ const march: Record<Locale, { code: string; month: string }> = {
   'pt-BR': { code: 'pt-br', month: 'março' },
   ja: { code: 'ja', month: '3月' },
   it: { code: 'it', month: 'marzo' },
+  el: { code: 'el', month: 'Μάρτιος' },
 }
 
 describe('activateDayjsLocale', () => {

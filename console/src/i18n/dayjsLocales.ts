@@ -8,6 +8,7 @@ import 'dayjs/locale/ca'
 import 'dayjs/locale/pt-br'
 import 'dayjs/locale/ja'
 import 'dayjs/locale/it'
+import 'dayjs/locale/el'
 import type { Locale } from '.'
 
 // dayjs's name for each console language. Record<Locale, …> makes a language added to the
@@ -21,6 +22,7 @@ const dayjsLocaleCodes: Record<Locale, string> = {
   'pt-BR': 'pt-br',
   ja: 'ja',
   it: 'it',
+  el: 'el',
 }
 
 /**

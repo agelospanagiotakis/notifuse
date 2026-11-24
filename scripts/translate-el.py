@@ -43,6 +43,18 @@ def get_msgstr_region(lines):
             return i, j
     return None, None
 
+def existing_msgstr(lines):
+    i, j = get_msgstr_region(lines)
+    if i is None:
+        return ""
+    m = re.match(r'^msgstr "((?:[^"\\]|\\.)*)"', lines[i])
+    parts = [m.group(1)] if m else []
+    for k in range(i + 1, j + 1):
+        l = lines[k]
+        if l.startswith('"') and l.endswith('"'):
+            parts.append(l[1:-1])
+    return dec("".join(parts))
+
 class Protector:
     def __init__(self):
         self.tokens = {}
@@ -104,8 +116,9 @@ ids = []
 for blk in blocks:
     lines = blk.split("\n")
     msgid = extract_msgid(lines)
-    if msgid == "":
-        block_info.append((lines, "", set()))
+    if msgid == "" or existing_msgstr(lines).strip() != "":
+        # Keep the header and already-translated entries untouched.
+        block_info.append((lines, "", set(), msgid))
         continue
     p = prot.protect(msgid)
     used = set(prot.used)
