@@ -395,6 +395,13 @@ func (s *queueMessageSender) buildQueueEntry(
 		return nil, fmt.Errorf("%s", errMsg)
 	}
 	htmlContent := *compiledTemplate.HTML
+	if viewURL, ok := data["view_in_browser_url"].(string); ok && viewURL != "" {
+		htmlContent = notifuse_mjml.FillViewInBrowserLink(htmlContent, viewURL)
+	}
+	unsubURL, _ := data["unsubscribe_url"].(string)
+	prefsURL, _ := data["notification_center_url"].(string)
+	htmlContent = notifuse_mjml.RewriteMailchimpLinks(htmlContent, unsubURL, prefsURL)
+	htmlContent = notifuse_mjml.FillEmptyPreferenceLinks(htmlContent, prefsURL)
 	if compiledTemplate.TextError != "" {
 		key := fmt.Sprintf("%s/%s/%d", workspaceID, template.ID, template.Version)
 		if _, logged := s.customTextWarned.LoadOrStore(key, true); !logged {

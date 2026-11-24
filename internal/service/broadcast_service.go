@@ -1632,6 +1632,7 @@ func (s *BroadcastService) SendToIndividual(ctx context.Context, request *domain
 		unsubURL, _ := templateData["unsubscribe_url"].(string)
 		prefsURL, _ := templateData["notification_center_url"].(string)
 		*compiledTemplate.HTML = notifuse_mjml.RewriteMailchimpLinks(*compiledTemplate.HTML, unsubURL, prefsURL)
+		*compiledTemplate.HTML = notifuse_mjml.FillEmptyPreferenceLinks(*compiledTemplate.HTML, prefsURL)
 	}
 	if compiledTemplate.TextError != "" {
 		s.logger.WithFields(map[string]interface{}{

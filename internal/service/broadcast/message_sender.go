@@ -368,6 +368,15 @@ func (s *messageSender) SendToRecipient(ctx context.Context, workspaceID string,
 		return NewBroadcastError(ErrCodeTemplateCompile, errMsg, true, nil)
 	}
 
+	if compiledTemplate.HTML != nil {
+		if viewURL, ok := data["view_in_browser_url"].(string); ok && viewURL != "" {
+			*compiledTemplate.HTML = notifuse_mjml.FillViewInBrowserLink(*compiledTemplate.HTML, viewURL)
+		}
+		unsubURL, _ := data["unsubscribe_url"].(string)
+		prefsURL, _ := data["notification_center_url"].(string)
+		*compiledTemplate.HTML = notifuse_mjml.RewriteMailchimpLinks(*compiledTemplate.HTML, unsubURL, prefsURL)
+		*compiledTemplate.HTML = notifuse_mjml.FillEmptyPreferenceLinks(*compiledTemplate.HTML, prefsURL)
+	}
 	if compiledTemplate.TextError != "" {
 		s.logger.WithFields(map[string]interface{}{
 			"broadcast_id":     broadcast.ID,
