@@ -1634,6 +1634,7 @@ func (o *BroadcastOrchestrator) Process(ctx context.Context, task *domain.Task, 
 				"phase":          broadcastState.Phase,
 			}).Info("Broadcast processing finished")
 			// codecov:ignore:end
+			o.archiveSentBroadcast(ctx, task.WorkspaceID, broadcast, broadcastState, templates, sentCount)
 		case "test":
 			// Test phase complete - should have been handled by handleTestPhaseCompletion
 			// This shouldn't happen, but handle it gracefully
@@ -1834,6 +1835,38 @@ func (o *BroadcastOrchestrator) finishRun(ctx context.Context, task *domain.Task
 		}).Info("Broadcast marked as processed")
 	}
 	return true, nil
+}
+
+// archiveSentBroadcast publishes a finished send to the campaign archive through the
+// configured hook. An A/B test archives the winning template, a single send the one
+// variation, at the version loaded for this run. The hook is best-effort: its error is
+// logged rather than returned, so archiving can never turn a delivered campaign into a
+// failed one.
+func (o *BroadcastOrchestrator) archiveSentBroadcast(ctx context.Context, workspaceID string, broadcast *domain.Broadcast, state *domain.SendBroadcastState, templates map[string]*domain.Template, sentCount int) {
+	if o.config == nil || o.config.OnBroadcastSent == nil || broadcast == nil || sentCount <= 0 {
+		return
+	}
+	templateID := ""
+	if broadcast.WinningTemplate != nil {
+		templateID = *broadcast.WinningTemplate
+	} else if len(broadcast.TestSettings.Variations) > 0 {
+		templateID = broadcast.TestSettings.Variations[0].TemplateID
+	}
+	if templateID == "" {
+		return
+	}
+	var version int64
+	if tpl, ok := templates[templateID]; ok && tpl != nil {
+		version = tpl.Version
+	}
+	if err := o.config.OnBroadcastSent(ctx, workspaceID, state.BroadcastID, templateID, version); err != nil {
+		o.logger.WithFields(map[string]interface{}{
+			"workspace_id": workspaceID,
+			"broadcast_id": state.BroadcastID,
+			"template_id":  templateID,
+			"error":        err.Error(),
+		}).Warn("Failed to archive sent broadcast")
+	}
 }
 
 // pausedParkInterval is how long a run that found its broadcast paused parks the task, as

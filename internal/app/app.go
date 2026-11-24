@@ -118,6 +118,7 @@ type App struct {
 	contactListRepo               domain.ContactListRepository
 	templateRepo                  domain.TemplateRepository
 	broadcastRepo                 domain.BroadcastRepository
+	archiveRepo                   domain.CampaignArchiveRepository
 	taskRepo                      domain.TaskRepository
 	transactionalNotificationRepo domain.TransactionalNotificationRepository
 	messageHistoryRepo            domain.MessageHistoryRepository
@@ -1085,6 +1086,12 @@ func (a *App) InitServices() error {
 	if a.config.Broadcast.DefaultRateLimit > 0 {
 		broadcastConfig.DefaultRateLimit = a.config.Broadcast.DefaultRateLimit
 	}
+	// Publish every campaign this platform sends to the workspace archive, so a sent
+	// campaign is reachable on its own URL. Imported campaigns are archived by the
+	// import handler; this covers sends.
+	a.archiveRepo = repository.NewCampaignArchiveRepository(a.workspaceRepo)
+	archiveService := service.NewArchiveService(a.broadcastRepo, a.templateRepo, a.archiveRepo)
+	broadcastConfig.OnBroadcastSent = archiveService.ArchiveSentBroadcast
 	broadcastFactory := broadcast.NewFactory(
 		a.broadcastRepo,
 		a.messageHistoryRepo,
@@ -1701,7 +1708,10 @@ func (a *App) InitHandlers() error {
 	// from the templates we already hold. Read-only and unauthenticated by design
 	// (it is a page for readers, not operators); the workspace turns it on and
 	// gates it with basic auth in settings.archive.
-	archiveRepo := repository.NewCampaignArchiveRepository(a.workspaceRepo)
+	archiveRepo := a.archiveRepo
+	if archiveRepo == nil {
+		archiveRepo = repository.NewCampaignArchiveRepository(a.workspaceRepo)
+	}
 	archiveAdminHandler := httpHandler.NewArchiveAdminHandler(
 		a.workspaceRepo,
 		archiveRepo,

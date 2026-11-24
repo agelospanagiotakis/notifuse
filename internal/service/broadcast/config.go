@@ -1,6 +1,15 @@
 package broadcast
 
-import "time"
+import (
+	"context"
+	"time"
+)
+
+// BroadcastSentHook runs once a broadcast has been enqueued to every recipient and
+// marked processed. It receives the template that was sent and its version so the
+// caller can publish the campaign somewhere that outlives the send (the archive).
+// An error is logged and never fails the send: archiving is a side effect.
+type BroadcastSentHook func(ctx context.Context, workspaceID, broadcastID, templateID string, templateVersion int64) error
 
 // Config contains configuration for broadcast processing
 type Config struct {
@@ -26,6 +35,9 @@ type Config struct {
 	// Retry settings
 	MaxRetries    int           `json:"max_retries"`
 	RetryInterval time.Duration `json:"retry_interval"`
+
+	// OnBroadcastSent, when set, runs after a broadcast finishes sending.
+	OnBroadcastSent BroadcastSentHook `json:"-"`
 }
 
 // DefaultConfig returns a configuration with sensible defaults
