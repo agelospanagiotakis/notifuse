@@ -62,7 +62,8 @@ export function IntegrationCatalogue({ open, onClose, onSelect, firecrawlConfigu
   const llmDescriptions: Record<LLMProviderKind, string> = {
     anthropic: t`Claude models`,
     openai: t`Or any OpenAI-compatible endpoint`,
-    gemini: t`Gemini models`
+    gemini: t`Gemini models`,
+    deepseek: t`DeepSeek chat and reasoner`
   }
 
   const email: CatalogueEntry[] = EMAIL_ORDER.flatMap((kind) => {

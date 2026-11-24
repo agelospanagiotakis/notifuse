@@ -20,3 +20,7 @@ export const GEMINI_DEFAULT_MODEL = 'gemini-4-argon'
 // The model a new OpenAI integration starts with, and the one a save without a model falls back to.
 // Model IDs from: https://developers.openai.com/api/docs/models
 export const OPENAI_DEFAULT_MODEL = 'gpt-6.1-sol'
+
+// DeepSeek's public models. Free text is allowed, so a future id can be typed.
+export const deepseekModels = [{ value: 'deepseek-chat' }, { value: 'deepseek-reasoner' }]
+export const DEEPSEEK_DEFAULT_MODEL = 'deepseek-chat'

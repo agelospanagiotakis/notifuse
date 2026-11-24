@@ -6,6 +6,8 @@ import { llmProviders } from './LLMProviders'
 import {
   ANTHROPIC_DEFAULT_MODEL,
   anthropicModels,
+  DEEPSEEK_DEFAULT_MODEL,
+  deepseekModels,
   GEMINI_DEFAULT_MODEL,
   geminiModels,
   OPENAI_DEFAULT_MODEL
@@ -71,6 +73,21 @@ export const LLMIntegration: React.FC<LLMIntegrationProps> = ({
           reasoning_effort: ''
         })
       }
+    } else if (providerKind === 'deepseek') {
+      if (integration?.llm_provider?.deepseek) {
+        const provider = integration.llm_provider.deepseek
+        form.setFieldsValue({
+          name: integration.name,
+          model: provider.model || providerInfo?.defaultModel || DEEPSEEK_DEFAULT_MODEL,
+          base_url: provider.base_url || ''
+        })
+      } else {
+        form.setFieldsValue({
+          name: providerInfo?.name || 'DeepSeek',
+          model: providerInfo?.defaultModel || DEEPSEEK_DEFAULT_MODEL,
+          base_url: ''
+        })
+      }
     } else if (providerKind === 'gemini') {
       if (integration?.llm_provider?.gemini) {
         const provider = integration.llm_provider.gemini
@@ -134,6 +151,15 @@ export const LLMIntegration: React.FC<LLMIntegrationProps> = ({
               reasoning_effort: isString(values.reasoning_effort) ? values.reasoning_effort : ''
             }
           }),
+          ...(providerKind === 'deepseek' && {
+            deepseek: {
+              api_key:
+                isString(values.api_key) && values.api_key !== '' ? values.api_key : undefined,
+              model: isString(values.model) ? values.model : DEEPSEEK_DEFAULT_MODEL,
+              base_url:
+                isString(values.base_url) && values.base_url !== '' ? values.base_url : undefined
+            }
+          }),
           ...(providerKind === 'gemini' && {
             gemini: {
               api_key:
@@ -163,12 +189,14 @@ export const LLMIntegration: React.FC<LLMIntegrationProps> = ({
   const keyHelp: Record<LLMProviderKind, string | undefined> = {
     anthropic: t`From console.anthropic.com`,
     openai: t`From platform.openai.com, or your endpoint's own key`,
-    gemini: t`From Google AI Studio`
+    gemini: t`From Google AI Studio`,
+    deepseek: t`From platform.deepseek.com`
   }
   const keyExample: Record<LLMProviderKind, string> = {
     anthropic: 'sk-ant-api03-...',
     openai: 'sk-proj-...',
-    gemini: 'AIza...'
+    gemini: 'AIza...',
+    deepseek: 'sk-...'
   }
 
   return (
@@ -187,7 +215,9 @@ export const LLMIntegration: React.FC<LLMIntegrationProps> = ({
                     ? t`e.g., My OpenAI Integration`
                     : providerKind === 'gemini'
                       ? t`e.g., My Google Gemini Integration`
-                      : t`e.g., My Anthropic Integration`
+                      : providerKind === 'deepseek'
+                        ? t`e.g., My DeepSeek Integration`
+                        : t`e.g., My Anthropic Integration`
                 }
               />
             </Form.Item>
@@ -265,6 +295,29 @@ export const LLMIntegration: React.FC<LLMIntegrationProps> = ({
                       { value: 'xhigh', label: t`Extra high` }
                     ]}
                   />
+                </Form.Item>
+              </SettingsRow>
+            </>
+          )}
+
+          {providerKind === 'deepseek' && (
+            <>
+              <SettingsRow
+                label={<RequiredLabel>{t`Model`}</RequiredLabel>}
+                help={t`deepseek-chat, deepseek-reasoner, or a custom model ID`}
+                htmlFor="model"
+              >
+                <Form.Item name="model" rules={[{ required: true, message: t`Please select or enter a model` }]}>
+                  <AutoComplete options={deepseekModels} placeholder={t`deepseek-chat`} filterOption={filterByValue} />
+                </Form.Item>
+              </SettingsRow>
+              <SettingsRow
+                label={<OptionalLabel>{t`Base URL`}</OptionalLabel>}
+                help={t`For a self-hosted DeepSeek-compatible endpoint. Empty: the DeepSeek API`}
+                htmlFor="base_url"
+              >
+                <Form.Item name="base_url">
+                  <Input placeholder="https://api.deepseek.com" />
                 </Form.Item>
               </SettingsRow>
             </>

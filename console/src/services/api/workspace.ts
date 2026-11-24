@@ -228,7 +228,7 @@ export type IntegrationType =
   | 'zapier'
 
 // LLM Provider types
-export type LLMProviderKind = 'anthropic' | 'openai' | 'gemini'
+export type LLMProviderKind = 'anthropic' | 'openai' | 'gemini' | 'deepseek'
 
 export interface AnthropicSettings {
   api_key?: string
@@ -255,6 +255,7 @@ export interface LLMProvider {
   anthropic?: AnthropicSettings
   openai?: OpenAISettings
   gemini?: GeminiSettings
+  deepseek?: OpenAISettings
 }
 
 // Firecrawl settings for web scraping and search

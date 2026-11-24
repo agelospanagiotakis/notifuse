@@ -2808,6 +2808,16 @@ func (s *WorkspaceService) UpdateIntegration(ctx context.Context, req domain.Upd
 				updatedIntegration.LLMProvider.Gemini.EncryptedAPIKey =
 					existingIntegration.LLMProvider.Gemini.EncryptedAPIKey
 			}
+
+			// Preserve DeepSeek encrypted API key if not provided in update
+			if req.LLMProvider.DeepSeek != nil &&
+				req.LLMProvider.DeepSeek.APIKey == "" &&
+				req.LLMProvider.DeepSeek.EncryptedAPIKey == "" &&
+				existingIntegration.LLMProvider != nil &&
+				existingIntegration.LLMProvider.DeepSeek != nil {
+				updatedIntegration.LLMProvider.DeepSeek.EncryptedAPIKey =
+					existingIntegration.LLMProvider.DeepSeek.EncryptedAPIKey
+			}
 		} else {
 			// If no settings provided, preserve existing
 			updatedIntegration.LLMProvider = existingIntegration.LLMProvider
