@@ -25,7 +25,8 @@ import { canReadWebAnalytics, isSmtpMarketingProvider, workspaceTimezone } from 
 import { broadcastCampaign } from '../attribution'
 import { broadcastVisitsQuery, readBroadcastVisits } from '../broadcastAnalytics'
 import { runBroadcastQuery } from '../broadcastQueryClient'
-import { availableActions, deliveryVerdict, progressStatsFrom } from '../broadcastStatus'
+import { availableActions, deliveryVerdict, isImportedBroadcast, progressStatsFrom } from '../broadcastStatus'
+import { ImportedMailchimpStats, type ImportedStats } from '../ImportedMailchimpStats'
 import { useBroadcastActions } from '../useBroadcastActions'
 import { scheduledInstant, useBroadcastDates } from '../useBroadcastDates'
 import { AbTestPanel } from './AbTestPanel'
@@ -193,6 +194,7 @@ export function BroadcastDetail({ workspace, permissions, broadcastId, onEdit, o
   const noCampaign = t`This broadcast has no UTM campaign, so its website traffic can't be identified`
 
   // Meta line
+  const imported = isImportedBroadcast(broadcast)
   const statusMeta = (() => {
     switch (broadcast.status) {
       case 'draft':
@@ -291,7 +293,7 @@ export function BroadcastDetail({ workspace, permissions, broadcastId, onEdit, o
           </span>
         </Tooltip>
       ) : null}
-      {singleTemplate ? (
+      {singleTemplate && !imported ? (
         <Tooltip
           title={testAllowed ? undefined : t`You need Templates read and Transactional write permissions to send test emails`}
         >
@@ -300,7 +302,7 @@ export function BroadcastDetail({ workspace, permissions, broadcastId, onEdit, o
           </Button>
         </Tooltip>
       ) : null}
-      {set.edit ? guard(<Button disabled={!canWrite} onClick={() => onEdit(broadcast.id)}>{t`Edit`}</Button>) : null}
+      {!imported && set.edit ? guard(<Button disabled={!canWrite} onClick={() => onEdit(broadcast.id)}>{t`Edit`}</Button>) : null}
       {set.pause
         ? guard(
             <Button icon={<Pause size={14} />} disabled={!canWrite} onClick={() => actions.confirm('pause', broadcast)}>
@@ -378,6 +380,12 @@ export function BroadcastDetail({ workspace, permissions, broadcastId, onEdit, o
           failedCount={progress.failedCount}
           startedAt={broadcast.started_at}
           remainingOverride={progress.inFlight}
+        />
+      ) : null}
+
+      {imported ? (
+        <ImportedMailchimpStats
+          stats={(broadcast.metadata as { mailchimp?: ImportedStats } | undefined)?.mailchimp}
         />
       ) : null}
 

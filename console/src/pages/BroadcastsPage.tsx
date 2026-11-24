@@ -22,6 +22,7 @@ import { useAudienceEstimates } from '../components/broadcasts/useAudienceEstima
 import { useBroadcastActions } from '../components/broadcasts/useBroadcastActions'
 import { useBroadcastPageStats } from '../components/broadcasts/useBroadcastPageStats'
 import { PAGE_SIZE, groupCount, useBroadcastsList } from '../components/broadcasts/useBroadcastsList'
+import { isImportedBroadcast } from '../components/broadcasts/broadcastStatus'
 
 type StatusGroup = 'all' | keyof typeof BROADCAST_STATUS_GROUPS
 
@@ -139,6 +140,15 @@ export function BroadcastsPage() {
     if (search.compose && !composeKey) setComposeKey({ key: Date.now(), id: search.compose })
     if (!search.compose && composeKey) setComposeKey(null)
   }, [search.compose, composeKey])
+
+  // An imported campaign was sent by Mailchimp: it must open the detail (reported figures),
+  // never the composer, and cannot be re-sent.
+  useEffect(() => {
+    if (!search.compose || search.compose === 'new') return
+    const imported = rows.find((b) => b.id === search.compose && isImportedBroadcast(b))
+    if (imported) openDetail(imported.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.compose, rows])
 
   // J and K walk the loaded rows; at the last one J loads the next page, then moves on.
   const index = search.broadcast ? rows.findIndex((b) => b.id === search.broadcast) : -1
@@ -339,7 +349,7 @@ export function BroadcastsPage() {
                   lists={listsQuery.data?.lists ?? []}
                   segments={segmentsQuery.data?.segments ?? []}
                   activeId={search.broadcast}
-                  onOpen={(b) => (b.status === 'draft' && canWrite ? openCompose(b.id) : openDetail(b.id))}
+                  onOpen={(b) => (b.status === 'draft' && canWrite && !isImportedBroadcast(b) ? openCompose(b.id) : openDetail(b.id))}
                   onCompose={(b) => openCompose(b.id)}
                   onAction={(action, b) => actions.confirm(action, b)}
                   onOpenDetail={(b) => openDetail(b.id)}

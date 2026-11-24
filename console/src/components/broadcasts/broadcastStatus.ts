@@ -219,3 +219,9 @@ export function availableActions(
     delete: status === 'draft'
   }
 }
+
+/** True when this broadcast was imported from Mailchimp (reported figures, not sent here). */
+export function isImportedBroadcast(broadcast: Broadcast): boolean {
+  const metadata = broadcast.metadata as { mailchimp?: unknown } | undefined | null
+  return Boolean(metadata && metadata.mailchimp)
+}

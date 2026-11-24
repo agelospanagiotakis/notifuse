@@ -3,7 +3,7 @@ import { useLingui } from '@lingui/react/macro'
 import { plural } from '@lingui/core/macro'
 import { Pill, useNumberFormat } from '../layout'
 import type { Broadcast } from '../../services/api/broadcast'
-import { statusPill, type StatusPillContext } from './broadcastStatus'
+import { statusPill, isImportedBroadcast, type StatusPillContext } from './broadcastStatus'
 
 export interface BroadcastStatusPillProps extends StatusPillContext {
   broadcast: Broadcast
@@ -19,6 +19,7 @@ export function BroadcastStatusPill({ broadcast, verdict, l2Failed, truncate }: 
   const { t } = useLingui()
   const { int } = useNumberFormat()
   const spec = statusPill(broadcast, { verdict, l2Failed })
+  const imported = isImportedBroadcast(broadcast)
   // The count of the state: still to go while sending, refused once done. `failed` names the
   // placeholder of the refused-count plurals.
   const failed = spec.count ?? 0
@@ -89,6 +90,14 @@ export function BroadcastStatusPill({ broadcast, verdict, l2Failed, truncate }: 
       tooltip = broadcast.status
   }
 
+  // An imported campaign was really sent, by Mailchimp. Its stored status is draft (this
+  // platform never sent it), so the pill says so and names who did.
+  if (imported) {
+    const sentOn = broadcast.created_at ? broadcast.created_at.slice(0, 10) : ''
+    label = `${t({ message: 'Sent', context: 'newsletter status' })} · Mailchimp`
+    tooltip = t`Sent by Mailchimp in ${sentOn}. Imported for the record — this platform did not send it and cannot re-send it.`
+  }
+
   return (
     <Tooltip
       title={
@@ -103,7 +112,7 @@ export function BroadcastStatusPill({ broadcast, verdict, l2Failed, truncate }: 
       }
     >
       <span className={truncate ? 'inline-flex max-w-full min-w-0' : 'inline-flex'}>
-        <Pill tone={spec.tone} pulse={spec.pulse} truncate={truncate}>
+        <Pill tone={imported ? 'success' : spec.tone} pulse={imported ? false : spec.pulse} truncate={truncate}>
           {label}
         </Pill>
       </span>
