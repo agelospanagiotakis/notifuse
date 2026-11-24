@@ -1082,7 +1082,7 @@ msgstr "Filtro {ignoredList} non applicato in questa dashboard"
 msgid "{ignoredList} filters not applied on this dashboard"
 msgstr "Filtri {ignoredList} non applicati in questa dashboard"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:134
+#: src/components/settings/integrations/EmailProviderCard.tsx:146
 msgid "{inactive, plural, one {# webhook inactive} other {# webhooks inactive}}"
 msgstr "{inactive, plural, one {# webhook inattivo} other {# webhook inattivi}}"
 
@@ -2316,7 +2316,7 @@ msgstr "Attivare l'automazione?"
 msgid "Activated the automation <0>{target}</0>"
 msgstr "Ha attivato l'automazione <0>{target}</0>"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:114
+#: src/components/settings/integrations/EmailProviderCard.tsx:117
 msgid "active"
 msgstr "attivo"
 
@@ -2372,7 +2372,7 @@ msgstr "Email dell'attore"
 #: src/components/broadcasts/HeadersEditor.tsx:102
 #: src/components/segment/input_json_path.tsx:98
 #: src/components/seo/SeoChecks.tsx:73
-#: src/components/settings/integrations/EmailProviderCard.tsx:309
+#: src/components/settings/integrations/EmailProviderCard.tsx:321
 #: src/components/transactional/NotificationChecks.tsx:88
 #: src/components/web_analytics/annotations/AnnotationFormModal.tsx:136
 #: src/components/web_analytics/tabs/AnnotationsTab.tsx:113
@@ -2965,7 +2965,7 @@ msgstr "Tutte le email sono state inviate."
 msgid "All languages"
 msgstr "Tutti i linguaggi"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:171
+#: src/components/settings/integrations/EmailProviderCard.tsx:183
 #: src/components/settings/integrations/EmailRoles.tsx:32
 msgid "All marketing emails (broadcasts, campaigns) will be sent through this provider from now on."
 msgstr "Tutte le email di marketing (broadcast, campaign) saranno inviate tramite questo provider da ora in poi."
@@ -3006,7 +3006,7 @@ msgstr "Tutto pronto"
 msgid "All time"
 msgstr "Sempre"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:172
+#: src/components/settings/integrations/EmailProviderCard.tsx:184
 #: src/components/settings/integrations/EmailRoles.tsx:33
 msgid "All transactional emails (notifications, password resets, etc.) will be sent through this provider from now on."
 msgstr "Tutte le email transazionali (notifiche, reimpostazione password, ecc.) saranno inviate tramite questo provider da ora in poi."
@@ -3102,7 +3102,7 @@ msgstr "Sempre visibile"
 msgid "Amazon SES"
 msgstr "Amazon SES"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:249
+#: src/components/settings/integrations/EmailProviderCard.tsx:261
 msgid "Amazon SES (inbound-smtp.<region>.amazonaws.com, in a region that supports email receiving)"
 msgstr "Amazon SES (inbound-smtp.<region>.amazonaws.com, in una regione che supporta la ricezione delle email)"
 
@@ -5198,7 +5198,7 @@ msgstr "Impossibile da testare nel browser"
 #: src/components/settings/CustomFieldsConfiguration.tsx:386
 #: src/components/settings/EditPermissionsDrawer.tsx:101
 #: src/components/settings/Integrations.tsx:272
-#: src/components/settings/integrations/EmailProviderCard.tsx:192
+#: src/components/settings/integrations/EmailProviderCard.tsx:204
 #: src/components/settings/integrations/EmailProviderDrawer.tsx:963
 #: src/components/settings/integrations/EmailProviderDrawer.tsx:1025
 #: src/components/settings/integrations/TestEmailModal.tsx:68
@@ -5573,7 +5573,7 @@ msgstr "Verificato durante la digitazione; il server verifica di nuovo al salvat
 msgid "Checking that the ID {id} is free…"
 msgstr "Verifica che l'ID {id} sia libero…"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:128
+#: src/components/settings/integrations/EmailProviderCard.tsx:131
 msgid "Checking webhooks…"
 msgstr "Verifica dei webhook…"
 
@@ -8055,7 +8055,7 @@ msgstr ""
 
 #: src/components/broadcasts/compose/sendSummaryChecks.tsx:203
 #: src/components/broadcasts/VariationSenderSelect.tsx:61
-#: src/components/settings/integrations/EmailProviderCard.tsx:296
+#: src/components/settings/integrations/EmailProviderCard.tsx:308
 #: src/components/templates/SendTemplateModal.tsx:99
 #: src/pages/TemplatesPage.tsx:454
 msgid "default"
@@ -8093,7 +8093,7 @@ msgstr "Lingua predefinita"
 msgid "Default language: {languageName}"
 msgstr "Lingua predefinita: {languageName}"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:329
+#: src/components/settings/integrations/EmailProviderCard.tsx:341
 msgid "Default marketing"
 msgstr "Marketing predefinito"
 
@@ -8114,7 +8114,7 @@ msgstr "Tema predefinito creato e pubblicato"
 msgid "default to"
 msgstr "predefinito a"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:334
+#: src/components/settings/integrations/EmailProviderCard.tsx:346
 msgid "Default transactional"
 msgstr "Transazionale predefinito"
 
@@ -8227,8 +8227,8 @@ msgstr "Ritardo"
 #: src/components/segment/input.tsx:309
 #: src/components/settings/Integrations.tsx:271
 #: src/components/settings/Integrations.tsx:290
-#: src/components/settings/integrations/EmailProviderCard.tsx:191
-#: src/components/settings/integrations/EmailProviderCard.tsx:229
+#: src/components/settings/integrations/EmailProviderCard.tsx:203
+#: src/components/settings/integrations/EmailProviderCard.tsx:241
 #: src/components/settings/integrations/EmailProviderDrawer.tsx:962
 #: src/components/settings/WebhookDetail.tsx:337
 #: src/components/settings/WebhookDetail.tsx:345
@@ -8515,7 +8515,7 @@ msgid "Delete this connection?"
 msgstr "Eliminare questa connessione?"
 
 #: src/components/settings/Integrations.tsx:291
-#: src/components/settings/integrations/EmailProviderCard.tsx:182
+#: src/components/settings/integrations/EmailProviderCard.tsx:194
 msgid "Delete this integration?"
 msgstr "Eliminare questa integrazione?"
 
@@ -8690,7 +8690,7 @@ msgstr "Consegnato"
 #~ msgid "delivered, bounce and complaint events are not registered"
 #~ msgstr "gli eventi di consegna, bounce e reclamo non sono registrati"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:123
+#: src/components/settings/integrations/EmailProviderCard.tsx:126
 msgid "Delivered, bounce and complaint events are not registered"
 msgstr "Gli eventi di consegna, bounce e reclamo non sono registrati"
 
@@ -9410,7 +9410,7 @@ msgstr "Ogni variante mantiene il mittente del suo template, a meno che tu non n
 #: src/components/segment/input.tsx:389
 #: src/components/segment/input.tsx:393
 #: src/components/settings/Integrations.tsx:261
-#: src/components/settings/integrations/EmailProviderCard.tsx:199
+#: src/components/settings/integrations/EmailProviderCard.tsx:211
 #: src/components/settings/WebhookDetail.tsx:331
 #: src/components/templates/TemplateSettingsAside.tsx:144
 #: src/components/transactional/NotificationChecks.tsx:97
@@ -12113,7 +12113,7 @@ msgstr "Formato"
 #~ msgid "Forwards inbound replies to Notifuse so automations can stop when a contact replies (Exit on reply). Registering webhooks creates the Mailgun route; you must also point your domain's MX records at Mailgun."
 #~ msgstr ""
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:254
+#: src/components/settings/integrations/EmailProviderCard.tsx:266
 msgid "Forwards inbound replies to Notifuse so automations can stop when a contact replies (Exit on reply). Registering webhooks creates the provider-side route; you must also point your domain's MX records at your email provider."
 msgstr "Inoltra le risposte in entrata a Notifuse in modo che le automazioni possano fermarsi quando un contatto risponde (Uscita alla risposta). La registrazione dei webhook crea la route lato provider; devi anche puntare i record MX del tuo dominio sul tuo provider email."
 
@@ -13461,7 +13461,7 @@ msgstr "In questa email"
 msgid "In use"
 msgstr "In uso"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:114
+#: src/components/settings/integrations/EmailProviderCard.tsx:117
 msgid "inactive"
 msgstr "inattivo"
 
@@ -13938,15 +13938,15 @@ msgstr "Non viene inviato all’ora prevista. Puoi modificarlo e programmarlo di
 msgid "It is removed for every template of the workspace. Templates that already contain this block do not change."
 msgstr "Viene rimosso per tutti i template del workspace. I template che contengono già questo blocco non cambiano."
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:185
+#: src/components/settings/integrations/EmailProviderCard.tsx:197
 msgid "It sends the workspace's marketing and transactional emails: no email goes out until another provider is chosen. This cannot be undone."
 msgstr "Questa integrazione invia le email di marketing e transazionali del workspace: nessuna email parte finché non viene scelto un altro provider. Questa azione non può essere annullata."
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:187
+#: src/components/settings/integrations/EmailProviderCard.tsx:199
 msgid "It sends the workspace's marketing emails: broadcasts and automations stop until another provider is chosen. This cannot be undone."
 msgstr "Questa integrazione invia le email di marketing del workspace: broadcast e automazioni si fermano finché non viene scelto un altro provider. Questa azione non può essere annullata."
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:189
+#: src/components/settings/integrations/EmailProviderCard.tsx:201
 msgid "It sends the workspace's transactional emails: notifications stop until another provider is chosen. This cannot be undone."
 msgstr "Questa integrazione invia le email transazionali del workspace: le notifiche si fermano finché non viene scelto un altro provider. Questa azione non può essere annullata."
 
@@ -15148,7 +15148,7 @@ msgstr "Indirizzo della casella di posta"
 msgid "Mailgun"
 msgstr "Mailgun"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:250
+#: src/components/settings/integrations/EmailProviderCard.tsx:262
 msgid "Mailgun (mxa.mailgun.org / mxb.mailgun.org)"
 msgstr "Mailgun (mxa.mailgun.org / mxb.mailgun.org)"
 
@@ -15794,7 +15794,7 @@ msgstr "Mensile"
 #: src/components/contacts/sheet/ContactDetailsBody.tsx:260
 #: src/components/file_manager/FileExplorer.tsx:1103
 #: src/components/settings/Integrations.tsx:282
-#: src/components/settings/integrations/EmailProviderCard.tsx:355
+#: src/components/settings/integrations/EmailProviderCard.tsx:367
 #: src/components/transactional/TransactionalDetail.tsx:362
 #: src/components/transactional/TransactionalTable.tsx:348
 #: src/pages/TemplatesPage.tsx:491
@@ -16203,8 +16203,8 @@ msgstr "Prossimo passaggio"
 #: src/components/contacts/SegmentDefinedBy.tsx:57
 #: src/components/logs/MessagesTab.tsx:370
 #: src/components/logs/MessagesTab.tsx:374
-#: src/components/settings/integrations/EmailProviderCard.tsx:158
-#: src/components/settings/integrations/EmailProviderCard.tsx:174
+#: src/components/settings/integrations/EmailProviderCard.tsx:170
+#: src/components/settings/integrations/EmailProviderCard.tsx:186
 #: src/components/settings/integrations/EmailRoles.tsx:35
 #: src/components/settings/integrations/providerDetails.ts:63
 #: src/components/settings/PermissionsMatrix.tsx:194
@@ -16779,7 +16779,7 @@ msgstr "Ancora nessun segmento"
 msgid "No sender"
 msgstr "Nessun mittente"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:300
+#: src/components/settings/integrations/EmailProviderCard.tsx:312
 #: src/components/settings/integrations/EmailProviderDrawer.tsx:979
 msgid "No senders configured"
 msgstr "Nessun mittente configurato"
@@ -17044,7 +17044,7 @@ msgstr "Non consentito dentro un blocco condizionale"
 msgid "Not applied"
 msgstr "Non applicato"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:236
+#: src/components/settings/integrations/EmailProviderCard.tsx:248
 msgid "Not assigned"
 msgstr "Non assegnato"
 
@@ -17184,7 +17184,7 @@ msgstr "Non inviato"
 msgid "Not set"
 msgstr "Non impostato"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:262
+#: src/components/settings/integrations/EmailProviderCard.tsx:274
 msgid "Not set up"
 msgstr "Non configurato"
 
@@ -19588,7 +19588,7 @@ msgstr "Payload grezzo"
 #~ msgid "Re-register"
 #~ msgstr "Ri-registra"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:204
+#: src/components/settings/integrations/EmailProviderCard.tsx:216
 msgid "Re-register webhooks"
 msgstr "Registra di nuovo i webhook"
 
@@ -20107,7 +20107,7 @@ msgstr "Regione e città sono disattivate: le coordinate sono salvate con precis
 msgid "Register this address with your identity provider. Left empty, it follows the API endpoint."
 msgstr "Registra questo indirizzo presso il provider di identità. Se vuoto, segue l'endpoint dell'API."
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:204
+#: src/components/settings/integrations/EmailProviderCard.tsx:216
 msgid "Register webhooks"
 msgstr "Registra i webhook"
 
@@ -20116,11 +20116,11 @@ msgstr "Registra i webhook"
 #~ msgid "Register Webhooks"
 #~ msgstr "Registra Webhooks"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:266
+#: src/components/settings/integrations/EmailProviderCard.tsx:278
 msgid "Register webhooks to set up reply forwarding, then point your domain's MX records at {mxTarget}."
 msgstr "Registra i webhook per configurare l’inoltro delle risposte, poi punta i record MX del tuo dominio su {mxTarget}."
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:155
+#: src/components/settings/integrations/EmailProviderCard.tsx:167
 msgid "Register webhooks?"
 msgstr "Registrare i webhooks?"
 
@@ -20454,11 +20454,11 @@ msgstr "Ha risposto a un’email"
 msgid "Reply"
 msgstr "Risposta"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:256
+#: src/components/settings/integrations/EmailProviderCard.tsx:268
 msgid "Reply forwarding"
 msgstr "Inoltro delle risposte"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:265
+#: src/components/settings/integrations/EmailProviderCard.tsx:277
 msgid "Reply forwarding is set up. Inbound replies also require your domain's MX records to point at {mxTarget}."
 msgstr "L'inoltro delle risposte è configurato. Le risposte in entrata richiedono inoltre che i record MX del tuo dominio puntino su {mxTarget}."
 
@@ -22196,7 +22196,7 @@ msgstr "Invia ora"
 
 #: src/components/broadcasts/compose/BroadcastCompose.tsx:416
 #: src/components/broadcasts/detail/BroadcastDetail.tsx:301
-#: src/components/settings/integrations/EmailProviderCard.tsx:350
+#: src/components/settings/integrations/EmailProviderCard.tsx:362
 #: src/components/settings/WebhookDetail.tsx:324
 #: src/components/templates/TemplateDrawerBar.tsx:115
 #: src/components/transactional/TransactionalDetail.tsx:352
@@ -22293,7 +22293,7 @@ msgstr "Nome mittente"
 msgid "Sender of variation {name}"
 msgstr "Mittente della variante {name}"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:287
+#: src/components/settings/integrations/EmailProviderCard.tsx:299
 #: src/components/settings/integrations/EmailProviderDrawer.tsx:917
 #: src/components/settings/integrations/EmailProviderDrawer.tsx:920
 msgid "Senders"
@@ -22665,12 +22665,12 @@ msgstr "Imposta come provider email marketing predefinito"
 msgid "Set as default transactional email provider"
 msgstr "Imposta come provider email transazionale predefinito"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:167
+#: src/components/settings/integrations/EmailProviderCard.tsx:179
 #: src/components/settings/integrations/EmailRoles.tsx:29
 msgid "Set as marketing email provider?"
 msgstr "Impostare come provider email marketing?"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:168
+#: src/components/settings/integrations/EmailProviderCard.tsx:180
 #: src/components/settings/integrations/EmailRoles.tsx:29
 msgid "Set as transactional email provider?"
 msgstr "Impostare come provider email transazionale?"
@@ -22795,7 +22795,7 @@ msgstr "imposta a"
 msgid "Set to null"
 msgstr "Imposta a null"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:260
+#: src/components/settings/integrations/EmailProviderCard.tsx:272
 msgid "Set up"
 msgstr "Configurato"
 
@@ -25607,7 +25607,7 @@ msgstr "Questo account è già collegato a un'identità single sign-on diversa."
 #: src/components/blog/DeletePostModal.tsx:36
 #: src/components/settings/DeleteWorkspace.tsx:44
 #: src/components/settings/Integrations.tsx:292
-#: src/components/settings/integrations/EmailProviderCard.tsx:190
+#: src/components/settings/integrations/EmailProviderCard.tsx:202
 #: src/components/settings/WebhookDetail.tsx:343
 #: src/components/web_analytics/annotations/AnnotationTable.tsx:30
 msgid "This action cannot be undone."
@@ -26090,7 +26090,7 @@ msgstr "Questo eliminerà permanentemente il workspace \"{0}\" e tutti i suoi da
 msgid "This will permanently remove the contact and their subscriptions."
 msgstr "Questo rimuoverà permanentemente il contatto e le sue iscrizioni."
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:156
+#: src/components/settings/integrations/EmailProviderCard.tsx:168
 msgid "This will register or update webhook endpoints for this email provider."
 msgstr "Questo registrerà o aggiornerà gli endpoint webhook per questo provider email."
 
@@ -27423,7 +27423,7 @@ msgstr ""
 msgid "Use cases"
 msgstr "Casi d'uso"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:214
+#: src/components/settings/integrations/EmailProviderCard.tsx:226
 msgid "Use for marketing"
 msgstr "Usa per il marketing"
 
@@ -27431,7 +27431,7 @@ msgstr "Usa per il marketing"
 #~ msgid "Use for Marketing"
 #~ msgstr "Usa per marketing"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:223
+#: src/components/settings/integrations/EmailProviderCard.tsx:235
 msgid "Use for transactional"
 msgstr "Usa per il transazionale"
 
@@ -28200,7 +28200,7 @@ msgstr ""
 msgid "Webhook secret regenerated"
 msgstr "Segreto webhook rigenerato"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:129
+#: src/components/settings/integrations/EmailProviderCard.tsx:132
 msgid "Webhook status unavailable"
 msgstr "Stato dei webhook non disponibile"
 
@@ -28231,11 +28231,15 @@ msgstr "URL webhook"
 msgid "Webhooks"
 msgstr "Webhook"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:131
+#: src/components/settings/integrations/EmailProviderCard.tsx:137
+msgid "Webhooks need a full-access key"
+msgstr ""
+
+#: src/components/settings/integrations/EmailProviderCard.tsx:143
 msgid "Webhooks not registered"
 msgstr "Webhook non registrati"
 
-#: src/components/settings/integrations/EmailProviderCard.tsx:137
+#: src/components/settings/integrations/EmailProviderCard.tsx:149
 msgid "Webhooks registered"
 msgstr "Webhook registrati"
 
@@ -28854,8 +28858,8 @@ msgstr "Annuale"
 #: src/components/contacts/SegmentDefinedBy.tsx:56
 #: src/components/logs/MessagesTab.tsx:370
 #: src/components/logs/MessagesTab.tsx:373
-#: src/components/settings/integrations/EmailProviderCard.tsx:157
-#: src/components/settings/integrations/EmailProviderCard.tsx:173
+#: src/components/settings/integrations/EmailProviderCard.tsx:169
+#: src/components/settings/integrations/EmailProviderCard.tsx:185
 #: src/components/settings/integrations/EmailRoles.tsx:34
 #: src/components/settings/integrations/providerDetails.ts:63
 #: src/components/settings/WebhookDetail.tsx:289
