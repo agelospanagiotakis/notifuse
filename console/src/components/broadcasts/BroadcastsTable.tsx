@@ -4,7 +4,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { useLingui } from '@lingui/react/macro'
 import { plural } from '@lingui/core/macro'
 import { useRouter } from '@tanstack/react-router'
-import { CalendarClock, Ellipsis, Pause, Send, Trophy } from 'lucide-react'
+import { CalendarClock, Ellipsis, Eye, Pause, Send, Trophy } from 'lucide-react'
 import { Pill, RateBar, useNumberFormat } from '../layout'
 import type { Broadcast } from '../../services/api/broadcast'
 import type { List } from '../../services/api/list'
@@ -48,10 +48,30 @@ export interface BroadcastsTableProps {
   /** "Retry failed…" of a row without a queue: the detail loads it and offers the action. */
   onOpenDetail: (broadcast: Broadcast) => void
   onDelete: (broadcast: Broadcast) => void
+  /** Preview a row's template (the eye on the name). */
+  onPreview?: (template: NonNullable<NonNullable<Broadcast['test_settings']>['variations'][number]['template']>) => void
   footer?: ReactNode
 }
 
 const isStarted = (b: Broadcast) => b.status !== 'draft' && b.status !== 'scheduled'
+
+/** Figures reported by Mailchimp for an imported campaign, shaped like the native row stats. */
+function reportedStats(b: Broadcast) {
+  const mc = (b.metadata as
+    | { mailchimp?: { sent?: number; unique_opens?: number; unique_clicks?: number; unsubscribed?: number; hard_bounces?: number; soft_bounces?: number } }
+    | undefined)?.mailchimp
+  if (!mc || !mc.sent) return undefined
+  return {
+    sent: mc.sent,
+    opened: mc.unique_opens ?? 0,
+    opensTracked: mc.sent,
+    clicked: mc.unique_clicks ?? 0,
+    clicksTracked: mc.sent,
+    unsubscribed: mc.unsubscribed ?? 0,
+    bounced: (mc.hard_bounces ?? 0) + (mc.soft_bounces ?? 0),
+    failed: 0
+  } as unknown as NonNullable<ReturnType<PageStats['stats']['get']>>
+}
 
 /** The template shown for a row: the winner's once chosen, else the first variant's. */
 function shownVariation(broadcast: Broadcast) {
@@ -80,6 +100,7 @@ export function BroadcastsTable(props: BroadcastsTableProps) {
     onAction,
     onOpenDetail,
     onDelete,
+    onPreview,
     footer
   } = props
   const { t } = useLingui()
@@ -93,7 +114,7 @@ export function BroadcastsTable(props: BroadcastsTableProps) {
   const statCell = (b: Broadcast, render: (s: NonNullable<ReturnType<PageStats['stats']['get']>>) => ReactNode) => {
     if (!isStarted(b) || !canReadHistory) return <span className="text-ink-4">—</span>
     if (pageStats.statsError) return <CouldntLoad />
-    const s = pageStats.stats.get(b.id)
+    const s = reportedStats(b) ?? pageStats.stats.get(b.id)
     if (!s) return <span className="text-ink-4">—</span>
     return render(s)
   }
@@ -321,6 +342,7 @@ export function BroadcastsTable(props: BroadcastsTableProps) {
             </span>
           </Popover>
         ) : null
+        const previewTarget = variation?.template
         const second = subject ? (
           <span className="truncate text-xs text-ink-3">{subject}</span>
         ) : b.status === 'draft' && !variation?.template_id ? (
@@ -332,6 +354,20 @@ export function BroadcastsTable(props: BroadcastsTableProps) {
         return (
           <div className="flex min-w-0 flex-col">
             <span className="flex min-w-0 items-center gap-1.5">
+              {previewTarget ? (
+                <Tooltip title={t`Preview`}>
+                  <Button
+                    type="text"
+                    size="small"
+                    aria-label={t`Preview`}
+                    icon={<Eye size={14} aria-hidden="true" />}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onPreview?.(previewTarget)
+                    }}
+                  />
+                </Tooltip>
+              ) : null}
               <span className="truncate font-medium text-ink" title={b.name}>
                 {b.name}
               </span>

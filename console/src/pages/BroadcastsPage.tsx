@@ -13,6 +13,8 @@ import { listSegments } from '../services/api/segment'
 import type { BroadcastsSearch } from '../router'
 import { BroadcastKpis } from '../components/broadcasts/BroadcastKpis'
 import { BroadcastsTable } from '../components/broadcasts/BroadcastsTable'
+import TemplatePreviewDrawer from '../components/templates/TemplatePreviewDrawer'
+import type { Template } from '../services/api/template'
 import { DeleteBroadcastModal } from '../components/broadcasts/DeleteBroadcastModal'
 import { BroadcastDetail } from '../components/broadcasts/detail/BroadcastDetail'
 import { refreshBroadcastStats } from '../components/broadcasts/detail/refreshBroadcastStats'
@@ -119,6 +121,7 @@ export function BroadcastsPage() {
 
   const actions = useBroadcastActions(workspaceId)
   const [deleting, setDeleting] = useState<Broadcast | null>(null)
+  const [previewTemplate, setPreviewTemplate] = useState<Template | null>(null)
 
   // Drawers driven by the URL.
   const openDetail = (id: string, replace = false) =>
@@ -354,6 +357,7 @@ export function BroadcastsPage() {
                   onAction={(action, b) => actions.confirm(action, b)}
                   onOpenDetail={(b) => openDetail(b.id)}
                   onDelete={setDeleting}
+                  onPreview={(tpl) => setPreviewTemplate(tpl as unknown as Template)}
                 />
               )}
             </Panel>
@@ -405,6 +409,15 @@ export function BroadcastsPage() {
           onOpenDetail={(id) =>
             navigate({ replace: true, ignoreBlocker: true, search: (prev) => ({ ...prev, compose: undefined, broadcast: id }) })
           }
+        />
+      ) : null}
+
+      {previewTemplate ? (
+        <TemplatePreviewDrawer
+          record={previewTemplate}
+          workspace={workspace}
+          open
+          onClose={() => setPreviewTemplate(null)}
         />
       ) : null}
 
