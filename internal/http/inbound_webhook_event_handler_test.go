@@ -165,7 +165,7 @@ func TestInboundWebhookEventHandler_handleIncomingWebhook_ProcessError(t *testin
 			payload := []byte(`{"event": "test"}`)
 			req := httptest.NewRequest(http.MethodPost, "/webhooks/email?provider=ses&workspace_id=ws123&integration_id=int123", bytes.NewReader(payload))
 			w := httptest.NewRecorder()
-			mockService.EXPECT().ProcessWebhook(gomock.Any(), "ws123", "int123", payload).Return(tc.err)
+			mockService.EXPECT().ProcessWebhook(gomock.Any(), "ws123", "int123", gomock.Any(), payload).Return(tc.err)
 
 			handler.handleIncomingWebhook(w, req)
 
@@ -211,7 +211,7 @@ func TestInboundWebhookEventHandler_handleIncomingWebhook_BodyOfTenMiBIsProcesse
 	w := httptest.NewRecorder()
 
 	mockService.EXPECT().
-		ProcessWebhook(gomock.Any(), "ws123", "int123", payload).
+		ProcessWebhook(gomock.Any(), "ws123", "int123", gomock.Any(), payload).
 		Return(nil)
 
 	handler.handleIncomingWebhook(w, req)
@@ -292,8 +292,8 @@ func TestInboundWebhookEventHandler_handleIncomingWebhook_ProcessingMayOutlastTh
 
 	payload := []byte(`[{"event":"delivered"}]`)
 	mockService.EXPECT().
-		ProcessWebhook(gomock.Any(), "ws123", "int123", payload).
-		DoAndReturn(func(ctx context.Context, _, _ string, _ []byte) error {
+		ProcessWebhook(gomock.Any(), "ws123", "int123", gomock.Any(), payload).
+		DoAndReturn(func(ctx context.Context, _, _ string, _ http.Header, _ []byte) error {
 			time.Sleep(400 * time.Millisecond)
 			return ctx.Err()
 		})

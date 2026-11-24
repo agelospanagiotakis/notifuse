@@ -92,14 +92,6 @@ func (m *mockUserServiceForSettings) UpdateUserLanguage(ctx context.Context, use
 	return nil
 }
 
-func (m *mockUserServiceForSettings) SetPassword(ctx context.Context, userID string, input domain.SetPasswordInput) error {
-	return nil
-}
-
-func (m *mockUserServiceForSettings) SignInWithPassword(ctx context.Context, input domain.SignInInput) (*domain.AuthResponse, error) {
-	return nil, nil
-}
-
 const testRootEmail = "root@example.com"
 const testSecretKey = "test-secret-key-32-bytes-long!!"
 

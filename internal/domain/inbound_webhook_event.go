@@ -2,10 +2,10 @@ package domain
 
 import (
 	"context"
-	"net/http"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"time"
 
@@ -23,7 +23,7 @@ var (
 	ErrWebhookProviderUnsupported = errors.New("webhook: the integration is not an email provider that sends events")
 	// ErrWebhookPayloadInvalid wraps the error of a provider's parser that refused the
 	// payload of the email provider webhook.
-	ErrWebhookPayloadInvalid = errors.New("webhook: invalid payload")
+	ErrWebhookPayloadInvalid      = errors.New("webhook: invalid payload")
 	ErrInboundProviderUnsupported = errors.New("inbound: provider does not support inbound replies")
 	// ErrInboundControlMessage signals that a ReplyParser handled a provider control
 	// message (e.g. an SNS subscription confirmation) rather than a real reply. The caller
@@ -110,6 +110,7 @@ var WebhookSources = []WebhookSource{
 	WebhookSourceSparkPost,
 	WebhookSourceMailjet,
 	WebhookSourceSMTP,
+	WebhookSourceResend,
 	WebhookSourceSupabase,
 	WebhookSourceSendGrid,
 }

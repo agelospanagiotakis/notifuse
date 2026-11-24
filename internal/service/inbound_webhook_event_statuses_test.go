@@ -59,26 +59,26 @@ func TestProcessWebhook_FailureKinds(t *testing.T) {
 		workspaceRepo.EXPECT().GetByID(gomock.Any(), workspaceID).Return(nil, &domain.ErrWorkspaceNotFound{WorkspaceID: workspaceID})
 		svc := &InboundWebhookEventService{workspaceRepo: workspaceRepo}
 
-		err := svc.ProcessWebhook(context.Background(), workspaceID, integrationID, []byte(`{}`))
+		err := svc.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, []byte(`{}`))
 		var notFound *domain.ErrWorkspaceNotFound
 		assert.True(t, errors.As(err, &notFound), "got %v", err)
 	})
 
 	t.Run("an unknown integration", func(t *testing.T) {
 		svc := newService(t, domain.EmailProviderKindPostmark, nil)
-		err := svc.ProcessWebhook(context.Background(), workspaceID, "another", []byte(`{}`))
+		err := svc.ProcessWebhook(context.Background(), workspaceID, "another", http.Header{}, []byte(`{}`))
 		assert.ErrorIs(t, err, domain.ErrInboundIntegrationNotFound)
 	})
 
 	t.Run("an integration of a kind that sends no events", func(t *testing.T) {
 		svc := newService(t, domain.EmailProviderKind("unknown"), nil)
-		err := svc.ProcessWebhook(context.Background(), workspaceID, integrationID, []byte(`{}`))
+		err := svc.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, []byte(`{}`))
 		assert.ErrorIs(t, err, domain.ErrWebhookProviderUnsupported)
 	})
 
 	t.Run("a payload the parser refuses", func(t *testing.T) {
 		svc := newService(t, domain.EmailProviderKindPostmark, nil)
-		err := svc.ProcessWebhook(context.Background(), workspaceID, integrationID, []byte(`{not json`))
+		err := svc.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, []byte(`{not json`))
 		assert.ErrorIs(t, err, domain.ErrWebhookPayloadInvalid)
 	})
 
@@ -91,7 +91,7 @@ func TestProcessWebhook_FailureKinds(t *testing.T) {
 		log.EXPECT().Info(gomock.Any()).AnyTimes()
 		log.EXPECT().Warn("Refused the subscription confirmation URL").Times(1)
 		svc.logger = log
-		err := svc.ProcessWebhook(context.Background(), workspaceID, integrationID, confirmation(t, "https://attacker.example/confirm"))
+		err := svc.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, confirmation(t, "https://attacker.example/confirm"))
 		assert.ErrorIs(t, err, domain.ErrWebhookPayloadInvalid)
 	})
 
@@ -103,14 +103,14 @@ func TestProcessWebhook_FailureKinds(t *testing.T) {
 		log.EXPECT().Info(gomock.Any()).AnyTimes()
 		log.EXPECT().Error("Failed to confirm subscription").Times(1)
 		svc.logger = log
-		err := svc.ProcessWebhook(context.Background(), workspaceID, integrationID, confirmation(t, awsURL))
+		err := svc.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, confirmation(t, awsURL))
 		require.Error(t, err)
 		assert.NotErrorIs(t, err, domain.ErrWebhookPayloadInvalid, "ours: SNS sends the confirmation again")
 	})
 
 	t.Run("an SNS confirmation AWS refuses", func(t *testing.T) {
 		svc := newService(t, domain.EmailProviderKindSES, answer(http.StatusServiceUnavailable, nil))
-		err := svc.ProcessWebhook(context.Background(), workspaceID, integrationID, confirmation(t, awsURL))
+		err := svc.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, confirmation(t, awsURL))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "503")
 		assert.NotErrorIs(t, err, domain.ErrWebhookPayloadInvalid, "ours: SNS sends the confirmation again")
@@ -118,6 +118,6 @@ func TestProcessWebhook_FailureKinds(t *testing.T) {
 
 	t.Run("an SNS confirmation AWS accepts", func(t *testing.T) {
 		svc := newService(t, domain.EmailProviderKindSES, answer(http.StatusOK, nil))
-		require.NoError(t, svc.ProcessWebhook(context.Background(), workspaceID, integrationID, confirmation(t, awsURL)))
+		require.NoError(t, svc.ProcessWebhook(context.Background(), workspaceID, integrationID, http.Header{}, confirmation(t, awsURL)))
 	})
 }

@@ -96,7 +96,7 @@ func TestProcessWebhook_RedeliveredEventsKeepNewerSubscriptionChanges(t *testing
 		})
 		m.contactRepo.EXPECT().MarkEmailsAsBounced(gomock.Any(), workspaceID, []string{"a@example.com"}, gomock.Any()).Return(nil)
 
-		require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, raw))
+		require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, nil, raw))
 	})
 
 	t.Run("a hard bounce received before only bounces rows unchanged since it was first received", func(t *testing.T) {
@@ -108,7 +108,7 @@ func TestProcessWebhook_RedeliveredEventsKeepNewerSubscriptionChanges(t *testing
 		m.contactRepo.EXPECT().MarkEmailsAsBouncedUnchangedSince(gomock.Any(), workspaceID,
 			map[string]time.Time{"a@example.com": earlier}, gomock.Any()).Return(nil)
 
-		require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, raw))
+		require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, nil, raw))
 	})
 
 	t.Run("an address with one new and one received hard bounce is bounced with no updated_at condition", func(t *testing.T) {
@@ -119,7 +119,7 @@ func TestProcessWebhook_RedeliveredEventsKeepNewerSubscriptionChanges(t *testing
 		})
 		m.contactRepo.EXPECT().MarkEmailsAsBounced(gomock.Any(), workspaceID, []string{"a@example.com"}, gomock.Any()).Return(nil)
 
-		require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, raw))
+		require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, nil, raw))
 	})
 
 	t.Run("several received hard bounces of one address: the latest first-received time", func(t *testing.T) {
@@ -131,7 +131,7 @@ func TestProcessWebhook_RedeliveredEventsKeepNewerSubscriptionChanges(t *testing
 		m.contactRepo.EXPECT().MarkEmailsAsBouncedUnchangedSince(gomock.Any(), workspaceID,
 			map[string]time.Time{"a@example.com": later}, gomock.Any()).Return(nil)
 
-		require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, raw))
+		require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, nil, raw))
 	})
 
 	t.Run("a received hard bounce with a new soft bounce below the threshold: the hard bounce's time", func(t *testing.T) {
@@ -145,7 +145,7 @@ func TestProcessWebhook_RedeliveredEventsKeepNewerSubscriptionChanges(t *testing
 		m.contactRepo.EXPECT().MarkEmailsAsBouncedUnchangedSince(gomock.Any(), workspaceID,
 			map[string]time.Time{"a@example.com": earlier}, gomock.Any()).Return(nil)
 
-		require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, raw))
+		require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, nil, raw))
 	})
 
 	t.Run("a mixed delivery bounces each address by its own events", func(t *testing.T) {
@@ -158,7 +158,7 @@ func TestProcessWebhook_RedeliveredEventsKeepNewerSubscriptionChanges(t *testing
 		m.contactRepo.EXPECT().MarkEmailsAsBouncedUnchangedSince(gomock.Any(), workspaceID,
 			map[string]time.Time{"old@example.com": earlier}, gomock.Any()).Return(nil)
 
-		require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, raw))
+		require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, nil, raw))
 	})
 
 	t.Run("a threshold reached by received soft bounces only bounces rows unchanged since", func(t *testing.T) {
@@ -172,7 +172,7 @@ func TestProcessWebhook_RedeliveredEventsKeepNewerSubscriptionChanges(t *testing
 		m.contactRepo.EXPECT().MarkEmailsAsBouncedUnchangedSince(gomock.Any(), workspaceID,
 			map[string]time.Time{"a@example.com": later}, gomock.Any()).Return(nil)
 
-		require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, raw))
+		require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, nil, raw))
 	})
 
 	t.Run("a threshold reached with a new soft bounce bounces the address with no updated_at condition", func(t *testing.T) {
@@ -185,7 +185,7 @@ func TestProcessWebhook_RedeliveredEventsKeepNewerSubscriptionChanges(t *testing
 			Return(map[string]int{"a@example.com": domain.DefaultSoftBounceThreshold}, nil)
 		m.contactRepo.EXPECT().MarkEmailsAsBounced(gomock.Any(), workspaceID, []string{"a@example.com"}, gomock.Any()).Return(nil)
 
-		require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, raw))
+		require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, nil, raw))
 	})
 
 	t.Run("a FirstStoredAt error is returned and nothing is stored or applied", func(t *testing.T) {
@@ -195,7 +195,7 @@ func TestProcessWebhook_RedeliveredEventsKeepNewerSubscriptionChanges(t *testing
 		history.EXPECT().GetRecipients(gomock.Any(), workspaceID, gomock.Any()).Return(map[string]string{"msg-1": "a@example.com"}, nil)
 		repo.EXPECT().FirstStoredAt(gomock.Any(), workspaceID, gomock.Any()).Return(nil, errors.New("boom"))
 
-		err := service.ProcessWebhook(context.Background(), workspaceID, integrationID,
+		err := service.ProcessWebhook(context.Background(), workspaceID, integrationID, nil,
 			sendGrid(t, [3]string{"bounce", "msg-1", "a@example.com"}))
 		assert.ErrorContains(t, err, "boom")
 	})
@@ -228,7 +228,7 @@ func TestProcessWebhook_RedeliveredEventsKeepNewerSubscriptionChanges(t *testing
 			{Event: "unsub", Time: at, Email: "new@example.com", MessageID: 2, CustomID: "msg-2"},
 		})
 		require.NoError(t, err)
-		require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, raw))
+		require.NoError(t, service.ProcessWebhook(context.Background(), workspaceID, integrationID, nil, raw))
 	})
 }
 

@@ -419,7 +419,8 @@ func TestNewWebhookRegistrationService_RegistersWebhookProviders(t *testing.T) {
 		sendGrid{fakeSESProvider: providers[domain.EmailProviderKindSendGrid]},
 		logger.NewLoggerWithLevel("disabled"), "https://api.example.com")
 
-	require.Len(t, svc.webhookProviders, len(providers))
+	// +1: Resend registers through its own API client, not through a service passed here.
+	require.Len(t, svc.webhookProviders, len(providers)+1)
 	for kind, provider := range providers {
 		registered, ok := svc.webhookProviders[kind]
 		require.True(t, ok, "%s is registered", kind)
