@@ -152,6 +152,9 @@ func (i *Integration) Redact() {
 		if e.SendGrid != nil {
 			record("sendgrid.api_key", e.SendGrid.APIKey)
 		}
+		if e.ResendBroadcasts != nil {
+			record("resend_broadcasts.api_key", e.ResendBroadcasts.APIKey)
+		}
 	}
 	if i.LLMProvider != nil {
 		if i.LLMProvider.Anthropic != nil {
@@ -238,5 +241,8 @@ func (e *EmailProvider) Redact() {
 	}
 	if e.SendGrid != nil {
 		e.SendGrid.APIKey = ""
+	}
+	if e.ResendBroadcasts != nil {
+		e.ResendBroadcasts.APIKey = ""
 	}
 }

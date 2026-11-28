@@ -33,6 +33,8 @@ export const getProviderName = (kind: string): string => {
       return 'SendGrid'
     case 'resend':
       return 'Resend'
+    case 'resend_broadcasts':
+      return 'Resend Broadcasts'
     case 'supabase':
       return 'Supabase'
     default:
@@ -140,6 +142,19 @@ export const emailProviders: ProviderInfo[] = [
         style={{ color: '#000' }}
       >
         Resend
+      </span>
+    )
+  },
+  {
+    type: 'email',
+    kind: 'resend_broadcasts',
+    name: 'Resend Broadcasts',
+    getIcon: (className = '', size = 'small') => (
+      <span
+        className={`${size === 'small' ? 'text-[10px]' : 'text-base'} font-bold tracking-tight ${className}`.trim()}
+        style={{ color: '#000' }}
+      >
+        Resend B
       </span>
     )
   },

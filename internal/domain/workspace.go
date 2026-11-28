@@ -931,6 +931,10 @@ func (w *Workspace) GetEmailProviderWithIntegrationID(isMarketing bool) (*EmailP
 		return nil, "", fmt.Errorf("%s cannot be used as a marketing email provider", integration.EmailProvider.Kind)
 	}
 
+	if !isMarketing && integration.EmailProvider.Kind.IsMarketingOnly() {
+		return nil, "", fmt.Errorf("%s cannot be used as a transactional email provider", integration.EmailProvider.Kind)
+	}
+
 	return &integration.EmailProvider, integrationID, nil
 }
 

@@ -91,6 +91,7 @@ export type EmailProviderKind =
   | 'mailjet'
   | 'sendgrid'
   | 'resend'
+  | 'resend_broadcasts'
 
 export interface Sender {
   id: string
@@ -115,6 +116,11 @@ export interface ResendSettings {
   encrypted_webhook_secret?: string
 }
 
+export interface ResendBroadcastsSettings {
+  api_key?: string
+  encrypted_api_key?: string
+}
+
 export interface EmailProvider {
   kind: EmailProviderKind
   ses?: AmazonSES
@@ -125,6 +131,7 @@ export interface EmailProvider {
   mailjet?: MailjetSettings
   sendgrid?: SendGridSettings
   resend?: ResendSettings
+  resend_broadcasts?: ResendBroadcastsSettings
   senders: Sender[]
   rate_limit_per_minute: number
 }

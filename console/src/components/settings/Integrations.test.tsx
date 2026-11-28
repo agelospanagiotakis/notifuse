@@ -438,8 +438,8 @@ describe('Integrations — blocks', () => {
     expect(within(catalogue).getByText('Email sending')).toBeInTheDocument()
     expect(within(catalogue).getByText('AI assistant')).toBeInTheDocument()
     expect(within(catalogue).getByText('Connected apps')).toBeInTheDocument()
-    // The 8 email providers, the 4 AI models, Firecrawl, Supabase and Zapier.
-    expect(catalogue.querySelectorAll('[data-catalogue-entry]')).toHaveLength(15)
+    // The 9 email providers, the 4 AI models, Firecrawl, Supabase and Zapier.
+    expect(catalogue.querySelectorAll('[data-catalogue-entry]')).toHaveLength(16)
     // The server refuses Mailjet for marketing: the catalogue says so before it is picked.
     expect(within(catalogue).getByRole('button', { name: /^Mailjet/ })).toHaveTextContent('Transactional only')
   })

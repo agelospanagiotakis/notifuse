@@ -66,8 +66,9 @@ func NewFactory(
 // If useQueueSender is true, it creates a queue-based sender that enqueues emails
 // for processing by the queue worker. Otherwise, it creates a direct sender.
 func (f *Factory) CreateMessageSender() MessageSender {
+	var normal MessageSender
 	if f.useQueueSender && f.emailQueueRepo != nil {
-		return NewQueueMessageSender(
+		normal = NewQueueMessageSender(
 			f.emailQueueRepo,
 			f.broadcastRepo,
 			f.messageHistoryRepo,
@@ -77,18 +78,20 @@ func (f *Factory) CreateMessageSender() MessageSender {
 			f.config,
 			f.apiEndpoint,
 		)
+	} else {
+		normal = NewMessageSender(
+			f.broadcastRepo,
+			f.messageHistoryRepo,
+			f.templateRepo,
+			f.emailService,
+			f.dataFeedFetcher,
+			f.logger,
+			f.config,
+			f.apiEndpoint,
+		)
 	}
 
-	return NewMessageSender(
-		f.broadcastRepo,
-		f.messageHistoryRepo,
-		f.templateRepo,
-		f.emailService,
-		f.dataFeedFetcher,
-		f.logger,
-		f.config,
-		f.apiEndpoint,
-	)
+	return NewRoutingMessageSender(normal, NewResendBroadcastsSender(f.broadcastRepo, f.logger))
 }
 
 // CreateOrchestrator creates a new broadcast orchestrator

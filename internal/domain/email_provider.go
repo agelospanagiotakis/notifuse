@@ -24,14 +24,15 @@ type HTTPClient interface {
 type EmailProviderKind string
 
 const (
-	EmailProviderKindSMTP      EmailProviderKind = "smtp"
-	EmailProviderKindSES       EmailProviderKind = "ses"
-	EmailProviderKindSparkPost EmailProviderKind = "sparkpost"
-	EmailProviderKindPostmark  EmailProviderKind = "postmark"
-	EmailProviderKindMailgun   EmailProviderKind = "mailgun"
-	EmailProviderKindMailjet   EmailProviderKind = "mailjet"
-	EmailProviderKindSendGrid  EmailProviderKind = "sendgrid"
-	EmailProviderKindResend    EmailProviderKind = "resend"
+	EmailProviderKindSMTP             EmailProviderKind = "smtp"
+	EmailProviderKindSES              EmailProviderKind = "ses"
+	EmailProviderKindSparkPost        EmailProviderKind = "sparkpost"
+	EmailProviderKindPostmark         EmailProviderKind = "postmark"
+	EmailProviderKindMailgun          EmailProviderKind = "mailgun"
+	EmailProviderKindMailjet          EmailProviderKind = "mailjet"
+	EmailProviderKindSendGrid         EmailProviderKind = "sendgrid"
+	EmailProviderKindResend           EmailProviderKind = "resend"
+	EmailProviderKindResendBroadcasts EmailProviderKind = "resend_broadcasts"
 )
 
 // transactionalOnlyProviderKinds lists provider kinds that may only be used for
@@ -39,6 +40,18 @@ const (
 // assigned as a marketing provider for broadcasts or campaigns.
 var transactionalOnlyProviderKinds = map[EmailProviderKind]bool{
 	EmailProviderKindMailjet: true,
+}
+
+// marketingOnlyProviderKinds lists provider kinds that are only meaningful for
+// marketing broadcasts and cannot be used as the transactional provider.
+var marketingOnlyProviderKinds = map[EmailProviderKind]bool{
+	EmailProviderKindResendBroadcasts: true,
+}
+
+// IsMarketingOnly reports whether the provider kind is restricted to marketing
+// broadcasts and cannot be used as a transactional email provider.
+func (k EmailProviderKind) IsMarketingOnly() bool {
+	return marketingOnlyProviderKinds[k]
 }
 
 // IsTransactionalOnly reports whether the provider kind is restricted to
@@ -67,17 +80,18 @@ func NewEmailSender(email, name string) EmailSender {
 
 // EmailProvider contains configuration for an email service provider
 type EmailProvider struct {
-	Kind               EmailProviderKind  `json:"kind"`
-	SES                *AmazonSESSettings `json:"ses,omitempty"`
-	SMTP               *SMTPSettings      `json:"smtp,omitempty"`
-	SparkPost          *SparkPostSettings `json:"sparkpost,omitempty"`
-	Postmark           *PostmarkSettings  `json:"postmark,omitempty"`
-	Mailgun            *MailgunSettings   `json:"mailgun,omitempty"`
-	Mailjet            *MailjetSettings   `json:"mailjet,omitempty"`
-	SendGrid           *SendGridSettings  `json:"sendgrid,omitempty"`
-	Resend             *ResendSettings    `json:"resend,omitempty"`
-	Senders            []EmailSender      `json:"senders"`
-	RateLimitPerMinute int                `json:"rate_limit_per_minute"`
+	Kind               EmailProviderKind         `json:"kind"`
+	SES                *AmazonSESSettings        `json:"ses,omitempty"`
+	SMTP               *SMTPSettings             `json:"smtp,omitempty"`
+	SparkPost          *SparkPostSettings        `json:"sparkpost,omitempty"`
+	Postmark           *PostmarkSettings         `json:"postmark,omitempty"`
+	Mailgun            *MailgunSettings          `json:"mailgun,omitempty"`
+	Mailjet            *MailjetSettings          `json:"mailjet,omitempty"`
+	SendGrid           *SendGridSettings         `json:"sendgrid,omitempty"`
+	Resend             *ResendSettings           `json:"resend,omitempty"`
+	ResendBroadcasts   *ResendBroadcastsSettings `json:"resend_broadcasts,omitempty"`
+	Senders            []EmailSender             `json:"senders"`
+	RateLimitPerMinute int                       `json:"rate_limit_per_minute"`
 }
 
 // Validate validates the email provider settings
@@ -156,6 +170,11 @@ func (e *EmailProvider) Validate(passphrase string) error {
 			return fmt.Errorf("resend settings required when email provider kind is resend")
 		}
 		return e.Resend.Validate(passphrase)
+	case EmailProviderKindResendBroadcasts:
+		if e.ResendBroadcasts == nil {
+			return fmt.Errorf("resend broadcasts settings required when email provider kind is resend_broadcasts")
+		}
+		return e.ResendBroadcasts.Validate(passphrase)
 	default:
 		return fmt.Errorf("invalid email provider kind: %s", e.Kind)
 	}
@@ -300,6 +319,13 @@ func (e *EmailProvider) EncryptSecretKeys(passphrase string) error {
 		e.Resend.WebhookSecret = ""
 	}
 
+	if e.Kind == EmailProviderKindResendBroadcasts && e.ResendBroadcasts != nil {
+		if err := e.ResendBroadcasts.EncryptAPIKey(passphrase); err != nil {
+			return err
+		}
+		e.ResendBroadcasts.APIKey = ""
+	}
+
 	return nil
 }
 
@@ -374,6 +400,12 @@ func (e *EmailProvider) DecryptSecretKeys(passphrase string) error {
 
 	if e.Kind == EmailProviderKindResend && e.Resend != nil {
 		if err := e.Resend.DecryptSecrets(passphrase); err != nil {
+			return err
+		}
+	}
+
+	if e.Kind == EmailProviderKindResendBroadcasts && e.ResendBroadcasts != nil {
+		if err := e.ResendBroadcasts.DecryptAPIKey(passphrase); err != nil {
 			return err
 		}
 	}

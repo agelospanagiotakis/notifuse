@@ -808,6 +808,20 @@ export function EmailProviderDrawer({
     </Panel>
   )
 
+  const renderResendBroadcasts = () => (
+    <Panel title="Resend Broadcasts (beta)">
+      <SettingsRows>
+        {secretField(['resend_broadcasts', 'api_key'], t`API key`, {
+          help: 'Resend API key for the Broadcasts/Audiences API. This provider is marketing-only and does not use per-recipient Notifuse tracking.',
+          hintKey: 'resend_broadcasts.api_key',
+          stored: Boolean(stored?.resend_broadcasts?.encrypted_api_key),
+          fallback: t`API key`,
+          rules: requiredOnCreate
+        })}
+      </SettingsRows>
+    </Panel>
+  )
+
   const renderResend = () => (
     <Panel title={t`Resend`}>
       <SettingsRows>
@@ -852,7 +866,8 @@ export function EmailProviderDrawer({
     mailgun: renderMailgun,
     mailjet: renderMailjet,
     sendgrid: renderSendGrid,
-    resend: renderResend
+    resend: renderResend,
+    resend_broadcasts: renderResendBroadcasts
   }
 
   // X, Escape and the back link ask first when something was changed: they dropped an added
@@ -882,9 +897,11 @@ export function EmailProviderDrawer({
 
   const topActions = (
     <>
-      <Button icon={<Send size={14} aria-hidden="true" />} onClick={testFromDrawer}>
-        {t`Send a test email`}
-      </Button>
+      {kind !== 'resend_broadcasts' ? (
+        <Button icon={<Send size={14} aria-hidden="true" />} onClick={testFromDrawer}>
+          {t`Send a test email`}
+        </Button>
+      ) : null}
       <Button type="primary" onClick={() => form.submit()} loading={loading || saving} disabled={!isOwner}>
         {t`Save`}
       </Button>

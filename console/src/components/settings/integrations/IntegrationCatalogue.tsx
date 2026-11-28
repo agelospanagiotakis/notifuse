@@ -43,7 +43,7 @@ export interface IntegrationCatalogueProps {
 }
 
 // The order of the mockup: the most used first.
-const EMAIL_ORDER: EmailProviderKind[] = ['ses', 'resend', 'smtp', 'sparkpost', 'postmark', 'mailgun', 'mailjet', 'sendgrid']
+const EMAIL_ORDER: EmailProviderKind[] = ['ses', 'resend', 'resend_broadcasts', 'smtp', 'sparkpost', 'postmark', 'mailgun', 'mailjet', 'sendgrid']
 
 /** "Add integration": every integration the workspace can add, grouped by what it is used for. */
 export function IntegrationCatalogue({ open, onClose, onSelect, firecrawlConfigured }: IntegrationCatalogueProps) {
@@ -57,7 +57,8 @@ export function IntegrationCatalogue({ open, onClose, onSelect, firecrawlConfigu
     mailgun: t`Domain and API key, US or EU`,
     mailjet: t`API and secret keys`,
     sendgrid: t`API key`,
-    resend: t`API key and webhook secret`
+    resend: t`API key and webhook secret`,
+    resend_broadcasts: 'Marketing beta: one Resend Broadcast per batch; no per-recipient Notifuse tracking'
   }
   const llmDescriptions: Record<LLMProviderKind, string> = {
     anthropic: t`Claude models`,

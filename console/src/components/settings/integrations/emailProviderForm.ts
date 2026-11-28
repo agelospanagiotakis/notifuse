@@ -13,6 +13,7 @@ export interface EmailProviderFormValues {
   mailjet?: EmailProvider['mailjet']
   sendgrid?: EmailProvider['sendgrid']
   resend?: EmailProvider['resend']
+  resend_broadcasts?: EmailProvider['resend_broadcasts']
   senders: Sender[]
   rate_limit_per_minute: number
 }
@@ -58,6 +59,7 @@ export function emailProviderFormValues(kind: EmailProviderKind, integration?: E
         ? ({ ...stored?.mailjet, sandbox_mode: stored?.mailjet?.sandbox_mode ?? false } as EmailProvider['mailjet'])
         : stored?.mailjet,
     sendgrid: stored?.sendgrid,
+    resend_broadcasts: stored?.resend_broadcasts,
     resend:
       kind === 'resend'
         ? ({
@@ -85,6 +87,7 @@ export function providerFromFormValues(values: EmailProviderFormValues): EmailPr
   else if (values.kind === 'mailjet' && values.mailjet) provider.mailjet = values.mailjet
   else if (values.kind === 'sendgrid' && values.sendgrid) provider.sendgrid = values.sendgrid
   else if (values.kind === 'resend' && values.resend) provider.resend = values.resend
+  else if (values.kind === 'resend_broadcasts' && values.resend_broadcasts) provider.resend_broadcasts = values.resend_broadcasts
   return provider
 }
 

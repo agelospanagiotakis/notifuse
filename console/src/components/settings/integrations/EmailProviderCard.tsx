@@ -353,14 +353,16 @@ export function EmailProviderCard({
       actions={
         isOwner ? (
           <>
-            <Button
-              type="primary"
-              ghost
-              icon={<Send size={14} aria-hidden="true" />}
-              onClick={() => onTest(integration.id)}
-            >
-              {t`Send test`}
-            </Button>
+            {provider.kind !== 'resend_broadcasts' ? (
+              <Button
+                type="primary"
+                ghost
+                icon={<Send size={14} aria-hidden="true" />}
+                onClick={() => onTest(integration.id)}
+              >
+                {t`Send test`}
+              </Button>
+            ) : null}
             <Dropdown trigger={['click']} placement="bottomRight" menu={{ items: menuItems }}>
               <Button
                 type="text"
