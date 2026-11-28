@@ -140,6 +140,7 @@ export const emailProviders: ProviderInfo[] = [
       <span
         className={`${size === 'small' ? 'text-[10px]' : 'text-base'} font-bold tracking-tight ${className}`.trim()}
         style={{ color: '#000' }}
+        aria-hidden="true"
       >
         Resend
       </span>
@@ -153,6 +154,7 @@ export const emailProviders: ProviderInfo[] = [
       <span
         className={`${size === 'small' ? 'text-[10px]' : 'text-base'} font-bold tracking-tight ${className}`.trim()}
         style={{ color: '#000' }}
+        aria-hidden="true"
       >
         Resend B
       </span>

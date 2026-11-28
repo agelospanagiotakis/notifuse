@@ -146,7 +146,7 @@ const posted = (path: string) =>
 const openFromCatalogue = async (entry: string) => {
   fireEvent.click((await screen.findAllByRole('button', { name: /Add integration/ }))[0])
   const catalogue = await screen.findByRole('dialog', { name: 'Add integration' })
-  fireEvent.click(within(catalogue).getByRole('button', { name: new RegExp(`^${entry}`) }))
+  fireEvent.click(within(catalogue).getByRole('button', { name: entry === 'Resend' ? /^Resend API key/ : new RegExp(`^${entry}`) }))
   await waitFor(() => expect(document.querySelector('[data-drawer-title]')).not.toBeNull())
 }
 
