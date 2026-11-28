@@ -120,8 +120,7 @@ describe('shipped translation catalogues', () => {
   // Driven off the app's own supported-locale list rather than off whatever happens to be
   // on disk, so a catalogue that goes missing fails here instead of quietly dropping out
   // of the check.
-  // el (Greek) is a fork addition still being translated; see upgrade.md.
-  const translatedLocales = locales.filter((locale) => locale !== SOURCE_LOCALE && locale !== 'el')
+  const translatedLocales = locales.filter((locale) => locale !== SOURCE_LOCALE)
 
   it.each(translatedLocales)('%s translates every message it carries', (locale) => {
     const { translated, untranslated } = readCatalogue(

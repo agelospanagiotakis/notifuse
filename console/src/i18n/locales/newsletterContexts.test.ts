@@ -62,8 +62,7 @@ describe('newsletter contexts in the shipped catalogues', () => {
     expect(find(fr, null, 'Scheduled')).toBe('Programmé')
   })
 
-  // el (Greek) is a fork addition still being translated; see upgrade.md.
-  it.each(locales.filter((locale) => locale !== 'en' && locale !== 'el'))('%s translates every entry of these contexts', (locale) => {
+  it.each(locales.filter((locale) => locale !== 'en'))('%s translates every entry of these contexts', (locale) => {
     const contexts = ['section', 'newsletter status', 'newsletter filter', 'newsletter A/B', 'table column']
     const entries = readEntries(locale).filter((entry) => entry.context && contexts.includes(entry.context))
     expect(entries.length).toBeGreaterThan(0)
